@@ -191,22 +191,27 @@ After each agent session ends, Chief:
 
 The next iteration starts fresh. The agent reads the updated `prd.md`, sees the completed story, and picks the next one. If all stories are done, Chief stops.
 
+## Per-Story Retries
+
+Chief tracks attempts **per story**, not globally. If a story is attempted repeatedly without the agent emitting `<chief-done/>`, Chief eventually parks it instead of retrying forever.
+
+After `DefaultMaxAttemptsPerStory` (5) failed attempts on the same story, Chief:
+
+1. Marks the story `**Status:** needs-review` in `prd.md` (shown with a ⚑ "Needs Review" marker in the TUI)
+2. Moves on to the next unblocked story
+
+This matters because stories are usually independent — one stuck story shouldn't block the other 200. The loop keeps making progress and only ends once **no actionable stories remain** (every story is either done or parked for review). Parked stories are left for a human to inspect: break them down, fix the PRD, or resolve whatever the agent got stuck on, then reset the status.
+
 ## Iteration Limits
 
-Chief has a safety limit on iterations to prevent runaway loops. When `--max-iterations` is not specified, the limit is calculated dynamically based on the number of remaining stories plus a buffer. You can also adjust the limit at runtime with `+`/`-` in the TUI.
+Beyond per-story retries, Chief keeps a global iteration cap purely as a runaway backstop. When `--max-iterations` is not specified, it is calculated dynamically from the remaining stories and their per-story attempt budget, so it normally never fires before the per-story parking logic does. You can still set it explicitly with `--max-iterations`, or adjust it at runtime with `+`/`-` in the TUI.
 
 | Scenario | What Happens |
 |----------|--------------|
 | Story completes normally | Iteration counter goes up by 1, loop continues |
 | Story takes multiple agent sessions | Each agent invocation is 1 iteration |
-| Limit reached | Chief stops and displays a message |
-
-If you hit the limit, it usually means:
-- A story is too complex and needs to be broken down
-- The agent is stuck in a loop (check the agent log)
-- There's an issue with the PRD format
-
-You can adjust the limit with the `--max-iterations` flag or in your configuration.
+| Story fails 5× | Parked as `needs-review`, loop continues with other stories |
+| Global backstop reached | Chief stops and displays a message |
 
 ## Post-Completion Actions
 

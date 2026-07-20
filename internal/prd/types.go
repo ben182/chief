@@ -18,6 +18,7 @@ type UserStory struct {
 	Priority           float64  `json:"priority"`
 	Passes             bool     `json:"passes"`
 	InProgress         bool     `json:"inProgress,omitempty"`
+	NeedsReview        bool     `json:"needsReview,omitempty"` // parked after repeated failures; skipped by NextStory
 }
 
 // PRD represents a Product Requirements Document.
@@ -57,25 +58,39 @@ func (p *PRD) AllComplete() bool {
 //   - First story with inProgress: true (interrupted story), or
 //   - Lowest priority story with passes: false, or
 //   - nil if all stories are complete
+//
+// Stories parked for human review (NeedsReview) are skipped so the loop moves
+// on to other unblocked stories instead of retrying a stuck one forever.
 func (p *PRD) NextStory() *UserStory {
 	// First, check for any in-progress story (interrupted)
 	for i := range p.UserStories {
-		if p.UserStories[i].InProgress {
+		if p.UserStories[i].InProgress && !p.UserStories[i].NeedsReview {
 			return &p.UserStories[i]
 		}
 	}
 
-	// Find the lowest priority story that hasn't passed
+	// Find the lowest priority story that hasn't passed and isn't parked
 	var next *UserStory
 	for i := range p.UserStories {
 		story := &p.UserStories[i]
-		if !story.Passes {
+		if !story.Passes && !story.NeedsReview {
 			if next == nil || story.Priority < next.Priority {
 				next = story
 			}
 		}
 	}
 	return next
+}
+
+// AllResolved returns true when every story is either done (passes) or parked
+// for human review (NeedsReview) — i.e. the loop has no more actionable work.
+func (p *PRD) AllResolved() bool {
+	for _, story := range p.UserStories {
+		if !story.Passes && !story.NeedsReview {
+			return false
+		}
+	}
+	return true
 }
 
 // NextStoryContext returns the next story to work on as a formatted string

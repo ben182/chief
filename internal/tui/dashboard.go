@@ -418,7 +418,7 @@ func (a *App) renderStoriesPanel(width, height int) string {
 	visibleCount := 0
 	for i := a.storiesScrollOffset; i < endIdx; i++ {
 		story := a.prd.UserStories[i]
-		icon := GetStatusIcon(story.Passes, story.InProgress)
+		icon := GetStatusIcon(story.Passes, story.InProgress, story.NeedsReview)
 
 		// Truncate title to fit
 		maxTitleLen := width - 12 // Account for icon, ID, and spacing
@@ -489,12 +489,15 @@ func (a *App) renderDetailsPanel(width, height int) string {
 	content.WriteString("\n\n")
 
 	// Status and Priority with proper styling
-	statusIcon := GetStatusIcon(story.Passes, story.InProgress)
+	statusIcon := GetStatusIcon(story.Passes, story.InProgress, story.NeedsReview)
 	var statusText string
 	var statusStyle lipgloss.Style
 	if story.Passes {
 		statusText = "Passed"
 		statusStyle = statusPassedStyle
+	} else if story.NeedsReview {
+		statusText = "Needs Review"
+		statusStyle = statusPausedStyle
 	} else if story.InProgress {
 		statusText = "In Progress"
 		statusStyle = statusInProgressStyle

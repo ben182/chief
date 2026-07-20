@@ -202,8 +202,9 @@ const (
 	IconPassed     = "✓"
 	IconInProgress = "●"
 	IconPending    = "○"
-	IconFailed     = "✗"
-	IconPaused     = "◐"
+	IconFailed      = "✗"
+	IconPaused      = "◐"
+	IconNeedsReview = "⚑"
 )
 
 // Backward compatibility aliases
@@ -215,9 +216,12 @@ const (
 )
 
 // GetStatusIcon returns the appropriate icon for a story's status.
-func GetStatusIcon(passed, inProgress bool) string {
+func GetStatusIcon(passed, inProgress, needsReview bool) string {
 	if passed {
 		return statusPassedStyle.Render(IconPassed)
+	}
+	if needsReview {
+		return statusPausedStyle.Render(IconNeedsReview)
 	}
 	if inProgress {
 		return statusInProgressStyle.Render(IconInProgress)

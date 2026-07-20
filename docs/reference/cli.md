@@ -65,7 +65,7 @@ chief auth-system -n 50 --verbose
 ```
 
 ::: info Dynamic iteration limit
-When `--max-iterations` is not specified, Chief calculates a dynamic limit based on the number of remaining stories plus a buffer. You can adjust the limit at runtime with `+`/`-` in the TUI.
+This is a global runaway backstop only. Chief primarily limits work **per story** — a story that fails 5 times is parked as `needs-review` and the loop continues with others. When `--max-iterations` is not specified, the global limit is calculated dynamically from the remaining stories and their per-story attempt budget, so it rarely fires first. You can adjust it at runtime with `+`/`-` in the TUI.
 :::
 
 ::: tip

@@ -179,6 +179,45 @@ func TestPRD_NextStory_SkipsCompleted(t *testing.T) {
 	}
 }
 
+func TestPRD_NextStory_SkipsNeedsReview(t *testing.T) {
+	p := &PRD{
+		Project: "Test",
+		UserStories: []UserStory{
+			{ID: "US-001", Priority: 1, Passes: false, NeedsReview: true},
+			{ID: "US-002", Priority: 2, Passes: false},
+		},
+	}
+
+	next := p.NextStory()
+	if next == nil {
+		t.Fatal("expected non-nil story")
+	}
+	if next.ID != "US-002" {
+		t.Errorf("expected parked US-001 to be skipped, got %s", next.ID)
+	}
+}
+
+func TestPRD_AllResolved(t *testing.T) {
+	resolved := &PRD{UserStories: []UserStory{
+		{ID: "US-001", Passes: true},
+		{ID: "US-002", NeedsReview: true},
+	}}
+	if !resolved.AllResolved() {
+		t.Error("expected AllResolved true when every story is done or parked")
+	}
+	if resolved.AllComplete() {
+		t.Error("expected AllComplete false while a story is only parked, not passed")
+	}
+
+	unresolved := &PRD{UserStories: []UserStory{
+		{ID: "US-001", Passes: true},
+		{ID: "US-002", Passes: false},
+	}}
+	if unresolved.AllResolved() {
+		t.Error("expected AllResolved false while a story is still actionable")
+	}
+}
+
 func TestPRD_NextStory_InterruptedTakesPrecedence(t *testing.T) {
 	p := &PRD{
 		Project: "Test",

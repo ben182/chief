@@ -320,9 +320,11 @@ func (m *Manager) runLoop(instance *LoopInstance) {
 	} else if instance.Loop.IsStopped() {
 		instance.State = LoopStateStopped
 	} else {
-		// Check if PRD is complete
+		// Check if PRD is complete. AllResolved treats stories parked for human
+		// review as terminal, so a run that parked its last stuck story ends as
+		// Complete rather than being misreported as Paused.
 		p, loadErr := prd.LoadPRD(instance.PRDPath)
-		if loadErr == nil && p.AllComplete() {
+		if loadErr == nil && p.AllResolved() {
 			instance.State = LoopStateComplete
 		} else if instance.State == LoopStateRunning {
 			// Loop ended but not explicitly stopped/paused/completed

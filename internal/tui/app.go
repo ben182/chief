@@ -255,15 +255,17 @@ func NewAppWithOptions(prdPath string, maxIter int, provider loop.Provider) (*Ap
 		return nil, err
 	}
 
-	// Calculate dynamic default if maxIter <= 0
+	// Calculate dynamic default if maxIter <= 0. Each story may be attempted up
+	// to DefaultMaxAttemptsPerStory times before being parked, so the global cap
+	// is only a runaway backstop and must sit above that per-story budget.
 	if maxIter <= 0 {
 		remaining := 0
 		for _, story := range p.UserStories {
-			if !story.Passes {
+			if !story.Passes && !story.NeedsReview {
 				remaining++
 			}
 		}
-		maxIter = remaining + 5
+		maxIter = remaining*loop.DefaultMaxAttemptsPerStory + 5
 		if maxIter < 5 {
 			maxIter = 5
 		}
@@ -978,6 +980,11 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 			// Finalize story timing
 			a.finalizeStoryTiming()
 		}
+	case loop.EventStoryNeedsReview:
+		if isCurrentPRD {
+			a.lastActivity = event.Text
+			a.finalizeStoryTiming()
+		}
 	case loop.EventComplete:
 		if isCurrentPRD {
 			a.state = StateComplete
@@ -1019,7 +1026,7 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 	// Reload PRD from disk only on meaningful state changes (not every event)
 	if isCurrentPRD {
 		switch event.Type {
-		case loop.EventStoryDone, loop.EventComplete, loop.EventError, loop.EventMaxIterationsReached:
+		case loop.EventStoryDone, loop.EventStoryNeedsReview, loop.EventComplete, loop.EventError, loop.EventMaxIterationsReached:
 			if p, err := prd.LoadPRD(a.prdPath); err == nil {
 				a.prd = p
 			}
@@ -2068,14 +2075,17 @@ func (a App) switchToPRD(name, prdPath string) (tea.Model, tea.Cmd) {
 	if instance := a.manager.GetInstance(name); instance == nil || instance.State != loop.LoopStateRunning {
 		remaining := 0
 		for _, story := range newPRD.UserStories {
-			if !story.Passes {
+			if !story.Passes && !story.NeedsReview {
 				remaining++
 			}
 		}
-		a.maxIter = remaining + 5
+		a.maxIter = remaining*loop.DefaultMaxAttemptsPerStory + 5
 		if a.maxIter < 5 {
 			a.maxIter = 5
 		}
+		// Propagate to the manager so a loop started for THIS PRD uses this PRD's
+		// budget, not the budget computed for whichever PRD was loaded first.
+		a.manager.SetMaxIterations(a.maxIter)
 	}
 
 	// Update app state

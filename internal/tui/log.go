@@ -78,7 +78,7 @@ func (l *LogViewer) AddEvent(event loop.Event) {
 	// Filter out events we don't want to display
 	switch event.Type {
 	case loop.EventAssistantText, loop.EventToolStart, loop.EventToolResult,
-		loop.EventStoryDone, loop.EventComplete, loop.EventError, loop.EventRetrying,
+		loop.EventStoryDone, loop.EventStoryNeedsReview, loop.EventComplete, loop.EventError, loop.EventRetrying,
 		loop.EventWatchdogTimeout:
 		// Pre-render and cache lines
 		if l.width > 0 {

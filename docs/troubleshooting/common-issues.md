@@ -127,11 +127,26 @@ tail -100 .chief/prds/your-prd/claude.log
    # Press 's' to start the loop
    ```
 
+## Story Parked for Review
+
+**Symptom:** A story is marked `needs-review` (⚑) and Chief moved on to other stories.
+
+**Cause:** The agent attempted the story 5 times without signalling `<chief-done/>`. Chief parks it so one stuck story doesn't block the rest.
+
+**Solution:**
+
+1. Check the agent log (`claude.log`, `codex.log`, `opencode.log`, or `cursor.log`) to see why it got stuck.
+2. Fix the root cause:
+   - Story too complex? Split it into smaller stories
+   - Unclear acceptance criteria? Clarify them
+   - Blocked by another story? Reorder priorities
+3. Reset the story's `**Status:**` in `prd.md` (e.g. remove it or set `pending`) and run Chief again.
+
 ## Max Iterations Reached
 
 **Symptom:** Chief stops with "max iterations reached" message.
 
-**Cause:** The agent hasn't completed after the iteration limit.
+**Cause:** The global backstop fired. With per-story retries this is rare — it usually means a lot of stories are each churning without completing.
 
 **Solution:**
 

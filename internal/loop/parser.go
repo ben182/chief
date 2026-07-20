@@ -23,6 +23,9 @@ const (
 	EventStoryDone
 	// EventComplete is emitted when all stories are complete (buildPrompt returns error).
 	EventComplete
+	// EventStoryNeedsReview is emitted when a story is parked for human review
+	// after failing to complete within the per-story attempt limit.
+	EventStoryNeedsReview
 	// EventMaxIterationsReached is emitted when max iterations are reached.
 	EventMaxIterationsReached
 	// EventError is emitted when an error occurs.
@@ -48,6 +51,8 @@ func (e EventType) String() string {
 		return "StoryDone"
 	case EventComplete:
 		return "Complete"
+	case EventStoryNeedsReview:
+		return "StoryNeedsReview"
 	case EventMaxIterationsReached:
 		return "MaxIterationsReached"
 	case EventError:

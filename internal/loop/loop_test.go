@@ -422,6 +422,74 @@ func TestLoop_StoryDoneEndsIterationWithoutWatchdog(t *testing.T) {
 	}
 }
 
+// TestLoop_ParksStoryAfterMaxAttempts verifies that a story which never
+// completes is parked for human review after maxAttempts, the loop moves on to
+// the next story, and the run ends cleanly once nothing actionable remains.
+func TestLoop_ParksStoryAfterMaxAttempts(t *testing.T) {
+	dir := t.TempDir()
+
+	// Two incomplete stories.
+	md := "# Test Project\n\nDesc\n\n### US-001: Story One\n- [ ] works\n\n### US-002: Story Two\n- [ ] works\n"
+	prdPath := filepath.Join(dir, "prd.md")
+	if err := os.WriteFile(prdPath, []byte(md), 0644); err != nil {
+		t.Fatalf("write prd: %v", err)
+	}
+
+	// Mock agent: produces output but never emits <chief-done/>, so every
+	// iteration is a failed attempt.
+	scriptPath := filepath.Join(dir, "mock-claude")
+	script := "#!/bin/bash\n" +
+		`echo '{"type":"assistant","message":{"content":[{"type":"text","text":"trying"}]}}'` + "\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	l := NewLoopWithWorkDir(prdPath, dir, "", 50, &mockProvider{cliPath: scriptPath})
+	l.buildPrompt = promptBuilderForPRD(prdPath)
+	l.SetMaxAttemptsPerStory(2)
+	l.DisableRetry()
+
+	var parked []string
+	var sawComplete bool
+	done := make(chan bool)
+	go func() {
+		for e := range l.Events() {
+			switch e.Type {
+			case EventStoryNeedsReview:
+				parked = append(parked, e.StoryID)
+			case EventComplete:
+				sawComplete = true
+			}
+		}
+		done <- true
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := l.Run(ctx); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	<-done
+
+	if !sawComplete {
+		t.Error("expected EventComplete once no actionable stories remain")
+	}
+	if len(parked) != 2 {
+		t.Fatalf("expected both stories parked, got %v", parked)
+	}
+
+	// Both stories should be marked needs-review on disk.
+	p, err := prd.LoadPRD(prdPath)
+	if err != nil {
+		t.Fatalf("reload prd: %v", err)
+	}
+	for _, s := range p.UserStories {
+		if !s.NeedsReview {
+			t.Errorf("expected %s to be parked for review, got %+v", s.ID, s)
+		}
+	}
+}
+
 // TestLoop_SetMaxIterations tests setting max iterations at runtime.
 func TestLoop_SetMaxIterations(t *testing.T) {
 	l := NewLoop("/test/prd.json", "test", 5, testProvider)

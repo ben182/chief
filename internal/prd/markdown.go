@@ -117,12 +117,19 @@ func ParseMarkdownPRDFromString(content string) (*PRD, error) {
 				case "done", "complete", "completed", "passed":
 					current.story.Passes = true
 					current.story.InProgress = false
+					current.story.NeedsReview = false
 				case "in-progress", "in progress", "started":
 					current.story.InProgress = true
 					current.story.Passes = false
+					current.story.NeedsReview = false
+				case "needs-review", "needs review", "blocked":
+					current.story.NeedsReview = true
+					current.story.Passes = false
+					current.story.InProgress = false
 				default:
 					current.story.Passes = false
 					current.story.InProgress = false
+					current.story.NeedsReview = false
 				}
 				continue
 			}

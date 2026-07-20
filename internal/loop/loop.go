@@ -31,6 +31,10 @@ type RetryConfig struct {
 // DefaultWatchdogTimeout is the default duration of silence before the watchdog kills a hung process.
 const DefaultWatchdogTimeout = 5 * time.Minute
 
+// DefaultMaxAttemptsPerStory is how many times a single story may be attempted
+// before it is parked for human review and the loop moves on to other stories.
+const DefaultMaxAttemptsPerStory = 5
+
 // DefaultRetryConfig returns the default retry configuration.
 func DefaultRetryConfig() RetryConfig {
 	return RetryConfig{
@@ -60,7 +64,9 @@ type Loop struct {
 	watchdogTimeout time.Duration
 	sawStoryDone    bool
 	currentStoryID  string
-	stderrTail      []string // last few stderr lines from the current iteration, for crash diagnostics
+	stderrTail      []string       // last few stderr lines from the current iteration, for crash diagnostics
+	attempts        map[string]int // per-story attempt count, keyed by story ID
+	maxAttempts     int            // attempts allowed per story before parking it for review
 }
 
 // maxStderrTail is how many trailing stderr lines are kept to surface on a crash.
@@ -76,6 +82,8 @@ func NewLoop(prdPath, prompt string, maxIter int, provider Provider) *Loop {
 		events:          make(chan Event, 100),
 		retryConfig:     DefaultRetryConfig(),
 		watchdogTimeout: DefaultWatchdogTimeout,
+		attempts:        make(map[string]int),
+		maxAttempts:     DefaultMaxAttemptsPerStory,
 	}
 }
 
@@ -91,6 +99,8 @@ func NewLoopWithWorkDir(prdPath, workDir string, prompt string, maxIter int, pro
 		events:          make(chan Event, 100),
 		retryConfig:     DefaultRetryConfig(),
 		watchdogTimeout: DefaultWatchdogTimeout,
+		attempts:        make(map[string]int),
+		maxAttempts:     DefaultMaxAttemptsPerStory,
 	}
 }
 
@@ -222,7 +232,10 @@ func (l *Loop) Run(ctx context.Context) error {
 		default:
 		}
 
-		// If the agent emitted <chief-done/>, mark the story as done in prd.md
+		// If the agent emitted <chief-done/>, mark the story as done in prd.md.
+		// Otherwise the story did not complete this iteration: count the attempt
+		// and, once the per-story limit is hit, park it for human review so the
+		// loop can move on to other unblocked stories instead of retrying forever.
 		l.mu.Lock()
 		saw := l.sawStoryDone
 		storyID := l.currentStoryID
@@ -230,9 +243,24 @@ func (l *Loop) Run(ctx context.Context) error {
 		l.mu.Unlock()
 		if saw && storyID != "" {
 			_ = prd.SetStoryStatus(l.prdPath, storyID, "done")
+		} else if storyID != "" {
+			l.mu.Lock()
+			l.attempts[storyID]++
+			attempts := l.attempts[storyID]
+			maxAttempts := l.maxAttempts
+			l.mu.Unlock()
+			if maxAttempts > 0 && attempts >= maxAttempts {
+				_ = prd.SetStoryStatus(l.prdPath, storyID, "needs-review")
+				l.events <- Event{
+					Type:      EventStoryNeedsReview,
+					Iteration: currentIter,
+					StoryID:   storyID,
+					Text:      fmt.Sprintf("Story %s failed %d times, parked for human review", storyID, attempts),
+				}
+			}
 		}
-		// buildPrompt on the next iteration will return error if all stories are complete,
-		// which causes EventComplete to be emitted above.
+		// buildPrompt on the next iteration will return error when no actionable
+		// stories remain, which causes EventComplete to be emitted above.
 
 		// Check pause flag after iteration (loop stops after current iteration completes)
 		l.mu.Lock()
@@ -603,6 +631,15 @@ func (l *Loop) MaxIterations() int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.maxIter
+}
+
+// SetMaxAttemptsPerStory sets how many times a story is attempted before it is
+// parked for human review. A value <= 0 disables parking (stories retry until
+// the global max-iterations backstop fires).
+func (l *Loop) SetMaxAttemptsPerStory(n int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.maxAttempts = n
 }
 
 // SetRetryConfig updates the retry configuration.
