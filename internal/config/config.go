@@ -32,11 +32,16 @@ type WorktreeConfig struct {
 type OnCompleteConfig struct {
 	Push     bool `yaml:"push"`
 	CreatePR bool `yaml:"createPR"`
+	Notify   bool `yaml:"notify"`
 }
 
-// Default returns a Config with zero-value defaults.
+// Default returns a Config with default values. Notify defaults to true so a
+// walk-away run pings the user when it finishes; yaml.Unmarshal only overrides
+// keys that are present, so an explicit `notify: false` still disables it.
 func Default() *Config {
-	return &Config{}
+	return &Config{
+		OnComplete: OnCompleteConfig{Notify: true},
+	}
 }
 
 // configPath returns the full path to the config file.

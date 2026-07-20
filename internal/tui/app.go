@@ -12,6 +12,7 @@ import (
 	"github.com/minicodemonkey/chief/internal/config"
 	"github.com/minicodemonkey/chief/internal/git"
 	"github.com/minicodemonkey/chief/internal/loop"
+	"github.com/minicodemonkey/chief/internal/notify"
 	"github.com/minicodemonkey/chief/internal/prd"
 )
 
@@ -1022,6 +1023,14 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 		if a.onCompletion != nil {
 			a.onCompletion(prdName)
 		}
+		// Ping the user's desktop — they may have walked away from a long run.
+		if a.config == nil || a.config.OnComplete.Notify {
+			body := fmt.Sprintf("%s — all stories complete", formatPRDTitle(prdName))
+			if a.totalCost > 0 {
+				body += fmt.Sprintf(" (%s)", formatCost(a.totalCost))
+			}
+			notify.Send("Chief", body)
+		}
 	case loop.EventMaxIterationsReached:
 		if isCurrentPRD {
 			a.state = StatePaused
@@ -1333,7 +1342,7 @@ func (a *App) showCompletionScreen(prdName string) tea.Cmd {
 	hasAutoActions := a.config != nil && (a.config.OnComplete.Push || a.config.OnComplete.CreatePR)
 
 	totalDuration := a.GetElapsedTime()
-	a.completionScreen.Configure(prdName, completed, total, branch, commitCount, hasAutoActions, totalDuration, a.storyTimings)
+	a.completionScreen.Configure(prdName, completed, total, branch, commitCount, hasAutoActions, totalDuration, a.storyTimings, a.totalCost)
 	a.completionScreen.SetSize(a.width, a.height)
 	a.viewMode = ViewCompletion
 

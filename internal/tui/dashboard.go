@@ -177,11 +177,20 @@ func (a *App) renderHeader() string {
 		etaStr = SubtitleStyle.Render(fmt.Sprintf("ETA: ~%s", formatDuration(eta)))
 	}
 
+	// Running cost (Claude only; zero for providers that don't report cost)
+	costStr := ""
+	if a.totalCost > 0 {
+		costStr = SubtitleStyle.Render(formatCost(a.totalCost))
+	}
+
 	// Combine elements
 	leftPart := lipgloss.JoinHorizontal(lipgloss.Center, brand, "  ", state)
 	rightPart := lipgloss.JoinHorizontal(lipgloss.Center, iteration, "  ", elapsedStr)
 	if etaStr != "" {
 		rightPart = lipgloss.JoinHorizontal(lipgloss.Center, rightPart, "  ", etaStr)
+	}
+	if costStr != "" {
+		rightPart = lipgloss.JoinHorizontal(lipgloss.Center, rightPart, "  ", costStr)
 	}
 
 	// Create the full header line with proper spacing
@@ -712,6 +721,15 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%dm%02ds", m, s)
 	}
 	return fmt.Sprintf("%ds", s)
+}
+
+// formatCost formats a USD cost. Small amounts get an extra decimal so
+// sub-10-cent stories don't round away to "$0.00".
+func formatCost(c float64) string {
+	if c >= 0.10 {
+		return fmt.Sprintf("$%.2f", c)
+	}
+	return fmt.Sprintf("$%.3f", c)
 }
 
 // wrapText wraps text to fit within a given width.

@@ -20,8 +20,8 @@ func TestSettingsOverlay_LoadFromConfig(t *testing.T) {
 	}
 	s.LoadFromConfig(cfg)
 
-	if len(s.items) != 3 {
-		t.Fatalf("expected 3 items, got %d", len(s.items))
+	if len(s.items) != 4 {
+		t.Fatalf("expected 4 items, got %d", len(s.items))
 	}
 	if s.items[0].Key != "worktree.setup" || s.items[0].StringVal != "npm install" {
 		t.Errorf("worktree.setup item: got key=%s val=%s", s.items[0].Key, s.items[0].StringVal)
@@ -79,15 +79,20 @@ func TestSettingsOverlay_Navigation(t *testing.T) {
 		t.Errorf("expected index=2 after second MoveDown, got %d", s.selectedIndex)
 	}
 
+	s.MoveDown()
+	if s.selectedIndex != 3 {
+		t.Errorf("expected index=3 after third MoveDown, got %d", s.selectedIndex)
+	}
+
 	// Can't go beyond last item
 	s.MoveDown()
-	if s.selectedIndex != 2 {
-		t.Errorf("expected index=2 (clamped), got %d", s.selectedIndex)
+	if s.selectedIndex != 3 {
+		t.Errorf("expected index=3 (clamped), got %d", s.selectedIndex)
 	}
 
 	s.MoveUp()
-	if s.selectedIndex != 1 {
-		t.Errorf("expected index=1 after MoveUp, got %d", s.selectedIndex)
+	if s.selectedIndex != 2 {
+		t.Errorf("expected index=2 after MoveUp, got %d", s.selectedIndex)
 	}
 
 	// Can't go before first item

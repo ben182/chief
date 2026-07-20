@@ -41,6 +41,7 @@ type CompletionScreen struct {
 	// Duration data
 	totalDuration time.Duration
 	storyTimings  []StoryTiming
+	totalCost     float64 // cumulative cost across the run (0 when unavailable)
 
 	// Confetti animation
 	confetti *Confetti
@@ -61,7 +62,7 @@ func NewCompletionScreen() *CompletionScreen {
 }
 
 // Configure sets up the completion screen with PRD completion data.
-func (c *CompletionScreen) Configure(prdName string, completed, total int, branch string, commitCount int, hasAutoActions bool, totalDuration time.Duration, storyTimings []StoryTiming) {
+func (c *CompletionScreen) Configure(prdName string, completed, total int, branch string, commitCount int, hasAutoActions bool, totalDuration time.Duration, storyTimings []StoryTiming, totalCost float64) {
 	c.prdName = prdName
 	c.completed = completed
 	c.total = total
@@ -70,6 +71,7 @@ func (c *CompletionScreen) Configure(prdName string, completed, total int, branc
 	c.hasAutoActions = hasAutoActions
 	c.totalDuration = totalDuration
 	c.storyTimings = storyTimings
+	c.totalCost = totalCost
 	// Reset auto-action state
 	c.pushState = AutoActionIdle
 	c.pushError = ""
@@ -200,7 +202,11 @@ func (c *CompletionScreen) Render() string {
 	if c.totalDuration > 0 {
 		content.WriteString("\n")
 		durationStyle := lipgloss.NewStyle().Foreground(SuccessColor)
-		content.WriteString(durationStyle.Render(fmt.Sprintf("Completed in %s", formatDuration(c.totalDuration))))
+		line := fmt.Sprintf("Completed in %s", formatDuration(c.totalDuration))
+		if c.totalCost > 0 {
+			line += fmt.Sprintf("  •  %s", formatCost(c.totalCost))
+		}
+		content.WriteString(durationStyle.Render(line))
 		content.WriteString("\n")
 	}
 
@@ -331,18 +337,30 @@ func (c *CompletionScreen) renderStoryTimings(innerWidth int) string {
 	durStyle := lipgloss.NewStyle().Foreground(TextColor)
 	barStyle := lipgloss.NewStyle().Foreground(SuccessColor)
 
-	// Find max duration for proportional bars
+	costStyle := lipgloss.NewStyle().Foreground(MutedColor)
+
+	// Find max duration for proportional bars; detect whether cost data exists.
 	var maxDur time.Duration
+	hasCost := false
 	for _, st := range c.storyTimings {
 		if st.Duration > maxDur {
 			maxDur = st.Duration
 		}
+		if st.Cost > 0 {
+			hasCost = true
+		}
+	}
+
+	// Cost column is only reserved when at least one story has cost (Claude only).
+	costW := 0
+	if hasCost {
+		costW = 9 // " $12.3456" style, generous
 	}
 
 	maxBarWidth := 10
-	// Layout: "✓ " + title + " " + dots + " " + duration + "  " + bar
-	// Reserve: 2 (check+space) + 1 (space before dots) + 1 (space after dots) + 8 (duration) + 2 (gap) + bar
-	fixedWidth := 2 + 1 + 1 + 8 + 2 + maxBarWidth
+	// Layout: "✓ " + title + " " + dots + " " + duration + [cost] + "  " + bar
+	// Reserve: 2 (check+space) + 1 (space before dots) + 1 (space after dots) + 8 (duration) + costW + 2 (gap) + bar
+	fixedWidth := 2 + 1 + 1 + 8 + costW + 2 + maxBarWidth
 	maxTitleWidth := innerWidth - fixedWidth
 	if maxTitleWidth < 10 {
 		maxTitleWidth = 10
@@ -376,7 +394,7 @@ func (c *CompletionScreen) renderStoryTimings(innerWidth int) string {
 		}
 
 		// Dot leaders
-		dotCount := innerWidth - 2 - titleLen - 1 - len(durStr) - 2 - maxBarWidth - 1
+		dotCount := innerWidth - 2 - titleLen - 1 - len(durStr) - costW - 2 - maxBarWidth - 1
 		if dotCount < 2 {
 			dotCount = 2
 		}
@@ -399,6 +417,14 @@ func (c *CompletionScreen) renderStoryTimings(innerWidth int) string {
 		b.WriteString(dotStyle.Render(dots))
 		b.WriteString(" ")
 		b.WriteString(durStyle.Render(durStr))
+		if costW > 0 {
+			costStr := ""
+			if st.Cost > 0 {
+				costStr = formatCost(st.Cost)
+			}
+			// Right-align cost within the reserved column.
+			b.WriteString(costStyle.Render(fmt.Sprintf("%*s", costW, costStr)))
+		}
 		b.WriteString("  ")
 		b.WriteString(barStyle.Render(bar))
 		b.WriteString("\n")
