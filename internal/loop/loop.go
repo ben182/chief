@@ -111,14 +111,16 @@ func NewLoopWithWorkDir(prdPath, workDir string, prompt string, maxIter int, pro
 // The prompt is rebuilt on each iteration to inline the current story context.
 func NewLoopWithEmbeddedPrompt(prdPath string, maxIter int, provider Provider) *Loop {
 	l := NewLoop(prdPath, "", maxIter, provider)
-	l.buildPrompt = promptBuilderForPRD(prdPath)
+	l.buildPrompt = promptBuilderForPRD(prdPath, "")
 	return l
 }
 
 // promptBuilderForPRD returns a function that loads the PRD and builds a prompt
 // with the next story inlined. This is called before each iteration so that
 // newly completed stories are skipped. The returned storyID is stored on the Loop.
-func promptBuilderForPRD(prdPath string) func() (string, string, string, error) {
+// reviewSkill is the optional project-specific code-quality skill injected into
+// each prompt (empty disables the review step).
+func promptBuilderForPRD(prdPath, reviewSkill string) func() (string, string, string, error) {
 	return func() (string, string, string, error) {
 		p, err := prd.LoadPRD(prdPath)
 		if err != nil {
@@ -135,7 +137,7 @@ func promptBuilderForPRD(prdPath string) func() (string, string, string, error) 
 
 		storyCtx := p.NextStoryContext()
 
-		prompt := embed.GetPrompt(prd.ProgressPath(prdPath), *storyCtx, story.ID, story.Title)
+		prompt := embed.GetPrompt(prd.ProgressPath(prdPath), *storyCtx, story.ID, story.Title, reviewSkill)
 		return prompt, story.ID, story.Title, nil
 	}
 }

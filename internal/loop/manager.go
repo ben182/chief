@@ -237,8 +237,12 @@ func (m *Manager) Start(name string) error {
 		m.mu.RUnlock()
 	}
 	instance.Loop = NewLoopWithWorkDir(instance.PRDPath, workDir, "", m.maxIter, m.provider)
-	instance.Loop.buildPrompt = promptBuilderForPRD(instance.PRDPath)
 	m.mu.RLock()
+	var reviewSkill string
+	if m.config != nil {
+		reviewSkill = m.config.Review.Skill
+	}
+	instance.Loop.buildPrompt = promptBuilderForPRD(instance.PRDPath, reviewSkill)
 	instance.Loop.SetRetryConfig(m.retryConfig)
 	if m.config != nil && m.config.Loop.WatchdogTimeoutSeconds > 0 {
 		instance.Loop.SetWatchdogTimeout(time.Duration(m.config.Loop.WatchdogTimeoutSeconds) * time.Second)

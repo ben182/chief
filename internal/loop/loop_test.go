@@ -445,7 +445,7 @@ func TestLoop_ParksStoryAfterMaxAttempts(t *testing.T) {
 	}
 
 	l := NewLoopWithWorkDir(prdPath, dir, "", 50, &mockProvider{cliPath: scriptPath})
-	l.buildPrompt = promptBuilderForPRD(prdPath)
+	l.buildPrompt = promptBuilderForPRD(prdPath, "")
 	l.SetMaxAttemptsPerStory(2)
 	l.DisableRetry()
 
@@ -869,7 +869,7 @@ func TestLoop_DoneWithoutCommitIsNotTrusted(t *testing.T) {
 	}
 
 	l := NewLoopWithWorkDir(prdPath, dir, "", 20, &mockProvider{cliPath: scriptPath})
-	l.buildPrompt = promptBuilderForPRD(prdPath)
+	l.buildPrompt = promptBuilderForPRD(prdPath, "")
 	l.SetMaxAttemptsPerStory(1)
 	l.DisableRetry()
 

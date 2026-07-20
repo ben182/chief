@@ -9,6 +9,7 @@ All notable changes to Chief are documented in this file.
 - **Desktop notification on completion** — when a run finishes, Chief pings the desktop (macOS `osascript`, Linux `notify-send`) so you don't have to babysit long loops. On by default; toggle via settings (`,`) or `onComplete.notify: false` in `.chief/config.yaml`
 - **Per-story cost** — the dashboard shows a running USD total and the completion screen breaks cost down per story (Claude only; other providers don't report cost). Parsed from the agent's `result` event
 - **Configurable watchdog timeout** — `loop.watchdogTimeoutSeconds` in `.chief/config.yaml` overrides the 5-minute default, so agents running long, silent builds or test suites no longer get killed as hung (`0` keeps the default)
+- **Per-project code-quality review** — `review.skill` in `.chief/config.yaml` (e.g. `/code-quality`) makes the agent run a project-specific skill at the end of each iteration to review its changes against your standards, fix anything flagged, and only then commit. Because a story counts as done only once a matching commit lands, a review that blocks the commit automatically causes a retry. Empty by default (no review step)
 
 ### Bug Fixes
 - The agent and its whole subprocess tree are now killed together (the agent runs in its own process group). Previously only the direct child was killed, orphaning the tool and MCP subprocesses it spawned, which piled up across iterations

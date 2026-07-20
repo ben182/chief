@@ -15,6 +15,17 @@ type Config struct {
 	OnComplete OnCompleteConfig `yaml:"onComplete"`
 	Agent      AgentConfig      `yaml:"agent"`
 	Loop       LoopConfig       `yaml:"loop"`
+	Review     ReviewConfig     `yaml:"review"`
+}
+
+// ReviewConfig holds the per-project code-quality review step that the agent
+// runs at the end of each iteration, before committing.
+type ReviewConfig struct {
+	// Skill is the name of a skill the agent must run to review the changes it
+	// made for the current story (e.g. "/code-quality"). When set, chief injects
+	// an instruction into every iteration prompt telling the agent to run the
+	// skill, fix anything it flags, and only then commit. Empty disables it.
+	Skill string `yaml:"skill"`
 }
 
 // LoopConfig holds agent-loop tuning knobs.

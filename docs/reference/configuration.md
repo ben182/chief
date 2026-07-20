@@ -24,6 +24,8 @@ onComplete:
   createPR: true
 loop:
   watchdogTimeoutSeconds: 300   # kill a silent agent after N seconds; 0 = default (5 min)
+review:
+  skill: "/code-quality"        # skill the agent runs to review changes before committing; "" = off
 ```
 
 ### Config Keys
@@ -37,6 +39,7 @@ loop:
 | `onComplete.push` | bool | `false` | Automatically push the branch to remote when a PRD completes. Only runs if the branch has at least one commit. |
 | `onComplete.createPR` | bool | `false` | Automatically create a pull request when a PRD completes (requires `gh` CLI). Only runs after a successful push, so a run with no commits creates no PR. |
 | `loop.watchdogTimeoutSeconds` | int | `0` | Seconds of agent silence (no output) before the watchdog kills the hung process. `0` uses the built-in default of 5 minutes. Raise it when the agent runs long, silent builds or test suites that would otherwise trip the watchdog. |
+| `review.skill` | string | `""` | Name of a skill (e.g. `/code-quality`) the agent must run at the end of each iteration to review its changes against your standards, fix anything flagged, and only then commit. Empty disables the review step. Because Chief treats a story as done only once a matching commit lands, a review that blocks the commit automatically causes the story to be retried. |
 
 ### Example Configurations
 
