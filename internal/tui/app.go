@@ -666,6 +666,24 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 
+		// Left/right arrows cycle through PRDs (works past 9, unlike number keys)
+		case "left", "right":
+			if a.viewMode == ViewDashboard || a.viewMode == ViewLog || a.viewMode == ViewDiff {
+				count := a.tabBar.Count()
+				if count > 1 {
+					index := a.tabBar.ActiveIndex()
+					if msg.String() == "right" {
+						index = (index + 1) % count
+					} else {
+						index = (index - 1 + count) % count
+					}
+					if entry := a.tabBar.GetEntry(index); entry != nil {
+						return a.switchToPRD(entry.Name, entry.Path)
+					}
+				}
+			}
+			return a, nil
+
 		// Loop controls (work in both views)
 		case "s":
 			if a.state == StateReady || a.state == StatePaused || a.state == StateError || a.state == StateStopped {

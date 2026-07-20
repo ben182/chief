@@ -147,6 +147,11 @@ func (t *TabBar) Count() int {
 	return len(t.entries)
 }
 
+// ActiveIndex returns the 0-based index of the active tab.
+func (t *TabBar) ActiveIndex() int {
+	return t.activeIndex
+}
+
 // SetSize sets the available width for the tab bar.
 func (t *TabBar) SetSize(width int) {
 	t.width = width
