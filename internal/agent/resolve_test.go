@@ -191,6 +191,62 @@ func TestResolve_unknownProvider(t *testing.T) {
 	}
 }
 
+func TestResolve_modelPriority(t *testing.T) {
+	const keyModel = "CHIEF_MODEL"
+	saveModel := os.Getenv(keyModel)
+	defer func() {
+		if saveModel != "" {
+			os.Setenv(keyModel, saveModel)
+		} else {
+			os.Unsetenv(keyModel)
+		}
+	}()
+	os.Unsetenv(keyModel)
+
+	claudeModel := func(t *testing.T, flagModel string, cfg *config.Config) string {
+		t.Helper()
+		p, err := Resolve("", "", cfg, flagModel)
+		if err != nil {
+			t.Fatalf("Resolve unexpected error: %v", err)
+		}
+		cp, ok := p.(*ClaudeProvider)
+		if !ok {
+			t.Fatalf("Resolve returned %T, want *ClaudeProvider", p)
+		}
+		return cp.model
+	}
+
+	cfg := &config.Config{}
+	cfg.Agent.Model = "config-model"
+
+	// No flag, no env, no config -> empty
+	if m := claudeModel(t, "", nil); m != "" {
+		t.Errorf("no source: model = %q, want empty", m)
+	}
+
+	// Config only
+	if m := claudeModel(t, "", cfg); m != "config-model" {
+		t.Errorf("config only: model = %q, want config-model", m)
+	}
+
+	// Env overrides config
+	os.Setenv(keyModel, "env-model")
+	if m := claudeModel(t, "", cfg); m != "env-model" {
+		t.Errorf("env over config: model = %q, want env-model", m)
+	}
+
+	// Flag overrides env and config
+	if m := claudeModel(t, "flag-model", cfg); m != "flag-model" {
+		t.Errorf("flag over env/config: model = %q, want flag-model", m)
+	}
+	os.Unsetenv(keyModel)
+
+	// Whitespace trimmed
+	if m := claudeModel(t, "  spaced-model  ", nil); m != "spaced-model" {
+		t.Errorf("flag trim: model = %q, want spaced-model", m)
+	}
+}
+
 func TestCheckInstalled_notFound(t *testing.T) {
 	// Use a path that does not exist
 	p := NewCodexProvider("/nonexistent/codex-binary-that-does-not-exist")
