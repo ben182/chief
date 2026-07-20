@@ -383,6 +383,14 @@ func (l *Loop) runIteration(ctx context.Context) error {
 		if stopped {
 			return nil
 		}
+		// Check if we killed the process ourselves after <chief-done/>.
+		// That's a graceful end of the iteration, not a crash, so don't retry.
+		l.mu.Lock()
+		saw := l.sawStoryDone
+		l.mu.Unlock()
+		if saw {
+			return nil
+		}
 		// Check if the watchdog killed the process
 		if watchdogFired.Load() {
 			return fmt.Errorf("watchdog timeout: no output for %s", watchdogTimeout)
@@ -474,6 +482,13 @@ func (l *Loop) processOutput(r io.Reader) {
 			event.Iteration = l.iteration
 			if event.Type == EventStoryDone {
 				l.sawStoryDone = true
+				// Claude doesn't always exit after <chief-done/>, which leaves the
+				// scanner blocked until the watchdog kills it. Terminate the process
+				// now so the iteration ends immediately. runIteration treats a Wait
+				// error as success when sawStoryDone is set, so this is not a crash.
+				if l.agentCmd != nil && l.agentCmd.Process != nil {
+					l.agentCmd.Process.Kill()
+				}
 			}
 			l.mu.Unlock()
 			l.events <- *event

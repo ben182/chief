@@ -378,6 +378,50 @@ func TestLoop_ChiefDoneEvent(t *testing.T) {
 	l.mu.Unlock()
 }
 
+// TestLoop_StoryDoneEndsIterationWithoutWatchdog tests that once <chief-done/>
+// is seen, the agent process is killed and runIteration returns nil (no crash,
+// no watchdog) even if the agent never exits on its own.
+func TestLoop_StoryDoneEndsIterationWithoutWatchdog(t *testing.T) {
+	dir := t.TempDir()
+
+	// Mock agent: emit chief-done, then hang far longer than the watchdog timeout.
+	scriptPath := filepath.Join(dir, "mock-claude")
+	script := "#!/bin/bash\n" +
+		`echo '{"type":"assistant","message":{"content":[{"type":"text","text":"done <chief-done/>"}]}}'` + "\n" +
+		"sleep 30\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatalf("Failed to create mock script: %v", err)
+	}
+
+	l := NewLoopWithWorkDir("/test/prd.json", dir, "test", 5, &mockProvider{cliPath: scriptPath})
+	l.iteration = 1
+	l.SetWatchdogTimeout(2 * time.Second)
+
+	// Drain events.
+	go func() {
+		for range l.Events() {
+		}
+	}()
+
+	start := time.Now()
+	err := l.runIteration(context.Background())
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Errorf("Expected nil error after <chief-done/>, got %v", err)
+	}
+	if elapsed >= 2*time.Second {
+		t.Errorf("Expected iteration to end before watchdog timeout, took %v", elapsed)
+	}
+
+	l.mu.Lock()
+	saw := l.sawStoryDone
+	l.mu.Unlock()
+	if !saw {
+		t.Error("Expected sawStoryDone to be true")
+	}
+}
+
 // TestLoop_SetMaxIterations tests setting max iterations at runtime.
 func TestLoop_SetMaxIterations(t *testing.T) {
 	l := NewLoop("/test/prd.json", "test", 5, testProvider)
