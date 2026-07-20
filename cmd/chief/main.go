@@ -31,6 +31,7 @@ type TUIOptions struct {
 	Agent         string // --agent claude|codex|opencode|cursor
 	AgentPath     string // --agent-path
 	Model         string // --model
+	AutoStart     bool   // chief start: begin the loop automatically
 }
 
 func main() {
@@ -63,6 +64,19 @@ func main() {
 			return
 		case "wiggum":
 			printWiggum()
+			return
+		case "start":
+			// chief start [name] [flags]: launch the TUI and begin the loop
+			// automatically. Drop "start" from args so the normal TUI parser
+			// handles the remaining name/flags.
+			os.Args = append(os.Args[:1], os.Args[2:]...)
+			cmd.CheckVersionOnStartup(Version)
+			opts := parseTUIFlags()
+			if opts == nil {
+				return
+			}
+			opts.AutoStart = true
+			runTUIWithOptions(opts)
 			return
 		}
 	}
@@ -468,6 +482,11 @@ func runTUIWithOptions(opts *TUIOptions) {
 		app.DisableRetry()
 	}
 
+	// Auto-start the loop if requested (chief start)
+	if opts.AutoStart {
+		app.SetAutoStart(true)
+	}
+
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	model, err := p.Run()
 	if err != nil {
@@ -517,6 +536,7 @@ Usage:
   chief <command> [arguments]
 
 Commands:
+  start [name]              Launch the TUI and begin the loop immediately
   new [name] [context]      Create a new PRD interactively
   edit [name] [options]     Edit an existing PRD interactively
   status [name]             Show progress for a PRD (default: main)
@@ -547,6 +567,8 @@ Positional Arguments:
 Examples:
   chief                     Launch TUI with default PRD (.chief/prds/main/)
   chief auth                Launch TUI with named PRD (.chief/prds/auth/)
+  chief start               Launch default PRD and start the loop immediately
+  chief start auth          Launch auth PRD and start the loop immediately
   chief ./my-prd.md       Launch TUI with specific PRD file
   chief -n 20               Launch with 20 max iterations
   chief --max-iterations=5 auth
