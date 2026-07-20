@@ -2,6 +2,7 @@
 package git
 
 import (
+	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -23,11 +24,24 @@ func IsProtectedBranch(branch string) bool {
 	return branch == "main" || branch == "master"
 }
 
-// CreateBranch creates a new branch and switches to it.
+// CreateBranch switches to branchName, creating it if it doesn't exist yet.
+// Idempotent: re-running a PRD whose branch already exists just checks it out
+// instead of failing like plain `git checkout -b` would.
 func CreateBranch(dir, branchName string) error {
-	cmd := exec.Command("git", "checkout", "-b", branchName)
+	exists, err := BranchExists(dir, branchName)
+	if err != nil {
+		return err
+	}
+	args := []string{"checkout", "-b", branchName}
+	if exists {
+		args = []string{"checkout", branchName}
+	}
+	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	return cmd.Run()
+	if out, cerr := cmd.CombinedOutput(); cerr != nil {
+		return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // BranchExists returns true if a branch with the given name exists.

@@ -2,6 +2,7 @@ package git
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -149,4 +150,37 @@ func TestIsProtectedBranch(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCreateBranch(t *testing.T) {
+	t.Run("creates and switches to new branch", func(t *testing.T) {
+		dir := initTestRepo(t)
+		if err := CreateBranch(dir, "chief/foo"); err != nil {
+			t.Fatalf("CreateBranch() error = %v", err)
+		}
+		branch, _ := GetCurrentBranch(dir)
+		if branch != "chief/foo" {
+			t.Errorf("current branch = %q, want %q", branch, "chief/foo")
+		}
+	})
+
+	t.Run("idempotent when branch already exists", func(t *testing.T) {
+		dir := initTestRepo(t)
+		if err := CreateBranch(dir, "chief/foo"); err != nil {
+			t.Fatalf("first CreateBranch() error = %v", err)
+		}
+		// Switch away, then re-run: plain `checkout -b` would fail here.
+		cmd := exec.Command("git", "checkout", "main")
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("checkout main failed: %s", string(out))
+		}
+		if err := CreateBranch(dir, "chief/foo"); err != nil {
+			t.Fatalf("second CreateBranch() should be idempotent, got error = %v", err)
+		}
+		branch, _ := GetCurrentBranch(dir)
+		if branch != "chief/foo" {
+			t.Errorf("current branch = %q, want %q", branch, "chief/foo")
+		}
+	})
 }
