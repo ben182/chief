@@ -240,10 +240,7 @@ func getToolArgument(toolName string, input map[string]interface{}) string {
 	case "Bash":
 		if cmd, ok := input["command"].(string); ok {
 			// Truncate long commands
-			if len(cmd) > 60 {
-				return cmd[:57] + "..."
-			}
-			return cmd
+			return truncateWithEllipsis(cmd, 60)
 		}
 	case "Glob":
 		if pattern, ok := input["pattern"].(string); ok {
@@ -408,8 +405,8 @@ func (l *LogViewer) renderToolCard(entry LogEntry) []string {
 	if arg != "" {
 		// Truncate argument if too long
 		maxArgLen := l.width - len(toolName) - 8
-		if maxArgLen > 0 && len(arg) > maxArgLen {
-			arg = arg[:maxArgLen-3] + "..."
+		if maxArgLen > 0 {
+			arg = truncateWithEllipsis(arg, maxArgLen)
 		}
 		line = fmt.Sprintf("%s %s %s", icon, toolNameStyle.Render(toolName), argStyle.Render(arg))
 	} else {
@@ -451,9 +448,7 @@ func (l *LogViewer) renderToolResult(entry LogEntry) []string {
 	if maxLen < 20 {
 		maxLen = 20
 	}
-	if len(text) > maxLen {
-		text = text[:maxLen-3] + "..."
-	}
+	text = truncateWithEllipsis(text, maxLen)
 	return []string{resultStyle.Render(checkStyle.Render("  ↳ ") + text)}
 }
 

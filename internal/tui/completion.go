@@ -23,6 +23,7 @@ type StoryTiming struct {
 	StoryID  string
 	Title    string
 	Duration time.Duration
+	Cost     float64 // total_cost_usd accumulated for the story (0 when unavailable)
 }
 
 // CompletionScreen manages the completion screen state shown when a PRD finishes.

@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/minicodemonkey/chief/internal/prd"
+	"github.com/muesli/reflow/truncate"
 )
 
 const (
@@ -347,10 +348,7 @@ func (a *App) renderNarrowActivityLine() string {
 	}
 
 	// More aggressive truncation for narrow mode
-	maxLen := a.width - 2
-	if len(activity) > maxLen && maxLen > 3 {
-		activity = activity[:maxLen-3] + "..."
-	}
+	activity = truncateWithEllipsis(activity, a.width-2)
 
 	// Use the centralized activity style system
 	activityStyle := GetActivityStyle(a.state)
@@ -366,10 +364,7 @@ func (a *App) renderActivityLine() string {
 	}
 
 	// Truncate if too long
-	maxLen := a.width - 4
-	if len(activity) > maxLen && maxLen > 3 {
-		activity = activity[:maxLen-3] + "..."
-	}
+	activity = truncateWithEllipsis(activity, a.width-4)
 
 	// Use the centralized activity style system
 	activityStyle := GetActivityStyle(a.state)
@@ -422,10 +417,7 @@ func (a *App) renderStoriesPanel(width, height int) string {
 
 		// Truncate title to fit
 		maxTitleLen := width - 12 // Account for icon, ID, and spacing
-		displayTitle := story.Title
-		if len(displayTitle) > maxTitleLen && maxTitleLen > 3 {
-			displayTitle = displayTitle[:maxTitleLen-3] + "..."
-		}
+		displayTitle := truncateWithEllipsis(story.Title, maxTitleLen)
 
 		line := fmt.Sprintf("%s %s %s", icon, story.ID, displayTitle)
 
@@ -774,18 +766,20 @@ func min(a, b int) int {
 	return b
 }
 
-// truncateWithEllipsis truncates text to maxLen characters, adding "..." if truncated.
+// truncateWithEllipsis truncates text to maxLen display columns, adding "..."
+// if truncated. Width- and rune-aware (and ANSI-aware): never cuts a multi-byte
+// rune in half — byte slicing did, which garbled umlauts/emoji in the display.
 func truncateWithEllipsis(text string, maxLen int) string {
+	if maxLen <= 0 {
+		return ""
+	}
+	if lipgloss.Width(text) <= maxLen {
+		return text
+	}
 	if maxLen <= 3 {
-		if len(text) > maxLen {
-			return text[:maxLen]
-		}
-		return text
+		return truncate.String(text, uint(maxLen))
 	}
-	if len(text) <= maxLen {
-		return text
-	}
-	return text[:maxLen-3] + "..."
+	return truncate.StringWithTail(text, uint(maxLen), "...")
 }
 
 // renderDiffView renders the full-screen diff view.

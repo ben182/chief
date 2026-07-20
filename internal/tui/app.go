@@ -212,6 +212,8 @@ type App struct {
 	storyTimings      []StoryTiming
 	currentStoryID    string
 	currentStoryStart time.Time
+	currentStoryCost  float64 // cost accrued for the in-progress story (across retries)
+	totalCost         float64 // cumulative cost across all stories this run
 
 	// Settings overlay
 	settingsOverlay *SettingsOverlay
@@ -979,11 +981,7 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 	case loop.EventAssistantText:
 		if isCurrentPRD {
 			// Truncate long text for activity display
-			text := event.Text
-			if len(text) > 100 {
-				text = text[:97] + "..."
-			}
-			a.lastActivity = text
+			a.lastActivity = truncateWithEllipsis(event.Text, 100)
 		}
 	case loop.EventToolStart:
 		if isCurrentPRD {
@@ -992,6 +990,11 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 	case loop.EventToolResult:
 		if isCurrentPRD {
 			a.lastActivity = "Tool completed"
+		}
+	case loop.EventResult:
+		if isCurrentPRD {
+			a.currentStoryCost += event.Cost
+			a.totalCost += event.Cost
 		}
 	case loop.EventStoryDone:
 		if isCurrentPRD {
@@ -1295,9 +1298,11 @@ func (a *App) finalizeStoryTiming() {
 		StoryID:  a.currentStoryID,
 		Title:    title,
 		Duration: duration,
+		Cost:     a.currentStoryCost,
 	})
 	a.currentStoryID = ""
 	a.currentStoryStart = time.Time{}
+	a.currentStoryCost = 0
 }
 
 // showCompletionScreen configures and shows the completion screen for a PRD.

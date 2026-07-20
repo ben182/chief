@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/minicodemonkey/chief/internal/agent"
 	"github.com/minicodemonkey/chief/internal/loop"
@@ -63,6 +64,10 @@ func TestTruncateWithEllipsis(t *testing.T) {
 		{"Hello", 1, "H", "maxLen = 1"},
 		{"Hello", 0, "", "maxLen = 0 returns empty (no space for characters)"},
 		{"", 10, "", "empty string"},
+		// Multibyte runes must never be cut mid-byte (byte slicing garbled the glyph).
+		{"Löschen", 10, "Löschen", "umlaut fits unchanged"},
+		{"Lösche das Verzeichnis", 10, "Lösche ...", "umlaut truncation stays valid utf-8"},
+		{"Grüße dich", 6, "Grü...", "cut lands right after multibyte rune"},
 	}
 
 	for _, tt := range tests {
@@ -70,6 +75,9 @@ func TestTruncateWithEllipsis(t *testing.T) {
 			got := truncateWithEllipsis(tt.text, tt.maxLen)
 			if got != tt.expected {
 				t.Errorf("truncateWithEllipsis(%q, %d) = %q, want %q", tt.text, tt.maxLen, got, tt.expected)
+			}
+			if !utf8.ValidString(got) {
+				t.Errorf("truncateWithEllipsis(%q, %d) = %q is not valid UTF-8", tt.text, tt.maxLen, got)
 			}
 		})
 	}

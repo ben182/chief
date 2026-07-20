@@ -37,6 +37,8 @@ const (
 	EventRetrying
 	// EventWatchdogTimeout is emitted when the watchdog kills a hung process.
 	EventWatchdogTimeout
+	// EventResult is emitted at the end of an iteration with cost/usage totals.
+	EventResult
 )
 
 // String returns the string representation of an EventType.
@@ -66,6 +68,8 @@ func (e EventType) String() string {
 		return "Retrying"
 	case EventWatchdogTimeout:
 		return "WatchdogTimeout"
+	case EventResult:
+		return "Result"
 	default:
 		return "Unknown"
 	}
@@ -83,13 +87,15 @@ type Event struct {
 	RetryCount int      // Current retry attempt (1-based)
 	RetryMax   int      // Maximum retries allowed
 	CrashLog   []string // last stderr lines from the crashed process (EventRetrying)
+	Cost       float64  // total_cost_usd for the iteration (EventResult, Claude only)
 }
 
 // streamMessage represents the top-level structure of a stream-json line.
 type streamMessage struct {
-	Type    string          `json:"type"`
-	Subtype string          `json:"subtype,omitempty"`
-	Message json.RawMessage `json:"message,omitempty"`
+	Type         string          `json:"type"`
+	Subtype      string          `json:"subtype,omitempty"`
+	Message      json.RawMessage `json:"message,omitempty"`
+	TotalCostUSD float64         `json:"total_cost_usd,omitempty"`
 }
 
 // assistantMessage represents the structure of an assistant message.
@@ -145,6 +151,9 @@ func ParseLine(line string) *Event {
 		return parseUserMessage(msg.Message)
 
 	case "result":
+		if msg.TotalCostUSD > 0 {
+			return &Event{Type: EventResult, Cost: msg.TotalCostUSD}
+		}
 		return nil
 
 	default:

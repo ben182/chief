@@ -196,9 +196,7 @@ func (d *DiffViewer) Render() string {
 		// Truncate to width
 		if lipgloss.Width(styled) > d.width {
 			// Re-style the truncated raw line
-			if len(line) > d.width-3 {
-				line = line[:d.width-3] + "..."
-			}
+			line = truncateWithEllipsis(line, d.width)
 			styled = d.styleLine(line)
 		}
 
