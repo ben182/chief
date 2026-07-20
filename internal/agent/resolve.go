@@ -12,8 +12,10 @@ import (
 
 // Resolve returns the agent Provider using priority: flagAgent > CHIEF_AGENT env > config > "claude".
 // flagPath overrides the CLI path when non-empty (flag > CHIEF_AGENT_PATH > config agent.cliPath).
+// An optional flagModel overrides the model (flag > CHIEF_MODEL > config agent.model); it applies
+// to the Claude provider only.
 // Returns an error if the resolved provider name is not recognised.
-func Resolve(flagAgent, flagPath string, cfg *config.Config) (loop.Provider, error) {
+func Resolve(flagAgent, flagPath string, cfg *config.Config, flagModel ...string) (loop.Provider, error) {
 	providerName := "claude"
 	if flagAgent != "" {
 		providerName = strings.ToLower(strings.TrimSpace(flagAgent))
@@ -32,9 +34,18 @@ func Resolve(flagAgent, flagPath string, cfg *config.Config) (loop.Provider, err
 		cliPath = strings.TrimSpace(cfg.Agent.CLIPath)
 	}
 
+	model := ""
+	if len(flagModel) > 0 && flagModel[0] != "" {
+		model = strings.TrimSpace(flagModel[0])
+	} else if v := os.Getenv("CHIEF_MODEL"); v != "" {
+		model = strings.TrimSpace(v)
+	} else if cfg != nil && cfg.Agent.Model != "" {
+		model = strings.TrimSpace(cfg.Agent.Model)
+	}
+
 	switch providerName {
 	case "claude":
-		return NewClaudeProvider(cliPath), nil
+		return NewClaudeProvider(cliPath, model), nil
 	case "codex":
 		return NewCodexProvider(cliPath), nil
 	case "opencode":

@@ -10,15 +10,22 @@ import (
 // ClaudeProvider implements loop.Provider for the Claude Code CLI.
 type ClaudeProvider struct {
 	cliPath string
+	model   string
 }
 
 // NewClaudeProvider returns a Provider for the Claude CLI.
-// If cliPath is empty, "claude" is used.
-func NewClaudeProvider(cliPath string) *ClaudeProvider {
+// If cliPath is empty, "claude" is used. An optional model is passed to the
+// CLI via --model (needed when Claude Code's -p mode ignores the configured
+// model, e.g. local models via LM Studio).
+func NewClaudeProvider(cliPath string, model ...string) *ClaudeProvider {
 	if cliPath == "" {
 		cliPath = "claude"
 	}
-	return &ClaudeProvider{cliPath: cliPath}
+	m := ""
+	if len(model) > 0 {
+		m = model[0]
+	}
+	return &ClaudeProvider{cliPath: cliPath, model: m}
 }
 
 // Name implements loop.Provider.
@@ -29,12 +36,16 @@ func (p *ClaudeProvider) CLIPath() string { return p.cliPath }
 
 // LoopCommand implements loop.Provider.
 func (p *ClaudeProvider) LoopCommand(ctx context.Context, prompt, workDir string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, p.cliPath,
+	args := []string{
 		"--dangerously-skip-permissions",
 		"-p", prompt,
 		"--output-format", "stream-json",
 		"--verbose",
-	)
+	}
+	if p.model != "" {
+		args = append(args, "--model", p.model)
+	}
+	cmd := exec.CommandContext(ctx, p.cliPath, args...)
 	cmd.Dir = workDir
 	return cmd
 }

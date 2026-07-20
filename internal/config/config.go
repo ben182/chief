@@ -20,6 +20,7 @@ type Config struct {
 type AgentConfig struct {
 	Provider string `yaml:"provider"` // "claude" (default) | "codex" | "opencode" | "cursor" | "gemini"
 	CLIPath  string `yaml:"cliPath"`  // optional custom path to CLI binary
+	Model    string `yaml:"model"`    // optional model passed to the CLI via --model (Claude only)
 }
 
 // WorktreeConfig holds worktree-related settings.

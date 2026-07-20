@@ -30,6 +30,7 @@ type TUIOptions struct {
 	NoRetry       bool
 	Agent         string // --agent claude|codex|opencode|cursor
 	AgentPath     string // --agent-path
+	Model         string // --model
 }
 
 func main() {
@@ -122,13 +123,23 @@ func listAvailablePRDs() []string {
 	return names
 }
 
-// parseAgentFlags extracts --agent and --agent-path from args[startIdx:],
-// returning the agent name, agent path, remaining args (with agent flags removed),
-// and the updated index offsets. It exits on missing values.
-func parseAgentFlags(args []string, startIdx int) (agentName, agentPath string, remaining []string) {
+// parseAgentFlags extracts --agent, --agent-path and --model from args[startIdx:],
+// returning the agent name, agent path, model, remaining args (with those flags
+// removed), and the updated index offsets. It exits on missing values.
+func parseAgentFlags(args []string, startIdx int) (agentName, agentPath, model string, remaining []string) {
 	for i := startIdx; i < len(args); i++ {
 		arg := args[i]
 		switch {
+		case arg == "--model":
+			if i+1 < len(args) {
+				i++
+				model = args[i]
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: --model requires a value\n")
+				os.Exit(1)
+			}
+		case strings.HasPrefix(arg, "--model="):
+			model = strings.TrimPrefix(arg, "--model=")
 		case arg == "--agent":
 			if i+1 < len(args) {
 				i++
@@ -168,7 +179,7 @@ func parseTUIFlags() *TUIOptions {
 	}
 
 	// Pre-extract agent flags so they don't interfere with positional arg parsing
-	opts.Agent, opts.AgentPath, _ = parseAgentFlags(os.Args, 1)
+	opts.Agent, opts.AgentPath, opts.Model, _ = parseAgentFlags(os.Args, 1)
 
 	for i := 1; i < len(os.Args); i++ {
 		arg := os.Args[i]
@@ -188,9 +199,9 @@ func parseTUIFlags() *TUIOptions {
 			opts.Force = true
 		case arg == "--no-retry":
 			opts.NoRetry = true
-		case arg == "--agent" || arg == "--agent-path":
+		case arg == "--agent" || arg == "--agent-path" || arg == "--model":
 			i++ // skip value (already parsed by parseAgentFlags)
-		case strings.HasPrefix(arg, "--agent=") || strings.HasPrefix(arg, "--agent-path="):
+		case strings.HasPrefix(arg, "--agent=") || strings.HasPrefix(arg, "--agent-path=") || strings.HasPrefix(arg, "--model="):
 			// already parsed by parseAgentFlags
 		case arg == "--max-iterations" || arg == "-n":
 			// Next argument should be the number
@@ -257,7 +268,7 @@ func runNew() {
 	opts := cmd.NewOptions{}
 
 	// Parse arguments: chief new [name] [context...] [--agent X] [--agent-path X]
-	flagAgent, flagPath, positional := parseAgentFlags(os.Args, 2)
+	flagAgent, flagPath, flagModel, positional := parseAgentFlags(os.Args, 2)
 	// Filter out remaining flags, keep only positional args
 	var args []string
 	for _, a := range positional {
@@ -272,7 +283,7 @@ func runNew() {
 		opts.Context = strings.Join(args[1:], " ")
 	}
 
-	opts.Provider = resolveProvider(flagAgent, flagPath)
+	opts.Provider = resolveProvider(flagAgent, flagPath, flagModel)
 	if err := cmd.RunNew(opts); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -283,14 +294,14 @@ func runEdit() {
 	opts := cmd.EditOptions{}
 
 	// Parse arguments: chief edit [name] [--agent X] [--agent-path X]
-	flagAgent, flagPath, remaining := parseAgentFlags(os.Args, 2)
+	flagAgent, flagPath, flagModel, remaining := parseAgentFlags(os.Args, 2)
 	for _, arg := range remaining {
 		if opts.Name == "" && !strings.HasPrefix(arg, "-") {
 			opts.Name = arg
 		}
 	}
 
-	opts.Provider = resolveProvider(flagAgent, flagPath)
+	opts.Provider = resolveProvider(flagAgent, flagPath, flagModel)
 	if err := cmd.RunEdit(opts); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -330,7 +341,7 @@ func runList() {
 }
 
 // resolveProvider loads config and resolves the agent provider, exiting on error.
-func resolveProvider(flagAgent, flagPath string) loop.Provider {
+func resolveProvider(flagAgent, flagPath, flagModel string) loop.Provider {
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -341,7 +352,7 @@ func resolveProvider(flagAgent, flagPath string) loop.Provider {
 		fmt.Fprintf(os.Stderr, "Error: failed to load .chief/config.yaml: %v\n", err)
 		os.Exit(1)
 	}
-	provider, err := agent.Resolve(flagAgent, flagPath, cfg)
+	provider, err := agent.Resolve(flagAgent, flagPath, cfg, flagModel)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -354,7 +365,7 @@ func resolveProvider(flagAgent, flagPath string) loop.Provider {
 }
 
 func runTUIWithOptions(opts *TUIOptions) {
-	provider := resolveProvider(opts.Agent, opts.AgentPath)
+	provider := resolveProvider(opts.Agent, opts.AgentPath, opts.Model)
 
 	prdPath := opts.PRDPath
 
@@ -516,6 +527,7 @@ Commands:
 Global Options:
   --agent <provider>        Agent CLI to use: claude (default), codex, opencode, cursor, or gemini
   --agent-path <path>       Custom path to agent CLI binary
+  --model <model>           Model passed to the agent CLI via --model (Claude only)
   --max-iterations N, -n N  Set maximum iterations (default: dynamic)
   --no-retry                Disable auto-retry on agent crashes
   --verbose                 Show raw agent output in log
@@ -542,6 +554,8 @@ Examples:
   chief --verbose           Launch with raw agent output visible
   chief --agent codex       Use Codex CLI instead of Claude
   chief --agent cursor      Use Cursor CLI as agent
+  chief --model my-local-model
+                            Pass --model to Claude (e.g. local models via LM Studio)
   chief new                 Create PRD in .chief/prds/main/
   chief new auth            Create PRD in .chief/prds/auth/
   chief new auth "JWT authentication for REST API"

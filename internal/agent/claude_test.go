@@ -54,6 +54,22 @@ func TestClaudeProvider_LoopCommand(t *testing.T) {
 	}
 }
 
+func TestClaudeProvider_LoopCommandWithModel(t *testing.T) {
+	ctx := context.Background()
+	p := NewClaudeProvider("/bin/claude", "my-local-model")
+	cmd := p.LoopCommand(ctx, "hi", "/work")
+
+	wantArgs := []string{"/bin/claude", "--dangerously-skip-permissions", "-p", "hi", "--output-format", "stream-json", "--verbose", "--model", "my-local-model"}
+	if len(cmd.Args) != len(wantArgs) {
+		t.Fatalf("LoopCommand Args = %v, want %v", cmd.Args, wantArgs)
+	}
+	for i, w := range wantArgs {
+		if cmd.Args[i] != w {
+			t.Errorf("LoopCommand Args[%d] = %q, want %q", i, cmd.Args[i], w)
+		}
+	}
+}
+
 func TestClaudeProvider_InteractiveCommand(t *testing.T) {
 	p := NewClaudeProvider("/bin/claude")
 	cmd := p.InteractiveCommand("/work", "my prompt")

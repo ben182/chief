@@ -16,6 +16,7 @@ Chief stores project-level settings in `.chief/config.yaml`. This file is create
 agent:
   provider: claude   # or "codex", "opencode", or "cursor"
   cliPath: ""        # optional path to CLI binary
+  model: ""          # optional model passed via --model (Claude only)
 worktree:
   setup: "npm install"
 onComplete:
@@ -29,6 +30,7 @@ onComplete:
 |-----|------|---------|-------------|
 | `agent.provider` | string | `"claude"` | Agent CLI to use: `claude`, `codex`, `opencode`, or `cursor` |
 | `agent.cliPath` | string | `""` | Optional path to the agent binary (e.g. `/usr/local/bin/opencode`). If empty, Chief uses the provider name from PATH. |
+| `agent.model` | string | `""` | Optional model passed to the Claude CLI via `--model`. Needed when Claude Code's `-p` mode ignores `~/.claude/settings.json` (e.g. local models via LM Studio). |
 | `worktree.setup` | string | `""` | Shell command to run in new worktrees (e.g., `npm install`, `go mod download`) |
 | `onComplete.push` | bool | `false` | Automatically push the branch to remote when a PRD completes |
 | `onComplete.createPR` | bool | `false` | Automatically create a pull request when a PRD completes (requires `gh` CLI) |
@@ -90,11 +92,12 @@ These settings are saved to `.chief/config.yaml` and can be changed at any time 
 |------|-------------|---------|
 | `--agent <provider>` | Agent CLI to use: `claude`, `codex`, `opencode`, or `cursor` | From config / env / `claude` |
 | `--agent-path <path>` | Custom path to the agent CLI binary | From config / env |
+| `--model <model>` | Model passed to the Claude CLI via `--model` | From config / env |
 | `--max-iterations <n>`, `-n` | Loop iteration limit | Dynamic |
 | `--no-retry` | Disable auto-retry on agent crashes | `false` |
 | `--verbose` | Show raw agent output in log | `false` |
 
-Agent resolution order: `--agent` / `--agent-path` → `CHIEF_AGENT` / `CHIEF_AGENT_PATH` env vars → `agent.provider` / `agent.cliPath` in `.chief/config.yaml` → default `claude`.
+Agent resolution order: `--agent` / `--agent-path` / `--model` → `CHIEF_AGENT` / `CHIEF_AGENT_PATH` / `CHIEF_MODEL` env vars → `agent.provider` / `agent.cliPath` / `agent.model` in `.chief/config.yaml` → default `claude`.
 
 When `--max-iterations` is not specified, Chief calculates a dynamic limit based on the number of remaining stories plus a buffer. You can also adjust the limit at runtime with `+`/`-` in the TUI.
 
