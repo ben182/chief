@@ -52,11 +52,12 @@ func RunNew(opts NewOptions) error {
 		return fmt.Errorf("PRD already exists at %s. Use 'chief edit %s' to modify it", prdMdPath, opts.Name)
 	}
 
-	// Get the init prompt with the PRD directory path
-	prompt := embed.GetInitPrompt(prdDir, opts.Context)
 	if opts.Provider == nil {
 		return fmt.Errorf("new command requires Provider to be set")
 	}
+
+	// Get the init prompt with the PRD directory path
+	prompt := embed.GetInitPrompt(prdDir, opts.Context, opts.Provider.SupportsInteractiveQuestions())
 
 	// Launch interactive agent session
 	fmt.Printf("Creating PRD in %s...\n", prdDir)

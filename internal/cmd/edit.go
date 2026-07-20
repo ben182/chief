@@ -45,11 +45,12 @@ func RunEdit(opts EditOptions) error {
 		return fmt.Errorf("PRD not found at %s. Use 'chief new %s' to create it first", prdMdPath, opts.Name)
 	}
 
-	// Get the edit prompt with the PRD directory path
-	prompt := embed.GetEditPrompt(prdDir)
 	if opts.Provider == nil {
 		return fmt.Errorf("edit command requires Provider to be set")
 	}
+
+	// Get the edit prompt with the PRD directory path
+	prompt := embed.GetEditPrompt(prdDir, opts.Provider.SupportsInteractiveQuestions())
 
 	// Launch interactive agent session
 	fmt.Printf("Editing PRD at %s...\n", prdDir)

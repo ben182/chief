@@ -26,6 +26,10 @@ func NewCursorProvider(cliPath string) *CursorProvider {
 // Name implements loop.Provider.
 func (p *CursorProvider) Name() string { return "Cursor" }
 
+// SupportsInteractiveQuestions implements loop.Provider. Cursor has no native
+// question UI, so the PRD prompts fall back to lettered text options.
+func (p *CursorProvider) SupportsInteractiveQuestions() bool { return false }
+
 // CLIPath implements loop.Provider.
 func (p *CursorProvider) CLIPath() string { return p.cliPath }
 

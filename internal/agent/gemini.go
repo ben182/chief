@@ -26,6 +26,10 @@ func NewGeminiProvider(cliPath string) *GeminiProvider {
 // Name implements loop.Provider.
 func (p *GeminiProvider) Name() string { return "Gemini" }
 
+// SupportsInteractiveQuestions implements loop.Provider. Gemini has no native
+// question UI, so the PRD prompts fall back to lettered text options.
+func (p *GeminiProvider) SupportsInteractiveQuestions() bool { return false }
+
 // CLIPath implements loop.Provider.
 func (p *GeminiProvider) CLIPath() string { return p.cliPath }
 

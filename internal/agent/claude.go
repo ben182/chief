@@ -31,6 +31,11 @@ func NewClaudeProvider(cliPath string, model ...string) *ClaudeProvider {
 // Name implements loop.Provider.
 func (p *ClaudeProvider) Name() string { return "Claude" }
 
+// SupportsInteractiveQuestions implements loop.Provider. Claude Code renders a
+// native multiple-choice question UI, so the PRD prompts use it instead of
+// lettered text options.
+func (p *ClaudeProvider) SupportsInteractiveQuestions() bool { return true }
+
 // CLIPath implements loop.Provider.
 func (p *ClaudeProvider) CLIPath() string { return p.cliPath }
 

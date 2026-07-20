@@ -22,6 +22,10 @@ func NewOpenCodeProvider(cliPath string) *OpenCodeProvider {
 
 func (p *OpenCodeProvider) Name() string { return "OpenCode" }
 
+// SupportsInteractiveQuestions implements loop.Provider. OpenCode has no native
+// question UI, so the PRD prompts fall back to lettered text options.
+func (p *OpenCodeProvider) SupportsInteractiveQuestions() bool { return false }
+
 func (p *OpenCodeProvider) CLIPath() string { return p.cliPath }
 
 func (p *OpenCodeProvider) LoopCommand(ctx context.Context, prompt, workDir string) *exec.Cmd {

@@ -22,6 +22,7 @@ type mockProvider struct {
 func (m *mockProvider) Name() string                             { return "Test" }
 func (m *mockProvider) CLIPath() string                          { return m.path() }
 func (m *mockProvider) InteractiveCommand(_, _ string) *exec.Cmd { return exec.Command("true") }
+func (m *mockProvider) SupportsInteractiveQuestions() bool       { return false }
 func (m *mockProvider) ParseLine(line string) *Event             { return ParseLine(line) }
 func (m *mockProvider) LogFileName() string                      { return "claude.log" }
 

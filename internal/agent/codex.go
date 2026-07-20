@@ -25,6 +25,10 @@ func NewCodexProvider(cliPath string) *CodexProvider {
 // Name implements loop.Provider.
 func (p *CodexProvider) Name() string { return "Codex" }
 
+// SupportsInteractiveQuestions implements loop.Provider. Codex has no native
+// question UI, so the PRD prompts fall back to lettered text options.
+func (p *CodexProvider) SupportsInteractiveQuestions() bool { return false }
+
 // CLIPath implements loop.Provider.
 func (p *CodexProvider) CLIPath() string { return p.cliPath }
 

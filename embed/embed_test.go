@@ -108,7 +108,7 @@ func TestGetInitPrompt(t *testing.T) {
 	prdDir := "/path/to/.chief/prds/main"
 
 	// Test with no context
-	prompt := GetInitPrompt(prdDir, "")
+	prompt := GetInitPrompt(prdDir, "", false)
 	if !strings.Contains(prompt, "No additional context provided") {
 		t.Error("Expected default context message")
 	}
@@ -120,21 +120,47 @@ func TestGetInitPrompt(t *testing.T) {
 	if strings.Contains(prompt, "{{PRD_DIR}}") {
 		t.Error("Expected {{PRD_DIR}} to be substituted")
 	}
+	if strings.Contains(prompt, "{{QUESTION_FORMAT}}") {
+		t.Error("Expected {{QUESTION_FORMAT}} to be substituted")
+	}
 
 	// Test with context
 	context := "Build a todo app"
-	promptWithContext := GetInitPrompt(prdDir, context)
+	promptWithContext := GetInitPrompt(prdDir, context, false)
 	if !strings.Contains(promptWithContext, context) {
 		t.Error("Expected context to be substituted in prompt")
 	}
 }
 
+func TestGetInitPromptQuestionFormat(t *testing.T) {
+	prdDir := "/path/to/.chief/prds/main"
+
+	native := GetInitPrompt(prdDir, "", true)
+	if !strings.Contains(native, "AskUserQuestion tool") {
+		t.Error("Expected native question format to reference the AskUserQuestion tool")
+	}
+
+	lettered := GetInitPrompt(prdDir, "", false)
+	if strings.Contains(lettered, "AskUserQuestion tool") {
+		t.Error("Expected lettered fallback to omit the native question tool")
+	}
+	if !strings.Contains(lettered, "lettered") && !strings.Contains(lettered, "A. ") {
+		t.Error("Expected lettered fallback to present lettered options")
+	}
+}
+
 func TestGetEditPrompt(t *testing.T) {
-	prompt := GetEditPrompt("/test/path/prds/main")
+	prompt := GetEditPrompt("/test/path/prds/main", false)
 	if prompt == "" {
 		t.Error("Expected GetEditPrompt() to return non-empty prompt")
 	}
 	if !strings.Contains(prompt, "/test/path/prds/main") {
 		t.Error("Expected prompt to contain the PRD directory path")
+	}
+	if strings.Contains(prompt, "{{QUESTION_FORMAT}}") {
+		t.Error("Expected {{QUESTION_FORMAT}} to be substituted")
+	}
+	if !strings.Contains(GetEditPrompt("/test/path/prds/main", true), "AskUserQuestion tool") {
+		t.Error("Expected native edit prompt to reference the AskUserQuestion tool")
 	}
 }

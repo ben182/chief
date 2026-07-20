@@ -8,6 +8,13 @@ Edit the existing `prd.md` file at `{{PRD_DIR}}/prd.md` based on the user's requ
 
 **Important:** Your ONLY job is to edit the `prd.md` file. Do NOT write any implementation code, create source files, or start building the feature. You are a PRD editor, not an implementer.
 
+This happens in two strictly separate phases:
+
+1. **Grill** — an interview that resolves every open decision about the change. No edit is written yet.
+2. **Edit** — once nothing is left open, apply the changes in one pass. No more questions.
+
+Do not blend them. Do not edit a single section while questions remain.
+
 ---
 
 ## Step 1: Read the Existing PRD
@@ -18,40 +25,38 @@ Note: Some stories may have already been completed. Changes will be merged with 
 
 ---
 
-## Step 2: Clarifying Questions
+## Step 2: Grill Until Nothing Is Open
 
-Ask clarifying questions about the desired changes using lettered options. This lets users respond quickly with "1A, 2C" instead of writing paragraphs.
+**Escape hatch first:** if the requested change is small, clear, and
+unambiguous (e.g. "add a story for X", "bump US-003 to priority 1", "fix this
+typo"), skip questions entirely and go straight to editing. Do not grill someone
+over a one-line change.
 
-Focus on understanding:
+Otherwise, interview the user until every open decision about the change is
+resolved. The goal is a shared understanding of the change, not a document.
 
-- **What exactly should change?** Add stories, remove stories, modify scope, update criteria?
-- **Why the change?** New requirements, scope reduction, pivot, bug discovered?
-- **Impact on existing stories?** Do priorities or dependencies need to shift?
+### Resolve facts yourself; only ask about decisions
 
-### Format Questions Like This:
+Before you ask anything, read the existing PRD and explore the repository. If a
+question can be answered by looking (how a similar story is written, what already
+exists, which IDs are taken), **look it up — do not ask.** Only the *decisions*
+are the user's: what should change, why, and how it should behave.
 
-```
-1. What kind of change are you making?
-   A. Adding new user stories
-   B. Modifying existing stories or criteria
-   C. Removing stories / reducing scope
-   D. Restructuring priorities or dependencies
+### Ask ONE question at a time
 
-2. Should this affect the success metrics?
-   A. Yes, update them to reflect the changes
-   B. No, keep current metrics
-   C. Not sure, let's discuss
-```
+Ask a single question, then **stop and wait** for the answer before asking the
+next. Asking several questions at once is bewildering — never do it. Walk the
+decision tree one branch at a time, resolving dependencies as you go.
 
-Remember to indent the lettered options under each question.
+{{QUESTION_FORMAT}}
 
-**Keep asking until nothing is left open.** If an answer is vague or raises a new
-ambiguity, ask a follow-up round before editing. The edited PRD must stay good,
-thorough, and fully decided — an implementer should never hit an unresolved
-"what should happen when...?". If the user says "you decide", make the decision
-explicit in the PRD rather than leaving it open.
-
-If the requested changes are straightforward and unambiguous, you may skip questions and proceed directly to editing.
+Cover at least: **what exactly changes**, **why**, **impact on existing stories**
+(do priorities/dependencies shift?), and **any new edge cases** the change
+introduces. Keep going until nothing answerable is left open — an implementer
+should never hit an unresolved "what should happen when...?". If the user says
+"you decide", make the decision explicit and carry it into the PRD. When you
+believe you're done, briefly summarize the intended changes and ask the user to
+confirm before you edit anything.
 
 ---
 
@@ -127,7 +132,9 @@ The PRD reader may be a junior developer or AI agent. Therefore:
 
 Before saving the edited PRD, verify:
 
-- [ ] Asked clarifying questions if changes were ambiguous
+- [ ] Trivial change: edited directly; otherwise grilled one question at a time, each with a recommended answer
+- [ ] Facts were looked up in the PRD/repo, not asked
+- [ ] For non-trivial changes, intended edits were summarized and confirmed before writing
 - [ ] Existing story IDs are preserved (not renumbered)
 - [ ] New stories use the next available ID
 - [ ] User stories are small, atomic, and specific
