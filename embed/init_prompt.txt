@@ -59,6 +59,9 @@ Keep going until nothing answerable is left open. Cover at least:
 - **Core functionality** — the key actions and behaviors.
 - **Scope/Boundaries** — what it should explicitly NOT do.
 - **Edge cases** — "what should happen when…?" for every branch an implementer could hit.
+- **Design/Frontend** — when the feature has any UI, grill the frontend as hard as
+  the behavior (see the dedicated section below). Skip this only for features with
+  no user-facing surface (pure backend, CLI internals, data jobs).
 - **Success criteria** — how we know it's done and working.
 
 If an answer is vague, reveals a new ambiguity, or leaves a sub-decision unmade,
@@ -69,6 +72,27 @@ leave it hanging.
 
 When you believe you are done, briefly summarize the shared understanding in a
 few bullets and ask the user to confirm before you write anything.
+
+### Grill the frontend when there is a UI
+
+If the feature has any user-facing surface, the design is not a footnote — it is
+half the spec. PRDs habitually under-specify the frontend and lean on "make it
+look good", which leaves every real decision to the implementer. Do not do that
+here. Interview the design with the same rigor as the behavior, one question at a
+time, resolving each of these before you stop:
+
+- **Screens & flows** — which screens/views exist and how the user moves between them.
+- **States per screen** — this is where most frontend work actually lives, so
+  enumerate it: empty, loading, partial, error, success, and (if relevant) offline
+  or permission-denied. A screen is not specified until its states are.
+- **Component decomposition** — what to reuse from the existing UI vs. build new.
+  Look this up in the repo first; only ask when it's a genuine decision.
+- **Interaction** — what happens on click / hover / focus / keyboard; transitions,
+  optimistic updates, confirmation vs. undo.
+- **Visual direction** — hierarchy, density, and tone. Not pixel mockups, but
+  enough of a constraint that two people would build something recognizably alike.
+- **Responsive & accessibility** — breakpoints and what reflows; focus order,
+  labels, contrast.
 
 ---
 
@@ -109,6 +133,18 @@ Each story should be small enough to implement in one focused coding session.
 - Lower priority numbers = higher priority. Build foundations first.
 - Order stories so earlier ones enable later ones (consider dependencies).
 - Acceptance criteria must be verifiable, not vague. "Works correctly" is bad. "Button shows confirmation dialog before deleting" is good.
+- **Bake the design into each UI story's acceptance criteria — do not rely on the
+  Design & Frontend section reaching the implementer.** When Chief implements a
+  story it sees ONLY that story, not the rest of the PRD, so any frontend decision
+  that isn't written into the story's acceptance criteria will be re-invented or
+  ignored. For every story that touches the UI, add explicit, verifiable criteria for:
+  - the visible states (e.g. "empty state shows …", "loading shows a skeleton", "error shows an inline message")
+  - the exact components to reuse, named (e.g. "uses the existing `<Button variant=\"danger\">`")
+  - key interaction (e.g. "delete asks for confirmation before removing")
+  - any layout/visual constraint the story depends on (e.g. "matches the two-column layout from US-002")
+  Repeat the relevant design decisions in each story even if that means some
+  duplication across stories — a self-contained story is what keeps the built UI
+  consistent.
 - Include quality stories for tests and documentation as needed.
 
 ### 4. Functional Requirements
@@ -121,10 +157,15 @@ Be explicit and unambiguous.
 ### 5. Non-Goals (Out of Scope)
 What this feature will NOT include. Critical for managing scope and preventing creep.
 
-### 6. Design Considerations (Optional)
-- UI/UX requirements
-- Links to mockups if available
-- Relevant existing components to reuse
+### 6. Design & Frontend (required when the feature has a UI; omit only for no-UI features)
+Write down what you resolved in the frontend grill — concretely enough that
+independent implementation sessions build a consistent UI. Cover:
+- **Screens/views** and the navigation between them
+- **States for each screen** — empty, loading, error, success (+ offline/permission where relevant)
+- **Components** — which existing ones to reuse, which to build new
+- **Interaction** — key click/hover/focus/keyboard behavior, transitions, confirm vs. undo
+- **Visual direction** — hierarchy, density, tone; links to mockups if available
+- **Responsive & accessibility** — breakpoints, focus order, labels, contrast
 
 ### 7. Technical Considerations (Optional)
 - Known constraints or dependencies
@@ -256,6 +297,8 @@ Before saving the PRD, verify:
 - [ ] Phase 1 asked one question at a time, each with a recommended answer
 - [ ] Facts were looked up in the repo, not asked
 - [ ] Shared understanding was summarized and confirmed before writing
+- [ ] If the feature has a UI, the frontend was grilled (screens, states, components, interaction, visual direction) and captured in the Design & Frontend section
+- [ ] Every UI story has the relevant design decisions written INTO its acceptance criteria (states, named components, interaction) — not left only in the Design section, which the implementer never sees
 - [ ] User stories are small, atomic, and specific
 - [ ] Acceptance criteria are verifiable (not vague)
 - [ ] Functional requirements are numbered and unambiguous
