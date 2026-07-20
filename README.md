@@ -30,6 +30,9 @@ chief new
 
 # Launch the TUI and press 's' to start
 chief
+
+# Or launch and start the loop immediately
+chief start
 ```
 
 Chief runs Claude in a [Ralph Wiggum loop](https://ghuntley.com/ralph/): each iteration starts with a fresh context window, but progress is persisted between runs. This lets Claude work through large projects without hitting context limits.

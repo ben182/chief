@@ -17,6 +17,7 @@ chief [command] [flags]
 | Command | Description |
 |---------|-------------|
 | *(default)* | Run the Ralph Loop on the active PRD |
+| `start` | Launch the TUI and start the Ralph Loop immediately |
 | `new` | Create a new PRD in the current project |
 | `edit` | Open the PRD for editing |
 | `status` | Show current PRD progress |
@@ -69,6 +70,35 @@ When `--max-iterations` is not specified, Chief calculates a dynamic limit based
 
 ::: tip
 If your project has only one PRD, Chief auto-detects it. Pass a name when you have multiple PRDs.
+:::
+
+---
+
+### chief start
+
+Same as the default command, but starts the Ralph Loop immediately instead of opening in **Ready** state. Skips the manual `s` keypress—useful for scripts, CI, or when you just want Chief to get going.
+
+```bash
+chief start [name]
+```
+
+Accepts the same arguments and flags as the default command (`name`, `--max-iterations`, `--no-retry`, `--verbose`, `--agent`, `--model`, ...).
+
+**Examples:**
+
+```bash
+# Start the auto-detected PRD immediately
+chief start
+
+# Start a specific PRD by name
+chief start auth-system
+
+# Start with a custom iteration limit
+chief start auth-system -n 50
+```
+
+::: info Branch safety
+If you're on a protected branch (e.g. `main`) or another PRD is already running in the same directory, Chief still shows the branch/worktree confirmation before starting.
 :::
 
 ---

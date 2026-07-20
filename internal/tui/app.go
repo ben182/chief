@@ -225,6 +225,9 @@ type App struct {
 	// Verbose mode - show raw Claude output
 	verbose bool
 
+	// autoStart triggers the loop automatically on launch (chief start)
+	autoStart bool
+
 	// Post-exit action - what to do after TUI exits
 	PostExitAction PostExitAction
 	PostExitPRD    string // PRD name for post-exit action
@@ -358,6 +361,11 @@ func (a *App) SetVerbose(v bool) {
 	a.verbose = v
 }
 
+// SetAutoStart makes the loop start automatically on launch.
+func (a *App) SetAutoStart(v bool) {
+	a.autoStart = v
+}
+
 // DisableRetry disables automatic retry on Claude crashes.
 func (a *App) DisableRetry() {
 	if a.manager != nil {
@@ -380,13 +388,20 @@ func (a App) Init() tea.Cmd {
 		_ = a.progressWatcher.Start()
 	}
 
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		tea.EnterAltScreen,
 		a.listenForPRDChanges(),
 		a.listenForManagerEvents(),
 		a.listenForProgressChanges(),
-	)
+	}
+	if a.autoStart {
+		cmds = append(cmds, func() tea.Msg { return autoStartMsg{} })
+	}
+	return tea.Batch(cmds...)
 }
+
+// autoStartMsg triggers the loop automatically after launch (chief start).
+type autoStartMsg struct{}
 
 // listenForManagerEvents listens for events from all managed loops.
 func (a *App) listenForManagerEvents() tea.Cmd {
@@ -411,6 +426,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Log viewer size is set authoritatively in renderLogView (with correct -4 width).
 		// Only update height here for scroll calculations; width will match on next render.
 		a.logViewer.SetSize(a.width-4, a.height-headerHeight-footerHeight-2)
+		return a, nil
+
+	case autoStartMsg:
+		if a.state == StateReady {
+			return a.startLoop()
+		}
 		return a, nil
 
 	case LoopEventMsg:
