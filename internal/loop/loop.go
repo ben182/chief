@@ -69,6 +69,7 @@ type Loop struct {
 	stderrTail      []string       // last few stderr lines from the current iteration, for crash diagnostics
 	attempts        map[string]int // per-story attempt count, keyed by story ID
 	maxAttempts     int            // attempts allowed per story before parking it for review
+	warnedNoGit     bool           // whether the "not a git repo" warning was already emitted
 }
 
 // maxStderrTail is how many trailing stderr lines are kept to surface on a crash.
@@ -372,6 +373,7 @@ func (l *Loop) runIterationWithRetry(ctx context.Context) error {
 func (l *Loop) runIteration(ctx context.Context) error {
 	workDir := l.effectiveWorkDir()
 	cmd := l.provider.LoopCommand(ctx, l.prompt, workDir)
+	setProcessGroup(cmd) // kill the whole subprocess tree, not just the direct child
 	l.mu.Lock()
 	l.agentCmd = cmd
 	l.stderrTail = nil // reset crash diagnostics for this iteration
@@ -498,10 +500,10 @@ func (l *Loop) runWatchdog(timeout time.Duration, done <-chan struct{}, fired *a
 					Text:      fmt.Sprintf("No output for %s, killing hung process", timeout),
 				}
 
-				// Kill the process
+				// Kill the process group
 				l.mu.Lock()
-				if l.agentCmd != nil && l.agentCmd.Process != nil {
-					l.agentCmd.Process.Kill()
+				if l.agentCmd != nil {
+					killProcessGroup(l.agentCmd.Process)
 				}
 				l.mu.Unlock()
 				return
@@ -540,8 +542,8 @@ func (l *Loop) processOutput(r io.Reader) {
 				// scanner blocked until the watchdog kills it. Terminate the process
 				// now so the iteration ends immediately. runIteration treats a Wait
 				// error as success when sawStoryDone is set, so this is not a crash.
-				if l.agentCmd != nil && l.agentCmd.Process != nil {
-					l.agentCmd.Process.Kill()
+				if l.agentCmd != nil {
+					killProcessGroup(l.agentCmd.Process)
 				}
 			}
 			l.mu.Unlock()
@@ -588,8 +590,8 @@ func (l *Loop) Stop() {
 
 	l.stopped = true
 
-	if l.agentCmd != nil && l.agentCmd.Process != nil {
-		l.agentCmd.Process.Kill()
+	if l.agentCmd != nil {
+		killProcessGroup(l.agentCmd.Process)
 	}
 }
 
@@ -638,6 +640,16 @@ func (l *Loop) effectiveWorkDir() string {
 func (l *Loop) storyHasCommit(storyID, title string) bool {
 	dir := l.effectiveWorkDir()
 	if !git.IsGitRepo(dir) {
+		l.mu.Lock()
+		warn := !l.warnedNoGit
+		l.warnedNoGit = true
+		l.mu.Unlock()
+		if warn && l.events != nil {
+			l.events <- Event{
+				Type: EventNoGitRepo,
+				Text: fmt.Sprintf("⚠ %s is not a git repo: story completion can't be commit-verified and work is not persisted between iterations", dir),
+			}
+		}
 		return true
 	}
 	hash, _ := git.FindCommitForStory(dir, storyID, title)

@@ -39,6 +39,10 @@ const (
 	EventWatchdogTimeout
 	// EventResult is emitted at the end of an iteration with cost/usage totals.
 	EventResult
+	// EventNoGitRepo is emitted once when the work directory is not a git repo,
+	// so <chief-done/> can't be commit-verified and work isn't persisted between
+	// fresh-context iterations.
+	EventNoGitRepo
 )
 
 // String returns the string representation of an EventType.
@@ -70,6 +74,8 @@ func (e EventType) String() string {
 		return "WatchdogTimeout"
 	case EventResult:
 		return "Result"
+	case EventNoGitRepo:
+		return "NoGitRepo"
 	default:
 		return "Unknown"
 	}

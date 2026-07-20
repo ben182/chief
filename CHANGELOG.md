@@ -8,8 +8,11 @@ All notable changes to Chief are documented in this file.
 - **Default PRD renamed `main` → `default`** — the unnamed PRD now lives at `.chief/prds/default/` to avoid confusion with git branch names ([#9](https://github.com/MiniCodeMonkey/chief/issues/9)). Existing `.chief/prds/main/` setups still load: bare `chief` falls back to `main` when no `default` exists. For `chief status`/`edit` on an old setup, pass the name explicitly (`chief status main`)
 - **Desktop notification on completion** — when a run finishes, Chief pings the desktop (macOS `osascript`, Linux `notify-send`) so you don't have to babysit long loops. On by default; toggle via settings (`,`) or `onComplete.notify: false` in `.chief/config.yaml`
 - **Per-story cost** — the dashboard shows a running USD total and the completion screen breaks cost down per story (Claude only; other providers don't report cost). Parsed from the agent's `result` event
+- **Configurable watchdog timeout** — `loop.watchdogTimeoutSeconds` in `.chief/config.yaml` overrides the 5-minute default, so agents running long, silent builds or test suites no longer get killed as hung (`0` keeps the default)
 
 ### Bug Fixes
+- The agent and its whole subprocess tree are now killed together (the agent runs in its own process group). Previously only the direct child was killed, orphaning the tool and MCP subprocesses it spawned, which piled up across iterations
+- A warning is surfaced when the working directory is not a git repo: `<chief-done/>` can't be commit-verified and work isn't persisted between fresh-context iterations
 - Stories are only marked `done` when a matching commit actually landed. If the agent emits `<chief-done/>` without committing (forgot, a hook rejected it, or it crashed), the story is treated as a failed attempt instead of being falsely completed, so uncommitted work is no longer silently lost
 - `prd.md` is now written atomically (temp file + rename), so a crash mid-write can never truncate the source of truth. The file watcher survives atomic replacement (also fixes spurious "removed" events from editors that save atomically)
 - Auto-push and auto-PR on completion only run when the branch has at least one commit, so a run with no committed work no longer creates an empty branch or pull request

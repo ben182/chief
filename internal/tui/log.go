@@ -79,7 +79,7 @@ func (l *LogViewer) AddEvent(event loop.Event) {
 	switch event.Type {
 	case loop.EventAssistantText, loop.EventToolStart, loop.EventToolResult,
 		loop.EventStoryDone, loop.EventStoryNeedsReview, loop.EventStoryNoCommit, loop.EventComplete, loop.EventError, loop.EventRetrying,
-		loop.EventWatchdogTimeout:
+		loop.EventWatchdogTimeout, loop.EventNoGitRepo:
 		// Pre-render and cache lines
 		if l.width > 0 {
 			entry.cachedLines = l.renderEntry(entry)

@@ -14,6 +14,15 @@ type Config struct {
 	Worktree   WorktreeConfig   `yaml:"worktree"`
 	OnComplete OnCompleteConfig `yaml:"onComplete"`
 	Agent      AgentConfig      `yaml:"agent"`
+	Loop       LoopConfig       `yaml:"loop"`
+}
+
+// LoopConfig holds agent-loop tuning knobs.
+type LoopConfig struct {
+	// WatchdogTimeoutSeconds is the silence duration before a hung agent is
+	// killed. <= 0 uses the built-in default. Raise it when the agent runs long
+	// silent builds/tests that would otherwise trip the watchdog.
+	WatchdogTimeoutSeconds int `yaml:"watchdogTimeoutSeconds"`
 }
 
 // AgentConfig holds agent CLI settings (Claude, Codex, OpenCode, or Cursor).

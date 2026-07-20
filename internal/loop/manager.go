@@ -240,6 +240,9 @@ func (m *Manager) Start(name string) error {
 	instance.Loop.buildPrompt = promptBuilderForPRD(instance.PRDPath)
 	m.mu.RLock()
 	instance.Loop.SetRetryConfig(m.retryConfig)
+	if m.config != nil && m.config.Loop.WatchdogTimeoutSeconds > 0 {
+		instance.Loop.SetWatchdogTimeout(time.Duration(m.config.Loop.WatchdogTimeoutSeconds) * time.Second)
+	}
 	m.mu.RUnlock()
 	instance.ctx, instance.cancel = context.WithCancel(context.Background())
 	instance.State = LoopStateRunning
