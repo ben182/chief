@@ -21,7 +21,8 @@ type LogEntry struct {
 	Tool      string
 	ToolInput map[string]interface{}
 	StoryID   string
-	FilePath  string // For Read tool results, stores the file path for syntax highlighting
+	FilePath  string   // For Read tool results, stores the file path for syntax highlighting
+	CrashLog  []string // For retry entries, the last stderr lines from the crashed process
 
 	highlightedCode string   // Pre-computed syntax highlighted code (computed once on add)
 	cachedLines     []string // Pre-rendered output lines (invalidated on width change)
@@ -55,6 +56,7 @@ func (l *LogViewer) AddEvent(event loop.Event) {
 		Tool:      event.Tool,
 		ToolInput: event.ToolInput,
 		StoryID:   event.StoryID,
+		CrashLog:  event.CrashLog,
 	}
 
 	// Track Read tool file paths for syntax highlighting
@@ -616,7 +618,19 @@ func (l *LogViewer) renderRetrying(entry LogEntry) []string {
 		text = "Retrying..."
 	}
 
-	return []string{retryStyle.Render("🔄 " + text)}
+	lines := []string{retryStyle.Render("🔄 " + text)}
+
+	// Surface the crashed process's stderr so users don't have to dig in log files.
+	if len(entry.CrashLog) > 0 {
+		crashStyle := lipgloss.NewStyle().Foreground(MutedColor)
+		for _, cl := range entry.CrashLog {
+			for _, w := range strings.Split(wrapText(cl, l.width-6), "\n") {
+				lines = append(lines, crashStyle.Render("   │ "+w))
+			}
+		}
+	}
+
+	return lines
 }
 
 // renderWatchdogTimeout renders a watchdog timeout message.

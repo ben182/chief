@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -59,7 +60,11 @@ type Loop struct {
 	watchdogTimeout time.Duration
 	sawStoryDone    bool
 	currentStoryID  string
+	stderrTail      []string // last few stderr lines from the current iteration, for crash diagnostics
 }
+
+// maxStderrTail is how many trailing stderr lines are kept to surface on a crash.
+const maxStderrTail = 10
 
 // NewLoop creates a new Loop instance.
 func NewLoop(prdPath, prompt string, maxIter int, provider Provider) *Loop {
@@ -263,6 +268,7 @@ func (l *Loop) runIterationWithRetry(ctx context.Context) error {
 			// Emit retry event
 			l.mu.Lock()
 			iter := l.iteration
+			crashLog := append([]string(nil), l.stderrTail...)
 			l.mu.Unlock()
 			l.events <- Event{
 				Type:       EventRetrying,
@@ -270,6 +276,7 @@ func (l *Loop) runIterationWithRetry(ctx context.Context) error {
 				RetryCount: attempt,
 				RetryMax:   config.MaxRetries,
 				Text:       fmt.Sprintf("%s crashed, retrying (%d/%d)...", l.provider.Name(), attempt, config.MaxRetries),
+				CrashLog:   crashLog,
 			}
 
 			// Wait before retry
@@ -321,6 +328,7 @@ func (l *Loop) runIteration(ctx context.Context) error {
 	cmd := l.provider.LoopCommand(ctx, l.prompt, workDir)
 	l.mu.Lock()
 	l.agentCmd = cmd
+	l.stderrTail = nil // reset crash diagnostics for this iteration
 	// Initialize watchdog state
 	l.lastOutputTime = time.Now()
 	watchdogTimeout := l.watchdogTimeout
@@ -500,8 +508,24 @@ func (l *Loop) processOutput(r io.Reader) {
 func (l *Loop) logStream(r io.Reader, prefix string) {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
-		l.logLine(prefix + scanner.Text())
+		line := scanner.Text()
+		l.logLine(prefix + line)
+		l.captureStderr(line)
 	}
+}
+
+// captureStderr keeps the last maxStderrTail non-empty stderr lines so a crash
+// can surface them in the TUI instead of hiding them in the log file.
+func (l *Loop) captureStderr(line string) {
+	if strings.TrimSpace(line) == "" {
+		return
+	}
+	l.mu.Lock()
+	l.stderrTail = append(l.stderrTail, line)
+	if len(l.stderrTail) > maxStderrTail {
+		l.stderrTail = l.stderrTail[len(l.stderrTail)-maxStderrTail:]
+	}
+	l.mu.Unlock()
 }
 
 // logLine writes a line to the log file.

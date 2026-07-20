@@ -710,3 +710,25 @@ func TestLoop_WatchdogWithWorkDir(t *testing.T) {
 		t.Errorf("Expected default watchdog timeout for NewLoopWithWorkDir, got %v", l.WatchdogTimeout())
 	}
 }
+
+// TestLoop_CaptureStderr verifies the stderr ring buffer keeps only the last
+// maxStderrTail non-empty lines, so a crash surfaces recent output in the TUI.
+func TestLoop_CaptureStderr(t *testing.T) {
+	l := NewLoop("/test/prd.json", "test", 5, testProvider)
+
+	l.captureStderr("")           // dropped: blank
+	l.captureStderr("   ")        // dropped: whitespace only
+	for i := 0; i < maxStderrTail+5; i++ {
+		l.captureStderr(fmt.Sprintf("line %d", i))
+	}
+
+	if len(l.stderrTail) != maxStderrTail {
+		t.Fatalf("expected %d retained lines, got %d", maxStderrTail, len(l.stderrTail))
+	}
+	if got, want := l.stderrTail[len(l.stderrTail)-1], fmt.Sprintf("line %d", maxStderrTail+4); got != want {
+		t.Errorf("expected last line %q, got %q", want, got)
+	}
+	if got, want := l.stderrTail[0], "line 5"; got != want {
+		t.Errorf("expected oldest retained line %q, got %q", want, got)
+	}
+}

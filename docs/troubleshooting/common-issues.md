@@ -62,6 +62,27 @@ Error: OpenCode CLI not found in PATH. Install it or set agent.cliPath in .chief
 
 Chief automatically configures the agent for autonomous operation by disabling permission prompts. If you're still seeing permission issues, ensure you're running Chief (not the agent directly) and that your agent CLI is up to date.
 
+## Agent Crashes / Retrying
+
+**Symptom:** The TUI shows `🔄 <agent> crashed, retrying (1/3)...`.
+
+**Cause:** The agent process exited with an error.
+
+**Solution:**
+
+The last few lines of the crashed process's `stderr` are now shown inline under the retry message in the TUI, so you can usually see the cause without leaving Chief. For example, running Chief as root in Docker surfaces:
+
+```
+🔄 Claude crashed, retrying (1/3)...
+   │ --dangerously-skip-permissions cannot be used with root/sudo privileges...
+```
+
+For the complete output, check the agent log (matches your agent: `claude.log`, `codex.log`, `opencode.log`, or `cursor.log`):
+
+```bash
+tail -100 .chief/prds/your-prd/claude.log
+```
+
 ## PRD Not Updating
 
 **Symptom:** Stories stay incomplete even though the agent seems to finish.

@@ -70,8 +70,9 @@ type Event struct {
 	ToolInput  map[string]interface{}
 	StoryID    string
 	Err        error
-	RetryCount int // Current retry attempt (1-based)
-	RetryMax   int // Maximum retries allowed
+	RetryCount int      // Current retry attempt (1-based)
+	RetryMax   int      // Maximum retries allowed
+	CrashLog   []string // last stderr lines from the crashed process (EventRetrying)
 }
 
 // streamMessage represents the top-level structure of a stream-json line.
