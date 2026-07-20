@@ -16,12 +16,20 @@ Create a `prd.md` file at `{{PRD_DIR}}/prd.md` with a structured PRD based on th
 
 ## Step 1: Clarifying Questions
 
-Before writing the PRD, ask 3-5 essential clarifying questions where the user's initial prompt is ambiguous. Focus on:
+Before writing the PRD, ask clarifying questions wherever the user's initial prompt is ambiguous. Focus on:
 
 - **Problem/Goal:** What problem does this solve? Why does it matter?
 - **Core Functionality:** What are the key actions or behaviors?
 - **Scope/Boundaries:** What should it NOT do?
 - **Success Criteria:** How do we know it's done and working?
+
+**Keep asking until nothing is left open.** Start with 3-5 questions, but if any
+answer is vague, reveals a new ambiguity, or leaves a decision unmade, ask a
+follow-up round. Do NOT proceed to writing the PRD while an implementer could
+still hit a "but what should happen when...?" moment. The finished PRD must be
+good, thorough, and fully decided — every behavior, edge case, and boundary
+resolved. If the user says "you decide" or "your call", make an explicit
+decision and record it in the PRD; do not leave it hanging.
 
 ### Format Questions With Lettered Options
 
@@ -113,7 +121,11 @@ How will success be measured? Be specific:
 - "Users can accomplish Y in under 3 clicks"
 
 ### 9. Open Questions
-Remaining questions or areas needing further clarification.
+Aim for this to be **empty**. Anything answerable by the user must be resolved
+via clarifying questions in Step 1, not parked here. Only list items that are
+genuinely external and cannot be decided now (e.g. "waiting on legal sign-off",
+"depends on a third-party API not yet released"). If you find yourself wanting
+to list an implementation decision here, go back and ask instead.
 
 ---
 
@@ -213,8 +225,9 @@ Add priority levels to tasks so users can focus on what matters most. Tasks can 
 
 ## Open Questions
 
-- Should priority affect task ordering within a column?
-- Should we add keyboard shortcuts for priority changes?
+None — all behavior decided during clarification (priority sorts within each
+column high>medium>low per FR-5; keyboard shortcuts explicitly out of scope, see
+Non-Goals).
 ```
 
 ---
@@ -230,6 +243,7 @@ Before saving the PRD, verify:
 - [ ] Functional requirements are numbered and unambiguous
 - [ ] Non-goals section defines clear boundaries
 - [ ] Success metrics are specific and measurable
+- [ ] No answerable questions left open — anything the user could decide was asked, not parked in Open Questions
 ---
 
 ## Final Step

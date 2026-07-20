@@ -45,6 +45,12 @@ Focus on understanding:
 
 Remember to indent the lettered options under each question.
 
+**Keep asking until nothing is left open.** If an answer is vague or raises a new
+ambiguity, ask a follow-up round before editing. The edited PRD must stay good,
+thorough, and fully decided — an implementer should never hit an unresolved
+"what should happen when...?". If the user says "you decide", make the decision
+explicit in the PRD rather than leaving it open.
+
 If the requested changes are straightforward and unambiguous, you may skip questions and proceed directly to editing.
 
 ---
@@ -99,7 +105,9 @@ Constraints, dependencies, integration points, performance requirements.
 Specific, measurable indicators of success. Always review these when making changes — if the scope changes, the metrics likely should too.
 
 ### 9. Open Questions
-Update with any new questions raised by the changes.
+Keep this **empty** where possible. Resolve anything the user can answer via
+clarifying questions above; only list genuinely external items that cannot be
+decided now.
 
 ---
 
@@ -127,6 +135,7 @@ Before saving the edited PRD, verify:
 - [ ] Functional requirements are numbered and unambiguous
 - [ ] Non-goals updated if scope changed
 - [ ] Success metrics reviewed and updated if needed
+- [ ] No answerable questions left open — anything the user could decide was asked, not parked in Open Questions
 ---
 
 ## Final Step
