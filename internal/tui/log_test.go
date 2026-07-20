@@ -14,6 +14,7 @@ func TestGetToolIcon(t *testing.T) {
 		{"Glob", "🔍"},
 		{"Grep", "🔎"},
 		{"Task", "🤖"},
+		{"Skill", "🧐"},
 		{"WebFetch", "🌐"},
 		{"WebSearch", "🌐"},
 		{"Unknown", "⚙️"},
@@ -90,6 +91,12 @@ func TestGetToolArgument(t *testing.T) {
 			toolName: "Task",
 			input:    map[string]interface{}{"description": "run tests"},
 			expected: "run tests",
+		},
+		{
+			name:     "Skill with skill name",
+			toolName: "Skill",
+			input:    map[string]interface{}{"skill": "code-quality"},
+			expected: "code-quality",
 		},
 		{
 			name:     "nil input",

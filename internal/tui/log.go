@@ -217,6 +217,8 @@ func getToolIcon(toolName string) string {
 		return "🔎"
 	case "Task":
 		return "🤖"
+	case "Skill":
+		return "🧐"
 	case "WebFetch":
 		return "🌐"
 	case "WebSearch":
@@ -260,6 +262,10 @@ func getToolArgument(toolName string, input map[string]interface{}) string {
 	case "Task":
 		if desc, ok := input["description"].(string); ok {
 			return desc
+		}
+	case "Skill":
+		if skill, ok := input["skill"].(string); ok {
+			return skill
 		}
 	}
 
