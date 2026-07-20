@@ -74,7 +74,9 @@ Specific, measurable objectives (bullet list).
 Each story needs:
 - **Title:** Short descriptive name
 - **Description:** "As a [user], I want [feature] so that [benefit]"
-- **Acceptance Criteria:** Verifiable checklist of what "done" means
+- **Acceptance Criteria:** A checklist of observable outcomes that define "done" —
+  what a person can see, do, or test about the finished feature, not the code
+  that implements it.
 
 **Format:**
 ```markdown
@@ -92,7 +94,19 @@ Each story needs:
 - **Add new stories** with the next available ID number.
 - **Update priorities** if story order needs to change.
 - Each story should be small enough to implement in one focused coding session.
-- Acceptance criteria must be verifiable, not vague. "Works correctly" is bad. "Button shows confirmation dialog before deleting" is good.
+- **Write acceptance criteria as observable outcomes, not implementation steps.**
+  A criterion says what a person or a test can observe about the finished feature,
+  not the code edit that produces it. "Deleting a task asks for confirmation first"
+  is good; "add a confirm() call in deleteTask()" is not. Do NOT prescribe file
+  paths, function names, struct fields, or column names unless the user explicitly
+  decided them — those make the PRD unreadable to a human and freeze choices that
+  belong in code review.
+- **Outcome-focused still means verifiable, not vague.** "Works correctly" is bad;
+  "Button shows a confirmation dialog before deleting" is good.
+- **Do not list generic quality gates as criteria.** "Typecheck passes", "tests
+  pass", and "lint clean" apply to every story and are enforced automatically on
+  every commit — do not add them. When editing an existing story, strip such lines
+  if you touch its criteria.
 
 ### 4. Functional Requirements
 Numbered list (FR-1, FR-2, etc.). Be explicit and unambiguous.
@@ -138,7 +152,9 @@ Before saving the edited PRD, verify:
 - [ ] Existing story IDs are preserved (not renumbered)
 - [ ] New stories use the next available ID
 - [ ] User stories are small, atomic, and specific
-- [ ] Acceptance criteria are verifiable (not vague)
+- [ ] Acceptance criteria describe observable outcomes, not code steps — no file paths, function names, or column names unless the user decided them
+- [ ] No generic quality gates ("Typecheck passes", "tests pass") listed as criteria — they are enforced automatically
+- [ ] Acceptance criteria are still verifiable (not vague)
 - [ ] Functional requirements are numbered and unambiguous
 - [ ] Non-goals updated if scope changed
 - [ ] Success metrics reviewed and updated if needed

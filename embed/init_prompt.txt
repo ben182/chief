@@ -114,7 +114,9 @@ Specific, measurable objectives (bullet list).
 Each story needs:
 - **Title:** Short descriptive name
 - **Description:** "As a [user], I want [feature] so that [benefit]"
-- **Acceptance Criteria:** Verifiable checklist of what "done" means
+- **Acceptance Criteria:** A checklist of observable outcomes that define "done" —
+  what a person can see, do, or test about the finished feature, not the code
+  that implements it.
 
 Each story should be small enough to implement in one focused coding session.
 
@@ -132,7 +134,25 @@ Each story should be small enough to implement in one focused coding session.
 **Guidelines:**
 - Lower priority numbers = higher priority. Build foundations first.
 - Order stories so earlier ones enable later ones (consider dependencies).
-- Acceptance criteria must be verifiable, not vague. "Works correctly" is bad. "Button shows confirmation dialog before deleting" is good.
+- **Write acceptance criteria as observable outcomes, not implementation steps.**
+  A criterion says what a person or a test can observe about the finished feature
+  — a behavior, a visible result, a state change — not the code edit that produces
+  it. "Deleting a task asks for confirmation first" is good; "add a confirm() call
+  in deleteTask()" is not. The implementer owns the *how*: do NOT prescribe file
+  paths, function names, struct fields, or database column names unless the user
+  explicitly decided them. Those details make the PRD unreadable to a human and
+  freeze choices that belong in code review, not the spec. (Naming an *existing*
+  component to reuse for consistency — see the frontend guidance below — is such a
+  decided detail, and is the intended exception, not a violation of this rule.)
+- **Outcome-focused still means verifiable, not vague.** "Works correctly" is bad.
+  Each criterion should be something you could hand to a tester who has never seen
+  the code and have them check it: "Button shows a confirmation dialog before
+  deleting" is good.
+- **Do not list generic quality gates as criteria.** "Typecheck passes", "tests
+  pass", "lint clean" apply to every story and are enforced automatically on every
+  commit — repeating them in each story is noise. Only write a verification
+  criterion when it is specific to this story (e.g. "an empty list still renders
+  its header").
 - **Bake the design into each UI story's acceptance criteria — do not rely on the
   Design & Frontend section reaching the implementer.** When Chief implements a
   story it sees ONLY that story, not the rest of the PRD, so any frontend decision
@@ -217,51 +237,49 @@ Add priority levels to tasks so users can focus on what matters most. Tasks can 
 
 ## User Stories
 
-### US-001: Add priority field to database
+### US-001: Set a task's priority
 **Priority:** 1
-**Description:** As a developer, I need to store task priority so it persists across sessions.
+**Description:** As a user, I want to mark a task as high, medium, or low priority so that I can focus on what matters most.
 
 **Acceptance Criteria:**
-- [ ] Add priority column to tasks table: 'high' | 'medium' | 'low' (default 'medium')
-- [ ] Generate and run migration successfully
-- [ ] Typecheck passes
+- [ ] A task can be set to exactly one of three priorities: high, medium, or low
+- [ ] A newly created task is medium priority until it is changed
+- [ ] A task's priority is remembered after reloading the app
 
-### US-002: Display priority indicator on task cards
+### US-002: See a task's priority at a glance
 **Priority:** 2
-**Description:** As a user, I want to see task priority at a glance so I know what needs attention first.
+**Description:** As a user, I want to see task priority without opening a task so I know what needs attention first.
 
 **Acceptance Criteria:**
-- [ ] Each task card shows colored priority badge (red=high, yellow=medium, gray=low)
-- [ ] Priority visible without hovering or clicking
-- [ ] Typecheck passes
+- [ ] Every task in the list shows a colored badge: red for high, yellow for medium, gray for low
+- [ ] The badge is visible in the list without hovering or opening the task
+- [ ] Changing a task's priority updates its badge immediately
 
-### US-003: Add priority selector to task edit
+### US-003: Change a task's priority while editing
 **Priority:** 3
 **Description:** As a user, I want to change a task's priority when editing it.
 
 **Acceptance Criteria:**
-- [ ] Priority dropdown in task edit modal
-- [ ] Shows current priority as selected
-- [ ] Saves immediately on selection change
-- [ ] Typecheck passes
+- [ ] The task edit view offers a priority control with all three levels
+- [ ] It shows the task's current priority as pre-selected
+- [ ] Choosing a new level takes effect immediately, with no separate save step
 
 ### US-004: Filter tasks by priority
 **Priority:** 4
 **Description:** As a user, I want to filter the task list to see only high-priority items when I'm focused.
 
 **Acceptance Criteria:**
-- [ ] Filter dropdown with options: All | High | Medium | Low
-- [ ] Filter persists in URL params
-- [ ] Empty state message when no tasks match filter
-- [ ] Typecheck passes
+- [ ] The list can be filtered to show All, only High, only Medium, or only Low
+- [ ] The active filter still applies after reloading the app
+- [ ] When no task matches the filter, the list shows a short "nothing here" message instead of looking broken
 
 ## Functional Requirements
 
-- FR-1: Add `priority` field to tasks table ('high' | 'medium' | 'low', default 'medium')
-- FR-2: Display colored priority badge on each task card
-- FR-3: Include priority selector in task edit modal
-- FR-4: Add priority filter dropdown to task list header
-- FR-5: Sort by priority within each status column (high > medium > low)
+- FR-1: A task carries a priority of high, medium, or low, defaulting to medium
+- FR-2: Each task in the list shows a colored badge reflecting its priority
+- FR-3: The task edit view lets the user change a task's priority
+- FR-4: The task list can be filtered by priority
+- FR-5: Within each status column, tasks are ordered high > medium > low
 
 ## Non-Goals
 
@@ -300,7 +318,9 @@ Before saving the PRD, verify:
 - [ ] If the feature has a UI, the frontend was grilled (screens, states, components, interaction, visual direction) and captured in the Design & Frontend section
 - [ ] Every UI story has the relevant design decisions written INTO its acceptance criteria (states, named components, interaction) — not left only in the Design section, which the implementer never sees
 - [ ] User stories are small, atomic, and specific
-- [ ] Acceptance criteria are verifiable (not vague)
+- [ ] Acceptance criteria describe observable outcomes, not code steps — no file paths, function names, or column names unless the user decided them
+- [ ] No generic quality gates ("Typecheck passes", "tests pass") listed as criteria — they are enforced automatically
+- [ ] Acceptance criteria are still verifiable (not vague)
 - [ ] Functional requirements are numbered and unambiguous
 - [ ] Non-goals section defines clear boundaries
 - [ ] Success metrics are specific and measurable
