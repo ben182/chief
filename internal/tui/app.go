@@ -2242,6 +2242,38 @@ func (a *App) GetCompletionPercentage() float64 {
 	return float64(completed) / float64(len(a.prd.UserStories)) * 100.0
 }
 
+// minTimingsForETA is how many completed stories are needed before showing an
+// ETA. The first stories are unrepresentative (codebase exploration, pattern
+// establishment), so we wait until velocity settles.
+const minTimingsForETA = 3
+
+// GetETA estimates the time remaining to complete the PRD from observed
+// per-story velocity. Returns (eta, true) once enough stories have finished for
+// the estimate to be meaningful. Per-story durations already exclude idle time
+// between sessions, so overnight gaps don't skew the average.
+func (a *App) GetETA() (time.Duration, bool) {
+	if len(a.storyTimings) < minTimingsForETA {
+		return 0, false
+	}
+	remaining := 0
+	for _, s := range a.prd.UserStories {
+		if !s.Passes {
+			remaining++
+		}
+	}
+	if remaining == 0 {
+		return 0, false
+	}
+	var total time.Duration
+	for _, t := range a.storyTimings {
+		total += t.Duration
+	}
+	// ponytail: plain mean; switch to a recency-weighted average if early
+	// exploration stories skew the estimate too high in practice.
+	avg := total / time.Duration(len(a.storyTimings))
+	return avg * time.Duration(remaining), true
+}
+
 // GetLastActivity returns the last activity message.
 func (a *App) GetLastActivity() string {
 	return a.lastActivity

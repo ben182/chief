@@ -170,9 +170,18 @@ func (a *App) renderHeader() string {
 	elapsed := a.GetElapsedTime()
 	elapsedStr := SubtitleStyle.Render(fmt.Sprintf("Time: %s", formatDuration(elapsed)))
 
+	// ETA (only shown once velocity is meaningful)
+	etaStr := ""
+	if eta, ok := a.GetETA(); ok {
+		etaStr = SubtitleStyle.Render(fmt.Sprintf("ETA: ~%s", formatDuration(eta)))
+	}
+
 	// Combine elements
 	leftPart := lipgloss.JoinHorizontal(lipgloss.Center, brand, "  ", state)
 	rightPart := lipgloss.JoinHorizontal(lipgloss.Center, iteration, "  ", elapsedStr)
+	if etaStr != "" {
+		rightPart = lipgloss.JoinHorizontal(lipgloss.Center, rightPart, "  ", etaStr)
+	}
 
 	// Create the full header line with proper spacing
 	spacing := strings.Repeat(" ", max(0, a.width-lipgloss.Width(leftPart)-lipgloss.Width(rightPart)-2))
@@ -217,6 +226,9 @@ func (a *App) renderNarrowHeader() string {
 	// Condensed iteration and time
 	elapsed := a.GetElapsedTime()
 	iterTime := SubtitleStyle.Render(fmt.Sprintf("#%d %s", a.iteration, formatDuration(elapsed)))
+	if eta, ok := a.GetETA(); ok {
+		iterTime = SubtitleStyle.Render(fmt.Sprintf("#%d %s ~%s", a.iteration, formatDuration(elapsed), formatDuration(eta)))
+	}
 
 	// Combine elements
 	leftPart := lipgloss.JoinHorizontal(lipgloss.Center, brand, " ", state)
