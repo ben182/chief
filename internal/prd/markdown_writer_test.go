@@ -268,3 +268,44 @@ A description.
 		t.Error("US-001 should not be in-progress")
 	}
 }
+
+func TestWriteFileAtomic(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "prd.md")
+
+	// Overwrite an existing file.
+	if err := os.WriteFile(path, []byte("old content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	want := "new content\nsecond line\n"
+	if err := writeFileAtomic(path, []byte(want)); err != nil {
+		t.Fatalf("writeFileAtomic: %v", err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != want {
+		t.Errorf("content = %q, want %q", got, want)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0644 {
+		t.Errorf("perm = %v, want 0644", info.Mode().Perm())
+	}
+
+	// No temp files must be left behind in the directory.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Errorf("leftover temp file: %s", e.Name())
+		}
+	}
+}

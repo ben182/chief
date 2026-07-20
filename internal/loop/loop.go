@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/minicodemonkey/chief/embed"
+	"github.com/minicodemonkey/chief/internal/git"
 	"github.com/minicodemonkey/chief/internal/prd"
 )
 
@@ -49,7 +50,7 @@ type Loop struct {
 	prdPath         string
 	workDir         string
 	prompt          string
-	buildPrompt     func() (string, string, error) // optional: rebuild prompt each iteration; returns (prompt, storyID, error)
+	buildPrompt     func() (string, string, string, error) // optional: rebuild prompt each iteration; returns (prompt, storyID, storyTitle, error)
 	maxIter         int
 	iteration       int
 	events          chan Event
@@ -62,8 +63,9 @@ type Loop struct {
 	retryConfig     RetryConfig
 	lastOutputTime  time.Time
 	watchdogTimeout time.Duration
-	sawStoryDone    bool
-	currentStoryID  string
+	sawStoryDone      bool
+	currentStoryID    string
+	currentStoryTitle string
 	stderrTail      []string       // last few stderr lines from the current iteration, for crash diagnostics
 	attempts        map[string]int // per-story attempt count, keyed by story ID
 	maxAttempts     int            // attempts allowed per story before parking it for review
@@ -115,16 +117,16 @@ func NewLoopWithEmbeddedPrompt(prdPath string, maxIter int, provider Provider) *
 // promptBuilderForPRD returns a function that loads the PRD and builds a prompt
 // with the next story inlined. This is called before each iteration so that
 // newly completed stories are skipped. The returned storyID is stored on the Loop.
-func promptBuilderForPRD(prdPath string) func() (string, string, error) {
-	return func() (string, string, error) {
+func promptBuilderForPRD(prdPath string) func() (string, string, string, error) {
+	return func() (string, string, string, error) {
 		p, err := prd.LoadPRD(prdPath)
 		if err != nil {
-			return "", "", fmt.Errorf("failed to load PRD for prompt: %w", err)
+			return "", "", "", fmt.Errorf("failed to load PRD for prompt: %w", err)
 		}
 
 		story := p.NextStory()
 		if story == nil {
-			return "", "", fmt.Errorf("all stories are complete")
+			return "", "", "", fmt.Errorf("all stories are complete")
 		}
 
 		// Mark the story as in-progress in the markdown file
@@ -133,7 +135,7 @@ func promptBuilderForPRD(prdPath string) func() (string, string, error) {
 		storyCtx := p.NextStoryContext()
 
 		prompt := embed.GetPrompt(prd.ProgressPath(prdPath), *storyCtx, story.ID, story.Title)
-		return prompt, story.ID, nil
+		return prompt, story.ID, story.Title, nil
 	}
 }
 
@@ -191,7 +193,7 @@ func (l *Loop) Run(ctx context.Context) error {
 
 		// Rebuild prompt if builder is set (inlines the current story each iteration)
 		if l.buildPrompt != nil {
-			prompt, storyID, err := l.buildPrompt()
+			prompt, storyID, storyTitle, err := l.buildPrompt()
 			if err != nil {
 				l.events <- Event{
 					Type:      EventComplete,
@@ -202,6 +204,7 @@ func (l *Loop) Run(ctx context.Context) error {
 			l.mu.Lock()
 			l.prompt = prompt
 			l.currentStoryID = storyID
+			l.currentStoryTitle = storyTitle
 			l.sawStoryDone = false
 			l.mu.Unlock()
 		}
@@ -239,8 +242,23 @@ func (l *Loop) Run(ctx context.Context) error {
 		l.mu.Lock()
 		saw := l.sawStoryDone
 		storyID := l.currentStoryID
+		storyTitle := l.currentStoryTitle
 		l.sawStoryDone = false
 		l.mu.Unlock()
+		// A <chief-done/> signal is only trusted if a matching commit actually
+		// landed. Otherwise the agent claimed done but produced no committed work
+		// (forgot to commit, hook rejected, crash before commit): the next
+		// fresh-context iteration would move on and the change could be lost. Treat
+		// that as a failed attempt so the story is retried or eventually parked.
+		if saw && storyID != "" && !l.storyHasCommit(storyID, storyTitle) {
+			saw = false
+			l.events <- Event{
+				Type:      EventStoryNoCommit,
+				Iteration: currentIter,
+				StoryID:   storyID,
+				Text:      fmt.Sprintf("Story %s signalled done but no commit was found; treating as incomplete", storyID),
+			}
+		}
 		if saw && storyID != "" {
 			_ = prd.SetStoryStatus(l.prdPath, storyID, "done")
 		} else if storyID != "" {
@@ -610,6 +628,20 @@ func (l *Loop) effectiveWorkDir() string {
 		return l.workDir
 	}
 	return filepath.Dir(l.prdPath)
+}
+
+// storyHasCommit reports whether a commit matching the story landed, so a
+// <chief-done/> signal can be trusted. Outside a git repo the commit status
+// can't be determined, so it returns true (fail-open) rather than blocking
+// completion in non-git setups. Inside a repo — even a brand-new one with no
+// commits yet — the absence of a matching commit means the story is not done.
+func (l *Loop) storyHasCommit(storyID, title string) bool {
+	dir := l.effectiveWorkDir()
+	if !git.IsGitRepo(dir) {
+		return true
+	}
+	hash, _ := git.FindCommitForStory(dir, storyID, title)
+	return hash != ""
 }
 
 // IsRunning returns whether an agent process is currently running.

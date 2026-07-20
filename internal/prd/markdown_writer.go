@@ -3,6 +3,7 @@ package prd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -21,7 +22,36 @@ func SetStoryStatus(path, storyID, status string) error {
 		return err
 	}
 
-	return os.WriteFile(path, []byte(result), 0644)
+	return writeFileAtomic(path, []byte(result))
+}
+
+// writeFileAtomic writes data to path by writing a temp file in the same
+// directory and renaming it into place. prd.md is the source of truth for all
+// story state; a crash mid-write must never truncate it.
+func writeFileAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName) // no-op once the rename succeeds
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	// CreateTemp makes the file 0600; match the previous 0644.
+	if err := os.Chmod(tmpName, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
 
 // setStoryStatusInString performs the status update on a string and returns the modified string.

@@ -2,6 +2,13 @@
 
 All notable changes to Chief are documented in this file.
 
+## [Unreleased]
+
+### Bug Fixes
+- Stories are only marked `done` when a matching commit actually landed. If the agent emits `<chief-done/>` without committing (forgot, a hook rejected it, or it crashed), the story is treated as a failed attempt instead of being falsely completed, so uncommitted work is no longer silently lost
+- `prd.md` is now written atomically (temp file + rename), so a crash mid-write can never truncate the source of truth. The file watcher survives atomic replacement (also fixes spurious "removed" events from editors that save atomically)
+- Auto-push and auto-PR on completion only run when the branch has at least one commit, so a run with no committed work no longer creates an empty branch or pull request
+
 ## [0.7.0] - 2026-03-08
 
 ### Features

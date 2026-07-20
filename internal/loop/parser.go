@@ -26,6 +26,9 @@ const (
 	// EventStoryNeedsReview is emitted when a story is parked for human review
 	// after failing to complete within the per-story attempt limit.
 	EventStoryNeedsReview
+	// EventStoryNoCommit is emitted when the agent signalled <chief-done/> but no
+	// matching commit was found, so the story is treated as an incomplete attempt.
+	EventStoryNoCommit
 	// EventMaxIterationsReached is emitted when max iterations are reached.
 	EventMaxIterationsReached
 	// EventError is emitted when an error occurs.
@@ -53,6 +56,8 @@ func (e EventType) String() string {
 		return "Complete"
 	case EventStoryNeedsReview:
 		return "StoryNeedsReview"
+	case EventStoryNoCommit:
+		return "StoryNoCommit"
 	case EventMaxIterationsReached:
 		return "MaxIterationsReached"
 	case EventError:

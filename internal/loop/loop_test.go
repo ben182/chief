@@ -800,3 +800,112 @@ func TestLoop_CaptureStderr(t *testing.T) {
 		t.Errorf("expected oldest retained line %q, got %q", want, got)
 	}
 }
+
+// TestStoryHasCommit verifies that a <chief-done/> signal is only trusted when a
+// matching commit actually landed, gating story completion on committed work.
+func TestStoryHasCommit(t *testing.T) {
+	dir := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init")
+	run("config", "user.email", "t@t.io")
+	run("config", "user.name", "t")
+	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", ".")
+	run("commit", "-m", "feat: US-001 - Add login")
+
+	l := &Loop{workDir: dir}
+
+	if !l.storyHasCommit("US-001", "Add login") {
+		t.Error("expected true for a story with a matching commit")
+	}
+	if l.storyHasCommit("US-002", "No such story") {
+		t.Error("expected false for a story with no matching commit")
+	}
+	// Not a git repo: can't determine, must not block completion.
+	l2 := &Loop{workDir: t.TempDir()}
+	if !l2.storyHasCommit("US-001", "Add login") {
+		t.Error("expected true (fail-open) when the directory is not a git repo")
+	}
+}
+
+// TestLoop_DoneWithoutCommitIsNotTrusted verifies that a <chief-done/> signal in
+// a git repo with no matching commit is treated as a failed attempt (parked),
+// never marked done, so uncommitted work is not silently lost.
+func TestLoop_DoneWithoutCommitIsNotTrusted(t *testing.T) {
+	dir := t.TempDir()
+	gitRun := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	gitRun("init")
+	gitRun("config", "user.email", "t@t.io")
+	gitRun("config", "user.name", "t")
+
+	md := "# Test Project\n\nDesc\n\n### US-001: Story One\n- [ ] works\n"
+	prdPath := filepath.Join(dir, "prd.md")
+	if err := os.WriteFile(prdPath, []byte(md), 0644); err != nil {
+		t.Fatalf("write prd: %v", err)
+	}
+
+	// Mock agent: claims done but never commits anything.
+	scriptPath := filepath.Join(dir, "mock-claude")
+	script := "#!/bin/bash\n" +
+		`echo '{"type":"assistant","message":{"content":[{"type":"text","text":"done <chief-done/>"}]}}'` + "\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	l := NewLoopWithWorkDir(prdPath, dir, "", 20, &mockProvider{cliPath: scriptPath})
+	l.buildPrompt = promptBuilderForPRD(prdPath)
+	l.SetMaxAttemptsPerStory(1)
+	l.DisableRetry()
+
+	var sawNoCommit, sawParked bool
+	done := make(chan bool)
+	go func() {
+		for e := range l.Events() {
+			switch e.Type {
+			case EventStoryNoCommit:
+				sawNoCommit = true
+			case EventStoryNeedsReview:
+				sawParked = true
+			}
+		}
+		done <- true
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := l.Run(ctx); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	<-done
+
+	if !sawNoCommit {
+		t.Error("expected EventStoryNoCommit when done is claimed without a commit")
+	}
+	if !sawParked {
+		t.Error("expected story to be parked after the no-commit attempt")
+	}
+
+	p, err := prd.LoadPRD(prdPath)
+	if err != nil {
+		t.Fatalf("reload prd: %v", err)
+	}
+	if p.UserStories[0].Passes {
+		t.Error("story must not be marked done without a matching commit")
+	}
+}

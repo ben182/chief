@@ -179,7 +179,9 @@ When the agent finishes working on a story, it outputs a special marker:
 <chief-done/>
 ```
 
-This signal tells Chief that the **current story** is done. Chief then marks the story as `**Status:** done` in `prd.md` and selects the next incomplete story. When no stories remain, the loop ends naturally.
+This signal tells Chief that the **current story** is done. Before marking it done, Chief verifies that a matching commit (`feat: [Story ID] - [Story Title]`) actually landed. If it did, Chief marks the story as `**Status:** done` in `prd.md` and selects the next incomplete story. When no stories remain, the loop ends naturally.
+
+If the agent emits `<chief-done/>` but **no matching commit exists** — it forgot to commit, a pre-commit hook rejected the change, or it crashed before committing — Chief does not trust the signal. The story is treated as a failed attempt (counting toward the per-story retry budget below) instead of being falsely marked done, so the uncommitted work isn't silently lost when the next fresh-context iteration moves on.
 
 ### 7. Continue the Loop
 
@@ -219,6 +221,8 @@ When all stories in a PRD are complete, Chief can automatically:
 
 1. **Push the branch** — If `onComplete.push` is enabled in `.chief/config.yaml`, Chief pushes the branch to origin
 2. **Create a pull request** — If `onComplete.createPR` is also enabled, Chief creates a PR via the `gh` CLI with a title and body generated from the PRD
+
+Auto-push and auto-PR only run when the branch has at least one commit. A run that completes with no committed work (for example, every story was parked for review) is not pushed, so Chief never creates an empty branch or PR.
 
 The completion screen shows the progress of these actions with spinners, checkmarks, or error messages. On PR success, the PR URL is displayed and clickable.
 

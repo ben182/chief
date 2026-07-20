@@ -108,11 +108,17 @@ func (w *Watcher) processEvents() {
 				w.handleFileChange()
 			}
 
-			// Handle file removal - try to re-watch
-			if event.Op&fsnotify.Remove != 0 {
-				w.events <- WatcherEvent{Error: errors.New("prd.md was removed")}
-				// Try to re-add the watch (file might be re-created)
-				_ = w.watcher.Add(w.path)
+			// Handle atomic replacement or removal. Chief writes prd.md
+			// atomically (temp file + rename) and many editors save the same
+			// way, so the watched inode is swapped out rather than modified in
+			// place. Re-add the watch and reload; only report a genuine removal
+			// if the file is actually gone.
+			if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+				if err := w.watcher.Add(w.path); err != nil {
+					w.events <- WatcherEvent{Error: errors.New("prd.md was removed")}
+				} else {
+					w.handleFileChange()
+				}
 			}
 
 		case err, ok := <-w.watcher.Errors:
