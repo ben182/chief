@@ -12,7 +12,7 @@ import (
 
 // EditOptions contains configuration for the edit command.
 type EditOptions struct {
-	Name     string        // PRD name (default: "main")
+	Name     string        // PRD name (default: "default")
 	BaseDir  string        // Base directory for .chief/prds/ (default: current directory)
 	Provider loop.Provider // Agent CLI provider (Claude or Codex)
 }
@@ -21,7 +21,7 @@ type EditOptions struct {
 func RunEdit(opts EditOptions) error {
 	// Set defaults
 	if opts.Name == "" {
-		opts.Name = "main"
+		opts.Name = "default"
 	}
 	if opts.BaseDir == "" {
 		cwd, err := os.Getwd()

@@ -10,7 +10,7 @@ import (
 
 // StatusOptions contains configuration for the status command.
 type StatusOptions struct {
-	Name    string // PRD name (default: "main")
+	Name    string // PRD name (default: "default")
 	BaseDir string // Base directory for .chief/prds/ (default: current directory)
 }
 
@@ -19,7 +19,7 @@ type StatusOptions struct {
 func RunStatus(opts StatusOptions) error {
 	// Set defaults
 	if opts.Name == "" {
-		opts.Name = "main"
+		opts.Name = "default"
 	}
 	if opts.BaseDir == "" {
 		cwd, err := os.Getwd()

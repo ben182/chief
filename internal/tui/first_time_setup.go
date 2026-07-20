@@ -77,7 +77,7 @@ func NewFirstTimeSetup(baseDir string, showGitignore bool) *FirstTimeSetup {
 		showGitignore:     showGitignore,
 		step:              step,
 		gitignoreSelected: 0, // Default to "Yes"
-		prdName:           "main",
+		prdName:           "default",
 		pushSelected:      0, // Default to "Yes"
 		createPRSelected:  0, // Default to "Yes"
 	}

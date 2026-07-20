@@ -15,7 +15,7 @@ import (
 
 // NewOptions contains configuration for the new command.
 type NewOptions struct {
-	Name     string        // PRD name (default: "main")
+	Name     string        // PRD name (default: "default")
 	Context  string        // Optional context to pass to the agent
 	BaseDir  string        // Base directory for .chief/prds/ (default: current directory)
 	Provider loop.Provider // Agent CLI provider (Claude or Codex)
@@ -25,7 +25,7 @@ type NewOptions struct {
 func RunNew(opts NewOptions) error {
 	// Set defaults
 	if opts.Name == "" {
-		opts.Name = "main"
+		opts.Name = "default"
 	}
 	if opts.BaseDir == "" {
 		cwd, err := os.Getwd()

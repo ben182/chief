@@ -48,12 +48,12 @@ Test description
 func TestRunStatusWithDefaultName(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	prdDir := filepath.Join(tmpDir, ".chief", "prds", "main")
+	prdDir := filepath.Join(tmpDir, ".chief", "prds", "default")
 	if err := os.MkdirAll(prdDir, 0755); err != nil {
 		t.Fatalf("Failed to create directory: %v", err)
 	}
 
-	prdMd := "# Main Project\n"
+	prdMd := "# Default Project\n"
 	prdPath := filepath.Join(prdDir, "prd.md")
 	if err := os.WriteFile(prdPath, []byte(prdMd), 0644); err != nil {
 		t.Fatalf("Failed to create prd.md: %v", err)

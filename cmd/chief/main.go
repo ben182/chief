@@ -385,9 +385,12 @@ func runTUIWithOptions(opts *TUIOptions) {
 
 	// If no PRD specified, try to find one
 	if prdPath == "" {
-		// Try "main" first
+		// Try "default" first (falls back to "main" for older setups)
+		defaultPath := ".chief/prds/default/prd.md"
 		mainPath := ".chief/prds/main/prd.md"
-		if _, err := os.Stat(mainPath); err == nil {
+		if _, err := os.Stat(defaultPath); err == nil {
+			prdPath = defaultPath
+		} else if _, err := os.Stat(mainPath); err == nil {
 			prdPath = mainPath
 		} else {
 			// Look for any available PRD
@@ -539,7 +542,7 @@ Commands:
   start [name]              Launch the TUI and begin the loop immediately
   new [name] [context]      Create a new PRD interactively
   edit [name] [options]     Edit an existing PRD interactively
-  status [name]             Show progress for a PRD (default: main)
+  status [name]             Show progress for a PRD (default: default)
   list                      List all PRDs with progress
   update                    Update Chief to the latest version
   help                      Show this help message
@@ -565,7 +568,7 @@ Positional Arguments:
   <path/to/prd.md>        Direct path to a prd.md file
 
 Examples:
-  chief                     Launch TUI with default PRD (.chief/prds/main/)
+  chief                     Launch TUI with default PRD (.chief/prds/default/)
   chief auth                Launch TUI with named PRD (.chief/prds/auth/)
   chief start               Launch default PRD and start the loop immediately
   chief start auth          Launch auth PRD and start the loop immediately
@@ -578,11 +581,11 @@ Examples:
   chief --agent cursor      Use Cursor CLI as agent
   chief --model my-local-model
                             Pass --model to Claude (e.g. local models via LM Studio)
-  chief new                 Create PRD in .chief/prds/main/
+  chief new                 Create PRD in .chief/prds/default/
   chief new auth            Create PRD in .chief/prds/auth/
   chief new auth "JWT authentication for REST API"
                             Create PRD with context hint
-  chief edit                Edit PRD in .chief/prds/main/
+  chief edit                Edit PRD in .chief/prds/default/
   chief edit auth           Edit PRD in .chief/prds/auth/
   chief edit auth --merge   Edit and auto-merge progress
   chief status              Show progress for default PRD

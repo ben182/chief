@@ -42,34 +42,34 @@ func TestRunEditRejectsInvalidName(t *testing.T) {
 	}
 }
 
-func TestRunEditDefaultsToMain(t *testing.T) {
+func TestRunEditDefaultsToDefault(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create main prd.md
-	prdDir := filepath.Join(tmpDir, ".chief", "prds", "main")
+	// Create default prd.md
+	prdDir := filepath.Join(tmpDir, ".chief", "prds", "default")
 	if err := os.MkdirAll(prdDir, 0755); err != nil {
 		t.Fatalf("Failed to create directory: %v", err)
 	}
 	prdMdPath := filepath.Join(prdDir, "prd.md")
-	if err := os.WriteFile(prdMdPath, []byte("# Main PRD"), 0644); err != nil {
+	if err := os.WriteFile(prdMdPath, []byte("# Default PRD"), 0644); err != nil {
 		t.Fatalf("Failed to create prd.md: %v", err)
 	}
 
-	// Test with empty name (should default to main)
+	// Test with empty name (should default to "default")
 	opts := EditOptions{
-		Name:    "", // Empty should default to "main"
+		Name:    "", // Empty should default to "default"
 		BaseDir: tmpDir,
 	}
 
 	// We can't fully test RunEdit without Claude, but we can verify
 	// the name defaulting logic by checking if it would find the file
 	if opts.Name == "" {
-		opts.Name = "main"
+		opts.Name = "default"
 	}
 
 	prdPath := filepath.Join(tmpDir, ".chief", "prds", opts.Name, "prd.md")
 	if _, err := os.Stat(prdPath); os.IsNotExist(err) {
-		t.Error("Expected default name 'main' to resolve to existing prd.md")
+		t.Error("Expected default name 'default' to resolve to existing prd.md")
 	}
 }
 

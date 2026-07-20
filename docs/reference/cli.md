@@ -115,7 +115,7 @@ chief new [name] [context]
 
 | Argument | Description |
 |----------|-------------|
-| `name` | PRD name (optional, defaults to `main`). Must contain only letters, numbers, hyphens, and underscores. |
+| `name` | PRD name (optional, defaults to `default`). Must contain only letters, numbers, hyphens, and underscores. |
 | `context` | Additional context to pass to the agent (optional). Included in the PRD creation prompt. |
 
 **How it works:**
@@ -138,7 +138,7 @@ chief new [name] [context]
 **Examples:**
 
 ```bash
-# Create a new PRD (defaults to name "main")
+# Create a new PRD (defaults to name "default")
 chief new
 
 # Create a named PRD
