@@ -776,9 +776,6 @@ func (a App) startLoopForPRD(prdName string) (tea.Model, tea.Cmd) {
 				a.lastActivity = "Error creating branch: " + err.Error()
 				return a, nil
 			}
-			if a.manager.GetInstance(prdName) != nil {
-				a.manager.UpdateWorktreeInfo(prdName, "", expectedBranch)
-			}
 			a.lastActivity = "Created branch: " + expectedBranch
 		}
 		return a.doStartLoop(prdName, prdDir)
@@ -828,6 +825,15 @@ func (a App) doStartLoop(prdName, prdDir string) (tea.Model, tea.Cmd) {
 	if err := a.manager.Start(prdName); err != nil {
 		a.lastActivity = "Error starting loop: " + err.Error()
 		return a, nil
+	}
+
+	// Record the branch the loop runs on so on-complete push/PR know what to
+	// push. Only when nothing is tracked yet (worktree starts set both first)
+	// and never for main/master - we never auto-push a protected branch.
+	if inst := a.manager.GetInstance(prdName); inst != nil && inst.Branch == "" && inst.WorktreeDir == "" && git.IsGitRepo(a.baseDir) {
+		if b, err := git.GetCurrentBranch(a.baseDir); err == nil && !git.IsProtectedBranch(b) {
+			a.manager.UpdateWorktreeInfo(prdName, "", b)
+		}
 	}
 
 	// Update state if this is the current PRD
