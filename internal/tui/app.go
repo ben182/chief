@@ -767,7 +767,20 @@ func (a App) startLoopForPRD(prdName string) (tea.Model, tea.Cmd) {
 	anotherRunningInSameDir := a.isAnotherPRDRunningInSameDir(prdName)
 
 	if !isProtected && !anotherRunningInSameDir {
-		// No conflicts: skip the dialog entirely and start the loop directly
+		// No conflicts, no dialog. Still give the PRD its own branch unless
+		// we're already on it (resume): otherwise a leftover feature branch
+		// from a previous PRD silently soaks up this PRD's commits.
+		expectedBranch := fmt.Sprintf("chief/%s", prdName)
+		if branch != expectedBranch {
+			if err := git.CreateBranch(a.baseDir, expectedBranch); err != nil {
+				a.lastActivity = "Error creating branch: " + err.Error()
+				return a, nil
+			}
+			if a.manager.GetInstance(prdName) != nil {
+				a.manager.UpdateWorktreeInfo(prdName, "", expectedBranch)
+			}
+			a.lastActivity = "Created branch: " + expectedBranch
+		}
 		return a.doStartLoop(prdName, prdDir)
 	}
 
@@ -1316,8 +1329,10 @@ func (a *App) showCompletionScreen(prdName string) tea.Cmd {
 	// Always start confetti tick
 	cmds := []tea.Cmd{tickConfetti()}
 
-	// Trigger auto-push if configured and branch is set
-	if a.config != nil && a.config.OnComplete.Push && branch != "" {
+	// Trigger auto-push if configured and there is committed work to push.
+	// A run can complete with zero commits (every story parked, or the agent
+	// never committed); pushing then would create an empty branch and PR.
+	if a.config != nil && a.config.OnComplete.Push && branch != "" && commitCount > 0 {
 		a.completionScreen.SetPushInProgress()
 		cmds = append(cmds, tickCompletionSpinner(), a.runAutoPush())
 	}
@@ -1349,6 +1364,11 @@ func (a *App) runBackgroundAutoActions(prdName string) tea.Cmd {
 	dir := a.baseDir
 	if instance.WorktreeDir != "" {
 		dir = instance.WorktreeDir
+	}
+
+	// Don't push a branch with no committed work (see showCompletionScreen).
+	if git.CommitCount(dir, branch) == 0 {
+		return nil
 	}
 
 	return func() tea.Msg {
