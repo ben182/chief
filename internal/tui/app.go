@@ -105,6 +105,7 @@ type autoActionResultMsg struct {
 // summaryResultMsg is sent when post-completion run-summary generation finishes.
 type summaryResultMsg struct {
 	prdName      string
+	fileName     string // base name of the written summary (empty on failure/skip)
 	err          error
 	showOnScreen bool // true: reflect state on the completion screen; false: only lastActivity
 	pushAfter    bool // whether to start auto-push once the summary lands
@@ -1579,11 +1580,15 @@ func (a *App) runAutoSummary(prdName, branch string, showOnScreen, pushAfter boo
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		_, err := summary.Generate(ctx, provider, gitDir, prdDir, branch, parked)
+		res, err := summary.Generate(ctx, provider, gitDir, prdDir, branch, parked)
 		if errors.Is(err, summary.ErrNothingToSummarize) {
 			err = nil // nothing to describe; treat as a clean skip
 		}
-		return summaryResultMsg{prdName: prdName, err: err, showOnScreen: showOnScreen, pushAfter: pushAfter}
+		fileName := ""
+		if res.Path != "" {
+			fileName = filepath.Base(res.Path)
+		}
+		return summaryResultMsg{prdName: prdName, fileName: fileName, err: err, showOnScreen: showOnScreen, pushAfter: pushAfter}
 	}
 }
 
@@ -1594,7 +1599,7 @@ func (a App) handleSummaryResult(msg summaryResultMsg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			a.completionScreen.SetSummaryError(msg.err.Error())
 		} else {
-			a.completionScreen.SetSummarySuccess()
+			a.completionScreen.SetSummarySuccess(msg.fileName)
 		}
 		// Push even if the summary failed: the per-story commits are still worth
 		// pushing, and the failure is already surfaced on the completion screen.
@@ -1608,6 +1613,8 @@ func (a App) handleSummaryResult(msg summaryResultMsg) (tea.Model, tea.Cmd) {
 	if msg.prdName == a.prdName {
 		if msg.err != nil {
 			a.lastActivity = "Summary failed: " + msg.err.Error()
+		} else if msg.fileName != "" {
+			a.lastActivity = "Run summary written (" + msg.fileName + ")"
 		} else {
 			a.lastActivity = "Run summary written"
 		}

@@ -1,7 +1,8 @@
 // Package summary generates a human-facing run summary once a PRD finishes.
 // It gathers the commits that landed on the branch, has the configured agent
-// write a SUMMARY.md describing what was built and how to test it, and commits
-// that file so it rides along in the push/PR.
+// write a timestamped SUMMARY-<time>.md describing what was built and how to
+// test it, and commits that file so it rides along in the push/PR. Each run
+// writes its own timestamped file, so a PRD keeps a history of its runs.
 package summary
 
 import (
@@ -10,18 +11,30 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/minicodemonkey/chief/embed"
 	"github.com/minicodemonkey/chief/internal/git"
 	"github.com/minicodemonkey/chief/internal/loop"
 )
 
-// FileName is the summary file written next to the PRD.
-const FileName = "SUMMARY.md"
+// FilePrefix is the prefix of each timestamped run-summary file. Every run
+// writes its own SUMMARY-<timestamp>.md instead of overwriting a single file,
+// so a PRD keeps a readable, sortable history of its runs.
+const FilePrefix = "SUMMARY-"
+
+// timestampLayout is the sortable, filesystem-safe timestamp used in the
+// summary file name (local time, second precision to avoid collisions).
+const timestampLayout = "2006-01-02-150405"
+
+// FileNameFor returns the summary file name for a run that finished at t.
+func FileNameFor(t time.Time) string {
+	return FilePrefix + t.Format(timestampLayout) + ".md"
+}
 
 // Result reports the outcome of a summary generation.
 type Result struct {
-	Path      string // absolute path to the written SUMMARY.md
+	Path      string // absolute path to the written timestamped summary file
 	Committed bool   // whether the summary was committed
 }
 
@@ -34,7 +47,7 @@ var ErrNothingToSummarize = fmt.Errorf("no commits to summarize")
 //   - provider: the agent CLI to run headless (same one that ran the loop).
 //   - gitDir:   the working dir whose branch the commits live on and where the
 //     summary is committed (worktree dir when set, else project root).
-//   - prdDir:   the directory the PRD lives in; SUMMARY.md is written here.
+//   - prdDir:   the directory the PRD lives in; the summary file is written here.
 //   - branch:   the branch whose commits (vs. the default branch) are summarized.
 //   - parked:   stories left for human review, surfaced under "Offene Punkte".
 //
@@ -42,6 +55,12 @@ var ErrNothingToSummarize = fmt.Errorf("no commits to summarize")
 // agent writes the file; Generate then force-adds and commits it so it lands
 // even when the PRD dir sits under a gitignored `.chief/`.
 func Generate(ctx context.Context, provider loop.Provider, gitDir, prdDir, branch string, parked []string) (Result, error) {
+	return generateAt(ctx, provider, gitDir, prdDir, branch, parked, time.Now())
+}
+
+// generateAt is Generate with an injectable clock so the timestamped file name
+// is deterministic in tests.
+func generateAt(ctx context.Context, provider loop.Provider, gitDir, prdDir, branch string, parked []string, now time.Time) (Result, error) {
 	if provider == nil {
 		return Result{}, fmt.Errorf("summary requires a provider")
 	}
@@ -52,7 +71,11 @@ func Generate(ctx context.Context, provider loop.Provider, gitDir, prdDir, branc
 		return Result{}, ErrNothingToSummarize
 	}
 
-	summaryPath := filepath.Join(prdDir, FileName)
+	if err := os.MkdirAll(prdDir, 0o755); err != nil {
+		return Result{}, fmt.Errorf("failed to create summary dir: %w", err)
+	}
+
+	summaryPath := filepath.Join(prdDir, FileNameFor(now))
 	prompt := embed.GetSummaryPrompt(summaryPath, commits, parked)
 
 	// Run the agent headless, reusing the provider's loop command (which already

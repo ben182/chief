@@ -49,6 +49,7 @@ type CompletionScreen struct {
 	// Auto-action state
 	summaryState AutoActionState
 	summaryError string
+	summaryFile  string
 	pushState    AutoActionState
 	pushError    string
 	prState      AutoActionState
@@ -77,6 +78,7 @@ func (c *CompletionScreen) Configure(prdName string, completed, total int, branc
 	// Reset auto-action state
 	c.summaryState = AutoActionIdle
 	c.summaryError = ""
+	c.summaryFile = ""
 	c.pushState = AutoActionIdle
 	c.pushError = ""
 	c.prState = AutoActionIdle
@@ -124,9 +126,12 @@ func (c *CompletionScreen) SetSummaryInProgress() {
 	c.summaryState = AutoActionInProgress
 }
 
-// SetSummarySuccess marks summary generation as successful.
-func (c *CompletionScreen) SetSummarySuccess() {
+// SetSummarySuccess marks summary generation as successful. fileName is the
+// base name of the written summary (e.g. SUMMARY-2026-07-21-143205.md), shown
+// so the user can find it; empty is tolerated.
+func (c *CompletionScreen) SetSummarySuccess(fileName string) {
 	c.summaryState = AutoActionSuccess
+	c.summaryFile = fileName
 }
 
 // SetSummaryError marks summary generation as failed with an error message.
@@ -481,7 +486,11 @@ func (c *CompletionScreen) renderAutoActions(innerWidth int) string {
 			frame := spinnerChars[c.spinnerFrame%len(spinnerChars)]
 			lines.WriteString(spinnerStyle.Render(fmt.Sprintf("%s Writing run summary...", frame)))
 		case AutoActionSuccess:
-			lines.WriteString(successStyle.Render("✓ Wrote run summary (SUMMARY.md)"))
+			label := "✓ Wrote run summary"
+			if c.summaryFile != "" {
+				label += fmt.Sprintf(" (%s)", c.summaryFile)
+			}
+			lines.WriteString(successStyle.Render(label))
 		case AutoActionError:
 			lines.WriteString(errorStyle.Render(fmt.Sprintf("✗ Summary failed: %s", c.summaryError)))
 		}

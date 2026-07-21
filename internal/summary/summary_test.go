@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/minicodemonkey/chief/internal/loop"
 )
@@ -70,13 +71,18 @@ func initRepoWithBranch(t *testing.T) (dir, branch string) {
 func TestGenerate_WritesAndCommits(t *testing.T) {
 	dir, branch := initRepoWithBranch(t)
 	prdDir := filepath.Join(dir, ".chief", "prds", "default")
-	summaryPath := filepath.Join(prdDir, FileName)
+	now := time.Date(2026, 7, 21, 14, 32, 5, 0, time.UTC)
+	summaryPath := filepath.Join(prdDir, FileNameFor(now))
+
+	if base := filepath.Base(summaryPath); base != "SUMMARY-2026-07-21-143205.md" {
+		t.Fatalf("unexpected timestamped name %q", base)
+	}
 
 	provider := &fakeProvider{writePath: summaryPath, content: "# Run Summary"}
 
-	res, err := Generate(context.Background(), provider, dir, prdDir, branch, []string{"S2 - parked"})
+	res, err := generateAt(context.Background(), provider, dir, prdDir, branch, []string{"S2 - parked"}, now)
 	if err != nil {
-		t.Fatalf("Generate: %v", err)
+		t.Fatalf("generateAt: %v", err)
 	}
 	if res.Path != summaryPath {
 		t.Errorf("Path = %q, want %q", res.Path, summaryPath)
@@ -119,9 +125,10 @@ func TestGenerate_NothingToSummarize(t *testing.T) {
 	run("checkout", "-b", "chief/empty")
 
 	prdDir := filepath.Join(dir, ".chief", "prds", "default")
-	provider := &fakeProvider{writePath: filepath.Join(prdDir, FileName), content: "x"}
+	now := time.Date(2026, 7, 21, 14, 32, 5, 0, time.UTC)
+	provider := &fakeProvider{writePath: filepath.Join(prdDir, FileNameFor(now)), content: "x"}
 
-	_, err := Generate(context.Background(), provider, dir, prdDir, "chief/empty", nil)
+	_, err := generateAt(context.Background(), provider, dir, prdDir, "chief/empty", nil, now)
 	if !errors.Is(err, ErrNothingToSummarize) {
 		t.Fatalf("expected ErrNothingToSummarize, got %v", err)
 	}
@@ -130,9 +137,10 @@ func TestGenerate_NothingToSummarize(t *testing.T) {
 func TestGenerate_AgentFailsWithoutFile(t *testing.T) {
 	dir, branch := initRepoWithBranch(t)
 	prdDir := filepath.Join(dir, ".chief", "prds", "default")
-	provider := &fakeProvider{writePath: filepath.Join(prdDir, FileName), content: "x", fail: true}
+	now := time.Date(2026, 7, 21, 14, 32, 5, 0, time.UTC)
+	provider := &fakeProvider{writePath: filepath.Join(prdDir, FileNameFor(now)), content: "x", fail: true}
 
-	_, err := Generate(context.Background(), provider, dir, prdDir, branch, nil)
+	_, err := generateAt(context.Background(), provider, dir, prdDir, branch, nil, now)
 	if err == nil {
 		t.Fatal("expected an error when the agent fails and writes no file")
 	}
