@@ -801,8 +801,8 @@ func TestLoop_WatchdogWithWorkDir(t *testing.T) {
 func TestLoop_CaptureStderr(t *testing.T) {
 	l := NewLoop("/test/prd.json", "test", 5, testProvider)
 
-	l.captureStderr("")           // dropped: blank
-	l.captureStderr("   ")        // dropped: whitespace only
+	l.captureStderr("")    // dropped: blank
+	l.captureStderr("   ") // dropped: whitespace only
 	for i := 0; i < maxStderrTail+5; i++ {
 		l.captureStderr(fmt.Sprintf("line %d", i))
 	}
@@ -943,4 +943,137 @@ func TestTimestampedLogName(t *testing.T) {
 			t.Errorf("timestampedLogName(%q) = %q, want %q", tt.base, got, tt.want)
 		}
 	}
+}
+
+// gitInit sets up a fresh repo with one initial commit for progress-commit tests.
+func gitInit(t *testing.T, dir string) {
+	t.Helper()
+	for _, args := range [][]string{
+		{"init"}, {"config", "user.email", "t@t.com"}, {"config", "user.name", "T"},
+		{"checkout", "-b", "main"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s", args, string(out))
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "seed"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "seed"}, {"commit", "-m", "initial commit"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s", args, string(out))
+		}
+	}
+}
+
+func gitHeadCount(t *testing.T, dir string) int {
+	t.Helper()
+	cmd := exec.Command("git", "rev-list", "--count", "HEAD")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("rev-list: %v", err)
+	}
+	n := 0
+	for _, r := range strings.TrimSpace(string(out)) {
+		n = n*10 + int(r-'0')
+	}
+	return n
+}
+
+func gitTracked(t *testing.T, dir, path string) bool {
+	t.Helper()
+	cmd := exec.Command("git", "cat-file", "-e", "HEAD:"+path)
+	cmd.Dir = dir
+	return cmd.Run() == nil
+}
+
+func commitMsgAt(t *testing.T, dir, ref string) string {
+	t.Helper()
+	cmd := exec.Command("git", "log", "-1", "--format=%s", ref)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("log %s: %v", ref, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func TestLoop_CommitStoryProgress(t *testing.T) {
+	t.Run("amends into the story commit when it is HEAD", func(t *testing.T) {
+		dir := t.TempDir()
+		gitInit(t, dir)
+		// The agent's story commit is HEAD.
+		if err := os.WriteFile(filepath.Join(dir, "app.go"), []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		for _, args := range [][]string{{"add", "app.go"}, {"commit", "-m", "feat: US-001 - Story One"}} {
+			cmd := exec.Command("git", args...)
+			cmd.Dir = dir
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("git %v: %s", args, string(out))
+			}
+		}
+		before := gitHeadCount(t, dir)
+
+		// chief's working files appear after the story commit.
+		prdPath := filepath.Join(dir, "prd.md")
+		if err := os.WriteFile(prdPath, []byte("# PRD\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "progress.md"), []byte("# progress\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		l := NewLoopWithWorkDir(prdPath, dir, "", 1, testProvider)
+		l.commitStoryProgress("US-001", "Story One")
+
+		if got := gitHeadCount(t, dir); got != before {
+			t.Errorf("commit count = %d, want %d (should amend, not add)", got, before)
+		}
+		if commitMsgAt(t, dir, "HEAD") != "feat: US-001 - Story One" {
+			t.Error("story commit subject should stay unchanged after amend")
+		}
+		if !gitTracked(t, dir, "prd.md") || !gitTracked(t, dir, "progress.md") {
+			t.Error("prd.md/progress.md should ride in the amended story commit")
+		}
+	})
+
+	t.Run("commits standalone when HEAD is not the story commit", func(t *testing.T) {
+		dir := t.TempDir()
+		gitInit(t, dir) // HEAD is "initial commit", not the story
+		before := gitHeadCount(t, dir)
+
+		prdPath := filepath.Join(dir, "prd.md")
+		if err := os.WriteFile(prdPath, []byte("# PRD\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		l := NewLoopWithWorkDir(prdPath, dir, "", 1, testProvider)
+		l.commitStoryProgress("US-002", "Story Two")
+
+		if got := gitHeadCount(t, dir); got != before+1 {
+			t.Errorf("commit count = %d, want %d (standalone commit expected)", got, before+1)
+		}
+		if msg := commitMsgAt(t, dir, "HEAD"); msg != "chore: track US-002 progress" {
+			t.Errorf("standalone commit subject = %q, want %q", msg, "chore: track US-002 progress")
+		}
+		if !gitTracked(t, dir, "prd.md") {
+			t.Error("prd.md should be tracked by the standalone commit")
+		}
+	})
+
+	t.Run("no-op outside a git repo", func(t *testing.T) {
+		dir := t.TempDir()
+		prdPath := filepath.Join(dir, "prd.md")
+		if err := os.WriteFile(prdPath, []byte("# PRD\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		l := NewLoopWithWorkDir(prdPath, dir, "", 1, testProvider)
+		l.commitStoryProgress("US-003", "Story Three") // must not panic or error
+	})
 }

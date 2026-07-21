@@ -218,6 +218,45 @@ func CommitPaths(dir, message string, paths ...string) error {
 	return nil
 }
 
+// HeadSubject returns the subject line (first line of the message) of the
+// current HEAD commit. It errors on a repo with no commits yet, letting callers
+// treat "no commit to inspect" the same as "HEAD isn't what I expected".
+func HeadSubject(dir string) (string, error) {
+	cmd := exec.Command("git", "log", "-1", "--format=%s")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// AmendPaths force-adds the given paths and folds them into the current HEAD
+// commit without opening an editor or changing its message. It attaches chief's
+// own working files (prd.md, progress.md) to the story commit the agent just
+// made, so a completed story's tracked progress travels with its code in one
+// commit and survives an interrupted run. Only the listed paths are amended in;
+// other unstaged changes are left untouched. Force-add (`-f`) keeps it working
+// when the PRD dir sits under an otherwise-gitignored `.chief/`. Paths may be
+// absolute or relative to dir.
+func AmendPaths(dir string, paths ...string) error {
+	if len(paths) == 0 {
+		return fmt.Errorf("no paths to amend")
+	}
+	addArgs := append([]string{"add", "-f", "--"}, paths...)
+	add := exec.Command("git", addArgs...)
+	add.Dir = dir
+	if out, err := add.CombinedOutput(); err != nil {
+		return fmt.Errorf("git add failed: %s", strings.TrimSpace(string(out)))
+	}
+	commit := exec.Command("git", append([]string{"commit", "--amend", "--no-edit", "--"}, paths...)...)
+	commit.Dir = dir
+	if out, err := commit.CombinedOutput(); err != nil {
+		return fmt.Errorf("git commit --amend failed: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // getMergeBase returns the merge base commit between two refs.
 func getMergeBase(dir, ref1, ref2 string) (string, error) {
 	cmd := exec.Command("git", "merge-base", ref1, ref2)

@@ -72,6 +72,41 @@ func AddChiefToGitignore(dir string) error {
 	return nil
 }
 
+// IgnoreLogsIn ensures dir's .gitignore carries the `*.log` pattern so chief's
+// per-run log files (claude-<timestamp>.log) stay out of version control. It is
+// scoped to the PRD directory the logs live in, so it works regardless of
+// whether the project tracks or ignores `.chief/` as a whole and needs no
+// pattern in the user's root .gitignore (the historical `claude.log` pattern
+// never matched the timestamped names). Best-effort and idempotent: it writes
+// only when the pattern is missing, and returns silently on any I/O error.
+func IgnoreLogsIn(dir string) {
+	const pattern = "*.log"
+	path := filepath.Join(dir, ".gitignore")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			_ = os.WriteFile(path, []byte("# chief run logs — regenerated each run\n"+pattern+"\n"), 0o644)
+		}
+		return
+	}
+	for _, line := range strings.Split(string(content), "\n") {
+		if strings.TrimSpace(line) == pattern {
+			return // already ignored
+		}
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	if len(content) > 0 && content[len(content)-1] != '\n' {
+		if _, err := f.WriteString("\n"); err != nil {
+			return
+		}
+	}
+	_, _ = f.WriteString(pattern + "\n")
+}
+
 // PromptAddChiefToGitignore asks the user if they want to add .chief to .gitignore.
 // Returns true if the user wants to add it, false otherwise.
 func PromptAddChiefToGitignore() bool {

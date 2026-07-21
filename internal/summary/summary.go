@@ -104,10 +104,22 @@ func generateAt(ctx context.Context, provider loop.Provider, gitDir, prdDir, bra
 	res := Result{Path: summaryPath}
 
 	// Commit deterministically rather than trusting the agent to. Force-add so a
-	// summary under a gitignored `.chief/` is still tracked.
+	// summary under a gitignored `.chief/` is still tracked. The same commit
+	// sweeps chief's own working files (prd.md, progress.md and the scoped
+	// .gitignore) so a finished run never leaves them behind as uncommitted
+	// changes — this is the backstop for the per-story commits, catching the last
+	// story's timing and any status the concurrent writes raced past. Only files
+	// that exist are included.
 	if git.IsGitRepo(gitDir) {
 		msg := "docs: add run summary"
-		if err := git.CommitPaths(gitDir, msg, summaryPath); err != nil {
+		paths := []string{summaryPath}
+		for _, name := range []string{"prd.md", "progress.md", ".gitignore"} {
+			p := filepath.Join(prdDir, name)
+			if _, statErr := os.Stat(p); statErr == nil {
+				paths = append(paths, p)
+			}
+		}
+		if err := git.CommitPaths(gitDir, msg, paths...); err != nil {
 			// The file exists and is useful even if the commit failed (e.g. nothing
 			// staged because it was already committed). Report the file, note the
 			// commit miss via Committed=false, and let the caller decide.

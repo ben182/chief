@@ -103,6 +103,45 @@ func TestGenerate_WritesAndCommits(t *testing.T) {
 	}
 }
 
+func TestGenerate_SweepsWorkingFiles(t *testing.T) {
+	dir, branch := initRepoWithBranch(t)
+	prdDir := filepath.Join(dir, ".chief", "prds", "default")
+	if err := os.MkdirAll(prdDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// prd.md + progress.md left modified/uncommitted, exactly as they are after a
+	// run. They must ride in the summary commit so the worktree ends clean.
+	if err := os.WriteFile(filepath.Join(prdDir, "prd.md"), []byte("# PRD\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(prdDir, "progress.md"), []byte("# progress\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Date(2026, 7, 21, 14, 32, 5, 0, time.UTC)
+	summaryPath := filepath.Join(prdDir, FileNameFor(now))
+	provider := &fakeProvider{writePath: summaryPath, content: "# Run Summary"}
+
+	if _, err := generateAt(context.Background(), provider, dir, prdDir, branch, nil, now); err != nil {
+		t.Fatalf("generateAt: %v", err)
+	}
+
+	// After the sweep the working tree must have no uncommitted PRD files.
+	status := exec.Command("git", "status", "--porcelain")
+	status.Dir = dir
+	out, _ := status.Output()
+	if strings.TrimSpace(string(out)) != "" {
+		t.Errorf("worktree not clean after sweep:\n%s", string(out))
+	}
+	for _, name := range []string{"prd.md", "progress.md"} {
+		check := exec.Command("git", "cat-file", "-e", "HEAD:.chief/prds/default/"+name)
+		check.Dir = dir
+		if err := check.Run(); err != nil {
+			t.Errorf("%s should be committed by the summary sweep", name)
+		}
+	}
+}
+
 func TestGenerate_NothingToSummarize(t *testing.T) {
 	dir := t.TempDir()
 	run := func(args ...string) {

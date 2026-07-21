@@ -65,30 +65,30 @@ func timestampedLogName(base string, t time.Time) string {
 
 // Loop manages the core agent loop that invokes the configured agent repeatedly until all stories are complete.
 type Loop struct {
-	prdPath         string
-	workDir         string
-	prompt          string
-	buildPrompt     func() (string, string, string, error) // optional: rebuild prompt each iteration; returns (prompt, storyID, storyTitle, error)
-	maxIter         int
-	iteration       int
-	events          chan Event
-	provider        Provider
-	agentCmd        *exec.Cmd
-	logFile         *os.File
-	logPath         string
-	mu              sync.Mutex
-	stopped         bool
-	paused          bool
-	retryConfig     RetryConfig
-	lastOutputTime  time.Time
-	watchdogTimeout time.Duration
+	prdPath           string
+	workDir           string
+	prompt            string
+	buildPrompt       func() (string, string, string, error) // optional: rebuild prompt each iteration; returns (prompt, storyID, storyTitle, error)
+	maxIter           int
+	iteration         int
+	events            chan Event
+	provider          Provider
+	agentCmd          *exec.Cmd
+	logFile           *os.File
+	logPath           string
+	mu                sync.Mutex
+	stopped           bool
+	paused            bool
+	retryConfig       RetryConfig
+	lastOutputTime    time.Time
+	watchdogTimeout   time.Duration
 	sawStoryDone      bool
 	currentStoryID    string
 	currentStoryTitle string
-	stderrTail      []string       // last few stderr lines from the current iteration, for crash diagnostics
-	attempts        map[string]int // per-story attempt count, keyed by story ID
-	maxAttempts     int            // attempts allowed per story before parking it for review
-	warnedNoGit     bool           // whether the "not a git repo" warning was already emitted
+	stderrTail        []string       // last few stderr lines from the current iteration, for crash diagnostics
+	attempts          map[string]int // per-story attempt count, keyed by story ID
+	maxAttempts       int            // attempts allowed per story before parking it for review
+	warnedNoGit       bool           // whether the "not a git repo" warning was already emitted
 }
 
 // maxStderrTail is how many trailing stderr lines are kept to surface on a crash.
@@ -192,6 +192,7 @@ func (l *Loop) Run(ctx context.Context) error {
 	// its own SUMMARY-<time>.md, instead of every run appending to one file that
 	// grows without bound and mixes runs together.
 	prdDir := filepath.Dir(l.prdPath)
+	git.IgnoreLogsIn(prdDir)
 	logPath := filepath.Join(prdDir, timestampedLogName(l.provider.LogFileName(), time.Now()))
 	var err error
 	l.logFile, err = os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
@@ -297,6 +298,7 @@ func (l *Loop) Run(ctx context.Context) error {
 		}
 		if saw && storyID != "" {
 			_ = prd.SetStoryStatus(l.prdPath, storyID, "done")
+			l.commitStoryProgress(storyID, storyTitle)
 		} else if storyID != "" {
 			l.mu.Lock()
 			l.attempts[storyID]++
@@ -704,6 +706,40 @@ func (l *Loop) storyHasCommit(storyID, title string) bool {
 	}
 	hash, _ := git.FindCommitForStory(dir, storyID, title)
 	return hash != ""
+}
+
+// commitStoryProgress attaches chief's own working files (prd.md, progress.md
+// and the scoped .gitignore) to the story that just finished, so they stop
+// piling up as uncommitted changes and a completed story's tracked progress
+// survives an interrupted run. When the agent's story commit is HEAD it folds
+// them in via amend, keeping one commit per story; otherwise it makes a small
+// standalone commit. Best-effort: any failure is left for the end-of-run summary
+// sweep to pick up. The TUI writes this story's progress.md timing just after it
+// finishes and may not have landed yet — whatever is missed here is captured by
+// the next story's commit or the final sweep.
+func (l *Loop) commitStoryProgress(storyID, storyTitle string) {
+	dir := l.effectiveWorkDir()
+	if !git.IsGitRepo(dir) {
+		return
+	}
+	prdDir := filepath.Dir(l.prdPath)
+	// Only stage files that exist: `git add` fails the whole command on a missing
+	// pathspec, and progress.md / .gitignore may not have been written yet.
+	var paths []string
+	for _, p := range []string{l.prdPath, prd.ProgressPath(l.prdPath), filepath.Join(prdDir, ".gitignore")} {
+		if _, err := os.Stat(p); err == nil {
+			paths = append(paths, p)
+		}
+	}
+	if len(paths) == 0 {
+		return
+	}
+	expected := fmt.Sprintf("feat: %s - %s", storyID, storyTitle)
+	if subj, err := git.HeadSubject(dir); err == nil && subj == expected {
+		_ = git.AmendPaths(dir, paths...)
+		return
+	}
+	_ = git.CommitPaths(dir, fmt.Sprintf("chore: track %s progress", storyID), paths...)
 }
 
 // IsRunning returns whether an agent process is currently running.
