@@ -8,7 +8,7 @@ Chief is distributed as a single binary with no runtime dependencies. Choose you
 
 ## Prerequisites
 
-Chief needs an agent CLI: **Claude Code** (default), **Codex**, or **OpenCode**. Install at least one and authenticate.
+Chief needs an agent CLI: **Claude Code** (default), **Codex**, **OpenCode**, **Cursor**, or **Gemini**. Install at least one and authenticate.
 
 ### Option A: Claude Code CLI (default)
 
@@ -54,6 +54,14 @@ To use [Cursor CLI](https://cursor.com/docs/cli/overview) as the agent:
 3. Run `agent login` for authentication.
 4. Run Chief with `chief --agent cursor` or set `CHIEF_AGENT=cursor`, or set `agent.provider: cursor` in `.chief/config.yaml`.
 
+### Option E: Gemini CLI
+
+To use [Gemini CLI](https://github.com/google-gemini/gemini-cli) as the agent:
+
+1. Install Gemini CLI per the [official docs](https://github.com/google-gemini/gemini-cli).
+2. Ensure `gemini` is on your PATH, or set `agent.cliPath` in `.chief/config.yaml` (see [Configuration](/reference/configuration#agent)).
+3. Run Chief with `chief --agent gemini` or set `CHIEF_AGENT=gemini`, or set `agent.provider: gemini` in `.chief/config.yaml`.
+
 ### Optional: GitHub CLI (`gh`)
 
 If you want Chief to automatically create pull requests when a PRD completes, install the [GitHub CLI](https://cli.github.com/):
@@ -86,10 +94,8 @@ This method:
 
 ### Updating
 
-This is a private fork built from source. To update, pull the latest changes and rebuild:
-
 ```bash
-git pull && make
+brew upgrade chief
 ```
 
 ## Install Script
@@ -100,15 +106,16 @@ Download and install with a single command:
 curl -fsSL https://raw.githubusercontent.com/ben182/chief/main/install.sh | bash
 ```
 
-The script automatically detects your platform and downloads the appropriate binary.
+The script automatically detects your platform, downloads the matching archive, verifies its checksum, and installs the binary to `/usr/local/bin` (or `~/.local/bin` when it can't write there without sudo).
 
 ### Script Options
 
 | Option | Description | Example |
 |--------|-------------|---------|
-| `--version` | Install a specific version | `--version v0.1.0` |
-| `--dir` | Install to a custom directory | `--dir /opt/chief` |
-| `--help` | Show all available options | `--help` |
+| `--version`, `-v` | Install a specific version | `--version v0.1.0` |
+| `--help`, `-h` | Show all available options | `--help` |
+
+To install into a custom directory, set the `CHIEF_INSTALL_DIR` environment variable (the script creates it if needed).
 
 **Examples:**
 
@@ -117,10 +124,10 @@ The script automatically detects your platform and downloads the appropriate bin
 curl -fsSL https://raw.githubusercontent.com/ben182/chief/main/install.sh | bash -s -- --version v0.1.0
 
 # Install to a custom directory
-curl -fsSL https://raw.githubusercontent.com/ben182/chief/main/install.sh | bash -s -- --dir ~/.local/bin
+curl -fsSL https://raw.githubusercontent.com/ben182/chief/main/install.sh | CHIEF_INSTALL_DIR=~/.local/bin bash
 
-# Both options combined
-curl -fsSL https://raw.githubusercontent.com/ben182/chief/main/install.sh | bash -s -- --version v0.1.0 --dir /opt/chief
+# Custom directory + specific version
+curl -fsSL https://raw.githubusercontent.com/ben182/chief/main/install.sh | CHIEF_INSTALL_DIR=/opt/chief bash -s -- --version v0.1.0
 ```
 
 ::: info Custom Directory
@@ -133,66 +140,35 @@ Add this to your shell profile (`.bashrc`, `.zshrc`, etc.) to persist it.
 
 ## Manual Binary Download
 
-Download the binary for your platform from the [GitHub Releases page](https://github.com/ben182/chief/releases).
+Releases are published as compressed archives (with a `checksums.txt`) on the [GitHub Releases page](https://github.com/ben182/chief/releases). Each archive is named `chief_<version>_<os>_<arch>.tar.gz` (Windows uses a `.zip`) and contains the `chief` binary plus the LICENSE and README.
 
 ### Platform Matrix
 
-| Platform | Architecture | Binary Name | Notes |
-|----------|-------------|-------------|-------|
-| macOS | Apple Silicon (M1/M2/M3) | `chief-darwin-arm64` | Recommended for modern Macs |
-| macOS | Intel (x64) | `chief-darwin-amd64` | For older Intel-based Macs |
-| Linux | x64 (AMD64) | `chief-linux-amd64` | Most common Linux servers |
-| Linux | ARM64 | `chief-linux-arm64` | Raspberry Pi 4, AWS Graviton |
+| Platform | Architecture | Archive Name | Notes |
+|----------|-------------|--------------|-------|
+| macOS | Apple Silicon (M1/M2/M3) | `chief_<version>_darwin_arm64.tar.gz` | Recommended for modern Macs |
+| macOS | Intel (x64) | `chief_<version>_darwin_amd64.tar.gz` | For older Intel-based Macs |
+| Linux | x64 (AMD64) | `chief_<version>_linux_amd64.tar.gz` | Most common Linux servers |
+| Linux | ARM64 | `chief_<version>_linux_arm64.tar.gz` | Raspberry Pi 4, AWS Graviton |
+| Windows | x64 (AMD64) | `chief_<version>_windows_amd64.zip` | Extract and place `chief.exe` on your PATH |
 
 ### Installation Steps
 
-::: code-group
+The archive name embeds the version (e.g. `chief_0.1.0_darwin_arm64.tar.gz`), so pick your version and platform from the releases page. On macOS/Linux:
 
-```bash [macOS Apple Silicon]
-# Download the binary
-curl -LO https://github.com/ben182/chief/releases/latest/download/chief-darwin-arm64
+```bash
+# Set the version and platform you want (see the releases page)
+VERSION=0.1.0            # without the leading "v"
+OS=darwin               # darwin or linux
+ARCH=arm64              # arm64 or amd64
 
-# Make it executable
-chmod +x chief-darwin-arm64
+# Download and extract the archive
+curl -LO "https://github.com/ben182/chief/releases/download/v${VERSION}/chief_${VERSION}_${OS}_${ARCH}.tar.gz"
+tar -xzf "chief_${VERSION}_${OS}_${ARCH}.tar.gz"
 
-# Move to a directory in your PATH
-sudo mv chief-darwin-arm64 /usr/local/bin/chief
+# Move the binary to a directory in your PATH
+sudo mv chief /usr/local/bin/chief
 ```
-
-```bash [macOS Intel]
-# Download the binary
-curl -LO https://github.com/ben182/chief/releases/latest/download/chief-darwin-amd64
-
-# Make it executable
-chmod +x chief-darwin-amd64
-
-# Move to a directory in your PATH
-sudo mv chief-darwin-amd64 /usr/local/bin/chief
-```
-
-```bash [Linux x64]
-# Download the binary
-curl -LO https://github.com/ben182/chief/releases/latest/download/chief-linux-amd64
-
-# Make it executable
-chmod +x chief-linux-amd64
-
-# Move to a directory in your PATH
-sudo mv chief-linux-amd64 /usr/local/bin/chief
-```
-
-```bash [Linux ARM64]
-# Download the binary
-curl -LO https://github.com/ben182/chief/releases/latest/download/chief-linux-arm64
-
-# Make it executable
-chmod +x chief-linux-arm64
-
-# Move to a directory in your PATH
-sudo mv chief-linux-arm64 /usr/local/bin/chief
-```
-
-:::
 
 ::: tip Detect Your Architecture
 Not sure which binary you need? Run these commands:
@@ -211,7 +187,7 @@ Build Chief from source if you want the latest development version or need to cu
 
 ### Prerequisites
 
-- **Go 1.21** or later ([install Go](https://go.dev/doc/install))
+- **Go 1.24** or later ([install Go](https://go.dev/doc/install))
 - **Git** for cloning the repository
 
 ### Build Steps
@@ -233,7 +209,7 @@ go install ./cmd/chief
 For a release-quality build with version information embedded:
 
 ```bash
-go build -ldflags "-X main.version=$(git describe --tags --always)" -o chief ./cmd/chief
+go build -ldflags "-X main.Version=$(git describe --tags --always)" -o chief ./cmd/chief
 ```
 
 ### Verify the Build

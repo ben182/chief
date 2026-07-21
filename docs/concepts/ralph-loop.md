@@ -11,7 +11,7 @@ For the motivation and philosophy behind this approach, read the blog post [Ship
 :::
 
 ::: info Multi-agent support
-Chief supports multiple agent backends: **Claude Code** (default), **Codex CLI**, and **OpenCode CLI**. This page uses "the agent" to refer to whichever backend you've configured. See [Configuration](/reference/configuration) for setup details.
+Chief supports multiple agent backends: **Claude Code** (default), **Codex CLI**, **OpenCode CLI**, **Cursor CLI**, and **Gemini CLI**. This page uses "the agent" to refer to whichever backend you've configured. See [Configuration](/reference/configuration) for setup details.
 :::
 
 ## The Loop Visualized
@@ -124,7 +124,7 @@ Here's a simplified version of what the agent receives:
 2. Read `progress.md` if it exists (check Codebase Patterns first)
 3. Implement the assigned user story
 4. Run quality checks (typecheck, lint, test)
-5. If checks pass, commit with message: `feat: [Story ID] - [Story Title]`
+5. If checks pass, commit with message: `feat: <Story ID> - <Story Title>`
 6. Output `<chief-done/>` when the story is complete
 7. Append your progress to `progress.md`
 ```
@@ -136,12 +136,15 @@ The prompt is embedded directly in Chief's code. There's no external template fi
 Chief runs the agent CLI, passing the constructed prompt:
 
 ```
-claude --dangerously-skip-permissions --output-format stream-json
+claude --dangerously-skip-permissions -p "<prompt>" --output-format stream-json --verbose
 ```
 
 The flags tell the agent to:
 - Skip permission prompts (Chief runs unattended)
-- Output structured JSON for parsing
+- Run the constructed prompt non-interactively (`-p`)
+- Output structured JSON for parsing, verbosely so Chief sees each event
+
+(Exact flags vary by backend; this is the Claude invocation.)
 
 The agent now has full control. It can read files, write code, run tests, and commit changes, all autonomously.
 
@@ -179,7 +182,7 @@ When the agent finishes working on a story, it outputs a special marker:
 <chief-done/>
 ```
 
-This signal tells Chief that the **current story** is done. Before marking it done, Chief verifies that a matching commit (`feat: [Story ID] - [Story Title]`) actually landed. If it did, Chief marks the story as `**Status:** done` in `prd.md` and selects the next incomplete story. When no stories remain, the loop ends naturally.
+This signal tells Chief that the **current story** is done. Before marking it done, Chief verifies that a matching commit (`feat: <Story ID> - <Story Title>`) actually landed. If it did, Chief marks the story as `**Status:** done` in `prd.md` and selects the next incomplete story. When no stories remain, the loop ends naturally.
 
 If the agent emits `<chief-done/>` but **no matching commit exists** — it forgot to commit, a pre-commit hook rejected the change, or it crashed before committing — Chief does not trust the signal. The story is treated as a failed attempt (counting toward the per-story retry budget below) instead of being falsely marked done, so the uncommitted work isn't silently lost when the next fresh-context iteration moves on.
 
@@ -217,12 +220,14 @@ Beyond per-story retries, Chief keeps a global iteration cap purely as a runaway
 
 ## Post-Completion Actions
 
-When all stories in a PRD are complete, Chief can automatically:
+When a run finishes (all stories complete, or max iterations reached with committed work), Chief can automatically:
 
-1. **Push the branch** — If `onComplete.push` is enabled in `.chief/config.yaml`, Chief pushes the branch to origin
-2. **Create a pull request** — If `onComplete.createPR` is also enabled, Chief creates a PR via the `gh` CLI with a title and body generated from the PRD
+1. **Write a run summary** — If `onComplete.summary` is enabled (**on by default**), Chief runs the agent once more to write a human-facing, timestamped `SUMMARY-<date>-<time>.md` next to the PRD (what was built, how to test it, where the new functionality lives, open/parked follow-ups) and commits it so it rides along in any push/PR
+2. **Push the branch** — If `onComplete.push` is enabled in `.chief/config.yaml`, Chief pushes the branch to origin
+3. **Create a pull request** — If `onComplete.createPR` is also enabled, Chief creates a PR via the `gh` CLI with a title and body generated from the PRD
+4. **Send a desktop notification** — If `onComplete.notify` is enabled (**on by default**), Chief pings you when the run finishes (macOS `osascript`, Linux `notify-send`)
 
-Auto-push and auto-PR only run when the branch has at least one commit. A run that completes with no committed work (for example, every story was parked for review) is not pushed, so Chief never creates an empty branch or PR.
+Summary, push, and PR only run when the branch has at least one commit. A run that completes with no committed work (for example, every story was parked for review) is not pushed, so Chief never creates an empty branch or PR.
 
 The completion screen shows the progress of these actions with spinners, checkmarks, or error messages. On PR success, the PR URL is displayed and clickable.
 

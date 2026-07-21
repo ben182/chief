@@ -8,7 +8,7 @@ Solutions to frequently encountered problems.
 
 ## Agent CLI Not Found
 
-**Symptom:** Error that the agent CLI (Claude, Codex, or OpenCode) is not found.
+**Symptom:** Error that the agent CLI (Claude, Codex, OpenCode, Cursor, or Gemini) is not found.
 
 ```
 Error: Claude CLI not found in PATH. Install it or set agent.cliPath in .chief/config.yaml
@@ -51,6 +51,13 @@ Error: OpenCode CLI not found in PATH. Install it or set agent.cliPath in .chief
     cliPath: /path/to/agent
   ```
   Run `agent login`. Verify with `agent --version` (or your `cliPath`).
+- **Gemini:** Install [Gemini CLI](https://github.com/google-gemini/gemini-cli) and ensure `gemini` is in PATH, or set the path in config:
+  ```yaml
+  agent:
+    provider: gemini
+    cliPath: /path/to/gemini
+  ```
+  Verify with `gemini --version` (or your `cliPath`).
 
 ## Permission Denied
 
@@ -77,10 +84,10 @@ The last few lines of the crashed process's `stderr` are now shown inline under 
    │ --dangerously-skip-permissions cannot be used with root/sudo privileges...
 ```
 
-For the complete output, check the agent log (matches your agent: `claude.log`, `codex.log`, `opencode.log`, or `cursor.log`):
+For the complete output, check the agent log. Each run writes its own timestamped file named after your agent — `claude-<timestamp>.log` (or `codex-`, `opencode-`, `cursor-`, `gemini-`). Glob for the newest one:
 
 ```bash
-tail -100 .chief/prds/your-prd/claude.log
+tail -100 .chief/prds/your-prd/claude-*.log
 ```
 
 ## PRD Not Updating
@@ -91,9 +98,9 @@ tail -100 .chief/prds/your-prd/claude.log
 
 **Solution:**
 
-1. Check the agent log for errors (the log file matches your agent: `claude.log`, `codex.log`, `opencode.log`, or `cursor.log`):
+1. Check the agent log for errors (per-run files named after your agent, e.g. `claude-<timestamp>.log`):
    ```bash
-   tail -100 .chief/prds/your-prd/claude.log  # or codex.log / opencode.log / cursor.log
+   tail -100 .chief/prds/your-prd/claude-*.log  # or codex-*.log / opencode-*.log / cursor-*.log / gemini-*.log
    ```
 
 2. Manually mark story complete if appropriate by editing `prd.md`:
@@ -113,7 +120,7 @@ tail -100 .chief/prds/your-prd/claude.log
 
 1. Check the agent log for what the agent is doing:
    ```bash
-   tail -f .chief/prds/your-prd/claude.log  # or codex.log / opencode.log / cursor.log
+   tail -f .chief/prds/your-prd/claude-*.log  # or codex-*.log / opencode-*.log / cursor-*.log / gemini-*.log
    ```
 
 2. Simplify the current story's acceptance criteria
@@ -135,7 +142,7 @@ tail -100 .chief/prds/your-prd/claude.log
 
 **Solution:**
 
-1. Check the agent log (`claude.log`, `codex.log`, `opencode.log`, or `cursor.log`) to see why it got stuck.
+1. Check the agent log (per-run files like `claude-<timestamp>.log`, `codex-*.log`, `opencode-*.log`, `cursor-*.log`, or `gemini-*.log`) to see why it got stuck.
 2. Fix the root cause:
    - Story too complex? Split it into smaller stories
    - Unclear acceptance criteria? Clarify them
@@ -157,7 +164,7 @@ tail -100 .chief/prds/your-prd/claude.log
 
 2. Or investigate why it's taking so many iterations:
    - Story too complex? Split it
-   - Stuck in a loop? Check the agent log (`claude.log`, `codex.log`, `opencode.log`, or `cursor.log`)
+   - Stuck in a loop? Check the agent log (`claude-*.log`, `codex-*.log`, `opencode-*.log`, `cursor-*.log`, or `gemini-*.log`)
    - Unclear acceptance criteria? Clarify them
 
 ## "No PRD Found"
@@ -201,8 +208,8 @@ tail -100 .chief/prds/your-prd/claude.log
 
 2. Common issues:
    - Missing colon between ID and title in heading
-   - Invalid `**Status:**` value (must be `done`, `in-progress`, or `todo`)
-   - Non-numeric `**Priority:**` value
+   - ID doesn't match the required `LETTERS-NUMBERS` pattern (e.g. `US-001`, `AUTH-3`) — headings whose ID isn't in this form are not recognized as stories
+   - Unexpected `**Status:**` value — anything Chief doesn't recognize silently falls back to `todo` (valid values: `done`, `in-progress`, `todo`, `needs-review`)
 
 ## Worktree Setup Failures
 
@@ -317,4 +324,4 @@ If none of these solutions help:
 3. Open a new issue with:
    - Chief version (`chief --version`)
    - Your `prd.md` (sanitized)
-   - Relevant agent log excerpts (e.g. `claude.log`, `codex.log`, `opencode.log`, or `cursor.log`)
+   - Relevant agent log excerpts (e.g. `claude-<timestamp>.log`, `codex-*.log`, `opencode-*.log`, `cursor-*.log`, or `gemini-*.log`)

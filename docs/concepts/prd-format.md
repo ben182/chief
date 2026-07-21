@@ -7,7 +7,7 @@ description: Complete guide to Chief's PRD format. How prd.md structures user st
 Chief uses a single `prd.md` file that serves as both human-readable context and machine-readable structured data. Chief parses structured markdown headings, status fields, and checkbox items directly from this file — no separate JSON file is needed.
 
 ::: info Multi-agent support
-Chief supports multiple agent backends: **Claude Code** (default), **Codex CLI**, and **OpenCode CLI**. This page uses "the agent" to refer to whichever backend you've configured. See [Configuration](/reference/configuration) for setup details.
+Chief supports multiple agent backends: **Claude Code** (default), **Codex CLI**, **OpenCode CLI**, **Cursor CLI**, and **Gemini CLI**. This page uses "the agent" to refer to whichever backend you've configured. See [Configuration](/reference/configuration) for setup details.
 :::
 
 ## File Structure
@@ -16,14 +16,14 @@ Each PRD lives in its own subdirectory inside `.chief/prds/`:
 
 ```
 .chief/prds/my-feature/
-├── prd.md        # Structured PRD (you write, Chief reads and updates)
-├── progress.md   # Auto-generated progress log
-└── claude.log    # Raw agent output from each iteration
+├── prd.md                        # Structured PRD (you write, Chief reads and updates)
+├── progress.md                   # Auto-generated progress log
+└── claude-2026-02-18-143012.log  # Raw agent output — one timestamped file per run
 ```
 
 - **`prd.md`** — Written by you, read and updated by Chief. Contains project context and structured user stories.
 - **`progress.md`** — Written by the agent. Tracks what was done, what changed, and what was learned.
-- **`claude.log`** (or `codex.log` / `opencode.log` / `cursor.log`) — Written by Chief. Raw output from the agent for debugging.
+- **`claude-<timestamp>.log`** (or `codex-` / `opencode-` / `cursor-` / `gemini-`) — Written by Chief. Each run writes its own timestamped log for debugging; older runs' logs are kept alongside.
 
 ## prd.md — The PRD File
 
@@ -46,7 +46,7 @@ The top of the file is your chance to give the agent context that doesn't fit in
 Below the freeform context, define your user stories using structured markdown headings that Chief parses:
 
 - `### US-001: Story Title` — story heading (ID + title)
-- `**Status:** done|in-progress|todo` — tracked by Chief
+- `**Status:** done|in-progress|todo|needs-review` — tracked by Chief
 - `**Priority:** N` — execution order (optional; defaults to document order)
 - `**Description:** ...` — story description (or freeform prose after heading)
 - `- [ ] criterion` / `- [x] criterion` — acceptance criteria as checkboxes
@@ -124,12 +124,14 @@ The better your `prd.md`, the better the agent's output. Spend time on the freef
 Chief picks the next story to work on using a simple, deterministic algorithm:
 
 ```
-1. Filter stories without **Status:** done
-2. Sort remaining stories by **Priority:** (ascending), or document order if unset
-3. Pick the first one
-4. Mark it as **Status:** in-progress
+1. If a story is **Status:** in-progress, resume it first
+2. Otherwise filter stories that are neither done nor needs-review
+3. Sort remaining stories by **Priority:** (ascending), or document order if unset
+4. Pick the first one and mark it **Status:** in-progress
 5. Start the iteration
 ```
+
+Stories parked as `needs-review` are skipped by selection just like `done` stories, so one stuck story never blocks the rest. The loop ends once no actionable stories remain (everything is either `done` or `needs-review`).
 
 ### How Priority Works
 
@@ -169,7 +171,7 @@ registration, and password reset.
 
 ### US-001: User Registration            ← Story ID + title (appears in commits)
 
-**Status:** done                         ← Chief tracks this (done/in-progress/todo)
+**Status:** done                         ← Chief tracks this (done/in-progress/todo/needs-review)
 **Priority:** 1                          ← Execution order (1 = first)
 **Description:** As a new user, I want   ← Story description
 to register an account so that I can
@@ -277,7 +279,7 @@ Use priority to ensure foundational stories are completed before dependent ones.
 
 ### Use Consistent ID Patterns
 
-Story IDs appear in commit messages (`feat: [US-001] - User Registration`). Pick a pattern and stick with it:
+Story IDs appear in commit messages (`feat: US-001 - User Registration`) and must match the `LETTERS-NUMBERS` pattern. Pick a prefix and stick with it:
 
 - `US-001`, `US-002` — generic user stories
 - `AUTH-001`, `AUTH-002` — feature-scoped prefixes
@@ -298,6 +300,6 @@ Running `chief new` scaffolds a `prd.md` with a template. You can also run `chie
 
 ## What's Next
 
-- [PRD Format Reference](/reference/prd-schema) — Complete field documentation and validation rules
+- [PRD Format Reference](/reference/prd-schema) — Complete field documentation and parsing behavior
 - [The .chief Directory](/concepts/chief-directory) — Understanding the full directory structure
 - [How Chief Works](/concepts/how-it-works) — How Chief uses these files during execution

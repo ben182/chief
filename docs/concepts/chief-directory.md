@@ -15,12 +15,12 @@ your-project/
 ├── src/
 ├── package.json
 └── .chief/
-    ├── config.yaml             # Project settings (worktree, auto-push, PR)
+    ├── config.yaml             # Project settings (agent, worktree, onComplete, loop, review)
     ├── prds/
     │   └── my-feature/
-    │       ├── prd.md          # Structured PRD (you write, Chief reads/updates)
-    │       ├── progress.md     # Progress log (Chief appends after each story)
-    │       └── claude.log      # Raw agent output (for debugging)
+    │       ├── prd.md                        # Structured PRD (you write, Chief reads/updates)
+    │       ├── progress.md                   # Progress log (Chief appends after each story)
+    │       └── claude-<timestamp>.log        # Raw agent output — one file per run (for debugging)
     ├── archive/                # Archived PRDs (hidden from the tab bar)
     │   └── old-feature/        # Same layout as a prds/ entry, restorable
     └── worktrees/              # Isolated checkouts for parallel PRDs
@@ -87,11 +87,11 @@ A typical entry looks like:
 
 The `Codebase Patterns` section at the top of this file consolidates reusable patterns discovered across iterations — things like naming conventions, file locations, and architectural decisions that future iterations should follow.
 
-### `claude.log`
+### `claude-<timestamp>.log`
 
 Raw output from the agent during execution. This file captures everything the agent outputs, including tool calls, reasoning, and results. It's primarily useful for debugging when something goes wrong.
 
-This file can get large (multiple megabytes per run) and is regenerated on each execution. You typically don't need to read it unless you're investigating an issue.
+Each run writes its own timestamped file — `claude-2026-02-18-143012.log` (or `codex-`, `opencode-`, `cursor-`, `gemini-` depending on your agent), so previous runs' logs stay around rather than being overwritten. These files can get large (multiple megabytes per run). You typically don't need to read them unless you're investigating an issue, and you can safely delete old ones.
 
 ## The `worktrees/` Subdirectory
 
@@ -140,14 +140,22 @@ A few things to know:
 Project-level settings are stored in `.chief/config.yaml`. This file is created during first-time setup or when you change settings via the Settings TUI (`,`).
 
 ```yaml
+agent:
+  provider: claude   # claude (default) | codex | opencode | cursor | gemini
 worktree:
   setup: "npm install"
 onComplete:
   push: true
   createPR: true
+  summary: true      # write & commit a timestamped SUMMARY file when a run finishes
+  notify: true       # desktop notification when a run finishes
+loop:
+  watchdogTimeoutSeconds: 0   # 0 = built-in default (5 min)
+review:
+  instructions: ""   # optional guidance to enable the separate review agent
 ```
 
-See [Configuration](/reference/configuration) for all available settings.
+Every key is optional — Chief fills in defaults for anything you omit. See [Configuration](/reference/configuration) for the full list of settings and their defaults.
 
 ## Self-Contained by Design
 
@@ -239,18 +247,20 @@ echo ".chief/" >> "$(git config --global core.excludesFile)"
 
 ### Option 2: Share With Your Team
 
-If you want collaborators to see progress and continue where you left off, commit everything except the log files:
+If you want collaborators to see progress and continue where you left off, commit everything except the log files. You don't have to configure this yourself: Chief automatically drops a scoped `.gitignore` containing `*.log` into each PRD directory, so the per-run log files stay out of version control while `prd.md` and `progress.md` remain committable.
+
+If you'd rather manage it at the repo root, use a `*.log` glob (the older `.chief/prds/*/claude.log` pattern no longer matches, since logs are now named `claude-<timestamp>.log`):
 
 ```gitignore
 # In your repo's .gitignore
-.chief/prds/*/claude.log
+.chief/prds/*/*.log
 ```
 
 This shares:
 - `prd.md`: Your requirements and story state — the source of truth for what to build and what's done
 - `progress.md`: Implementation history and learnings, valuable project context
 
-The `claude.log` files are large, regenerated each run, and only useful for debugging.
+The agent log files are large, written fresh each run, and only useful for debugging.
 
 ## What's Next
 

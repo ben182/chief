@@ -14,7 +14,7 @@ Chief stores project-level settings in `.chief/config.yaml`. This file is create
 
 ```yaml
 agent:
-  provider: claude   # or "codex", "opencode", or "cursor"
+  provider: claude   # or "codex", "opencode", "cursor", or "gemini"
   cliPath: ""        # optional path to CLI binary
   model: ""          # optional model passed via --model (Claude only)
 worktree:
@@ -36,7 +36,7 @@ review:
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `agent.provider` | string | `"claude"` | Agent CLI to use: `claude`, `codex`, `opencode`, or `cursor` |
+| `agent.provider` | string | `"claude"` | Agent CLI to use: `claude`, `codex`, `opencode`, `cursor`, or `gemini` |
 | `agent.cliPath` | string | `""` | Optional path to the agent binary (e.g. `/usr/local/bin/opencode`). If empty, Chief uses the provider name from PATH. |
 | `agent.model` | string | `""` | Optional model passed to the Claude CLI via `--model`. Needed when Claude Code's `-p` mode ignores `~/.claude/settings.json` (e.g. local models via LM Studio). |
 | `worktree.setup` | string | `""` | Shell command to run in new worktrees (e.g., `npm install`, `go mod download`) |
@@ -81,7 +81,7 @@ Press `,` from any view in the TUI to open the Settings overlay. This provides a
 Settings are organized by section:
 
 - **Worktree** — Setup command (string, editable inline)
-- **On Complete** — Push to remote (toggle), Create pull request (toggle)
+- **On Complete** — Push to remote (toggle), Create pull request (toggle), Write run summary (toggle), Desktop notification (toggle)
 
 Changes are saved immediately to `.chief/config.yaml` on every edit.
 
@@ -107,7 +107,7 @@ These settings are saved to `.chief/config.yaml` and can be changed at any time 
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--agent <provider>` | Agent CLI to use: `claude`, `codex`, `opencode`, or `cursor` | From config / env / `claude` |
+| `--agent <provider>` | Agent CLI to use: `claude`, `codex`, `opencode`, `cursor`, or `gemini` | From config / env / `claude` |
 | `--agent-path <path>` | Custom path to the agent CLI binary | From config / env |
 | `--model <model>` | Model passed to the Claude CLI via `--model` | From config / env |
 | `--max-iterations <n>`, `-n` | Loop iteration limit | Dynamic |

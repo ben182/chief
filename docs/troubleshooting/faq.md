@@ -22,6 +22,8 @@ Chief itself is open source and free. However, it requires an agent CLI with its
 - **Claude Code** (default) — requires a Claude Pro subscription or Anthropic API access
 - **Codex CLI** — requires an OpenAI API key
 - **OpenCode CLI** — supports multiple model providers
+- **Cursor CLI** — requires a Cursor account
+- **Gemini CLI** — requires Google/Gemini access
 
 ### What models does Chief use?
 
@@ -151,9 +153,9 @@ For specific problems and solutions.
 
 [GitHub Issues](https://github.com/ben182/chief/issues)
 
-### Is there a community chat?
+### Where do I ask questions?
 
-Use [GitHub Discussions](https://github.com/ben182/chief/discussions) for questions and community support.
+Open a [GitHub Issue](https://github.com/ben182/chief/issues) — this is a small private fork, so there's no separate community forum.
 
 ### Can I contribute?
 

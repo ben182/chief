@@ -211,10 +211,9 @@ chief status
 
 **Output includes:**
 
-- Current PRD name
-- Total number of stories
-- Completed / In Progress / Pending counts
-- Next story to be worked on
+- The project name (from the PRD's top-level heading)
+- An `X/Y stories complete` count
+- A list of the incomplete stories, with `(in progress)` next to the one currently being worked on (or `All stories complete!` when none remain)
 
 **Examples:**
 
@@ -223,12 +222,13 @@ chief status
 chief status
 
 # Example output:
-#   PRD: auth-system
-#   Stories: 8 total
-#     ✓ 5 completed
-#     → 1 in progress
-#     ○ 2 pending
-#   Next: US-006 - Password Reset Flow
+#   My Auth Project
+#   5/8 stories complete
+#
+#   Incomplete stories:
+#     US-006: Password Reset Flow (in progress)
+#     US-007: Account Deletion
+#     US-008: Two-Factor Auth
 ```
 
 ---
@@ -249,10 +249,10 @@ Scans `.chief/prds/` and shows each PRD with its completion status.
 # List all PRDs
 chief list
 
-# Example output:
-#   auth-system    5/8 stories complete
-#   landing-page   12/12 stories complete ✓
-#   api-v2         0/6 stories complete
+# Example output (format: <name>: <title> (<completed>/<total>, <pct>%)):
+#   auth-system: My Auth Project (5/8, 62%)
+#   landing-page: Marketing Site (12/12, 100%)
+#   api-v2: Public API (0/6, 0%)
 ```
 
 ---

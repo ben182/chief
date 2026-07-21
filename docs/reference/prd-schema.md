@@ -1,5 +1,5 @@
 ---
-description: Complete prd.md format reference for Chief. Heading structure, field types, status values, and validation rules.
+description: Complete prd.md format reference for Chief. Heading structure, field types, status values, and parsing behavior.
 ---
 
 # PRD Format Reference
@@ -8,17 +8,20 @@ Complete format documentation for `prd.md`.
 
 ## Story Heading Format
 
-Each user story is defined by a level-3 markdown heading with an ID and title:
+Each user story is defined by a level-3 (or level-4) markdown heading with an ID and title:
 
 ```markdown
 ### ID: Title
 ```
+
+The ID must match the pattern `LETTERS-NUMBERS` (one or more letters, a hyphen, then one or more digits). Headings whose ID doesn't fit this pattern are treated as regular prose, not stories.
 
 **Examples:**
 ```markdown
 ### US-001: User Registration
 ### AUTH-003: Password Reset Flow
 ### BUG-012: Fix Login Redirect
+#### US-042: Also works as a level-4 heading
 ```
 
 ## Story Fields
@@ -27,7 +30,7 @@ Below each story heading, Chief recognizes these bold-label fields:
 
 | Field | Format | Required | Default | Description |
 |-------|--------|----------|---------|-------------|
-| Status | `**Status:** value` | No | `todo` | Current state: `done`, `in-progress`, or `todo` |
+| Status | `**Status:** value` | No | `todo` | Current state: `done`, `in-progress`, `todo`, or `needs-review` |
 | Priority | `**Priority:** N` | No | Document order | Execution order (lower = higher priority) |
 | Description | `**Description:** text` | No | — | Story description (or use freeform prose) |
 
@@ -44,11 +47,14 @@ Chief reads checkbox state to track progress. The agent checks boxes as it compl
 
 ## Status Values
 
-| Value | Meaning |
-|-------|---------|
-| `done` | Story is complete — Chief skips it |
-| `in-progress` | Agent is actively working on this story |
-| `todo` | Story is pending (also the default if Status is absent) |
+| Value | Aliases (also accepted) | Meaning |
+|-------|-------------------------|---------|
+| `done` | `complete`, `completed`, `passed` | Story is complete — Chief skips it |
+| `in-progress` | `in progress`, `started` | Agent is actively working on this story |
+| `todo` | *(anything unrecognized falls back to this)* | Story is pending (also the default if Status is absent) |
+| `needs-review` | `needs review`, `blocked` | Chief parked the story (e.g. after repeated failed attempts). Skipped by the loop and flagged with ⚑ in the TUI until a human resets it. |
+
+Status matching is case-insensitive. Any value Chief doesn't recognize is treated as `todo` rather than raising an error.
 
 ## Full Example
 
@@ -95,7 +101,7 @@ Complete auth system with login, registration, and password reset.
 
 Parsed from the story heading: `### US-001: Title` → id is `US-001`.
 
-**Format:** Any string before the colon, but `US-XXX` pattern recommended.
+**Format:** `LETTERS-NUMBERS` (one or more letters, a hyphen, one or more digits). Headings that don't match aren't parsed as stories.
 
 **Example:** `US-001`, `US-042`, `AUTH-001`
 
@@ -124,21 +130,22 @@ The `- [ ]` / `- [x]` items under each story heading. The agent uses these to kn
 
 Lower numbers = higher priority. Chief always picks the incomplete story with the lowest priority number first. If omitted, stories are selected in document order.
 
-**Range:** Positive integers, typically 1-100
+**Range:** Any positive number (integers or decimals). A value that isn't a positive number is ignored, and the story falls back to document order.
 
 ### status
 
-Tracked by Chief. Set to `in-progress` when work begins, `done` when the agent outputs `<chief-done/>`.
+Tracked by Chief. Set to `in-progress` when work begins, `done` when the agent outputs `<chief-done/>` and a matching commit lands, and `needs-review` when a story is parked after repeated failed attempts.
 
-**Values:** `done`, `in-progress`, `todo` (default if absent)
+**Values:** `done`, `in-progress`, `todo` (default if absent), `needs-review` — plus the case-insensitive aliases listed under [Status Values](#status-values)
 
-## Validation
+## Parsing Behavior
 
-Chief validates `prd.md` on startup by parsing the markdown structure:
+Chief parses `prd.md` leniently rather than validating it against a strict schema. It reads the markdown structure and extracts whatever it recognizes; it does not reject a PRD for missing or malformed fields. Concretely:
 
-- At least one story heading (`### ID: Title`) must be present
-- Each story must have a unique ID
-- Priority values (if present) must be positive numbers
-- Status values (if present) must be `done`, `in-progress`, or `todo`
+- **Only file-read errors fail.** If `prd.md` can be read, parsing succeeds. There's no separate validation step that exits with an error for structural problems.
+- **Unrecognized headings are skipped.** A heading whose ID doesn't match `LETTERS-NUMBERS` is treated as prose, not a story — so a typo silently drops the story rather than raising an error.
+- **Unknown status values fall back to `todo`** instead of erroring.
+- **Non-positive or non-numeric priorities are ignored**, leaving the story in document order.
+- **Duplicate IDs are not detected.** Chief keeps every parsed story as-is; it does not deduplicate or warn.
 
-Invalid PRDs cause Chief to exit with an error message describing the parsing issue.
+Because of this, the most common "why isn't my story being picked up?" cause is a heading whose ID doesn't fit the `LETTERS-NUMBERS` pattern. See [Common Issues → Invalid PRD Format](/troubleshooting/common-issues) for how to spot it.
