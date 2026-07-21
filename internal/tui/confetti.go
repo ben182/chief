@@ -10,8 +10,10 @@ import (
 // confettiChars are the characters used for confetti particles.
 var confettiChars = []string{"✦", "★", "●", "◆", "♦", "▲", "■", "♥", "✧", "⬥"}
 
-// confettiColors are the colors used for confetti particles.
-var confettiColors = []lipgloss.Color{
+// confettiColors are the colors used for confetti particles. The type is the
+// TerminalColor interface so it can mix the adaptive palette colors with the
+// fixed festive hues below.
+var confettiColors = []lipgloss.TerminalColor{
 	SuccessColor,
 	PrimaryColor,
 	WarningColor,
@@ -26,7 +28,7 @@ type Particle struct {
 	x, y   float64
 	vx, vy float64
 	char   string
-	color  lipgloss.Color
+	color  lipgloss.TerminalColor
 	life   int
 }
 

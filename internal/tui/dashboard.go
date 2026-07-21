@@ -271,7 +271,7 @@ func (a *App) renderFooter() string {
 
 	if a.viewMode == ViewLog {
 		// Log view shortcuts
-		shortcuts = []string{"t: dashboard", "d: diff", "e: edit", "n: new", "l: list", "←→/1-9: switch", "?: help", "j/k: scroll", "q: quit"}
+		shortcuts = []string{"t: dashboard", "d: diff", "e: edit", "n: new", "l: list", "←→/1-9: switch", ",: settings", "?: help", "j/k: scroll", "q: quit"}
 	} else if a.viewMode == ViewDiff {
 		// Diff view shortcuts
 		shortcuts = []string{"d: dashboard", "t: log", "e: edit", "n: new", "l: list", "?: help", "j/k: scroll", "q: quit"}
@@ -279,13 +279,13 @@ func (a *App) renderFooter() string {
 		// Dashboard view shortcuts
 		switch a.state {
 		case StateReady, StatePaused:
-			shortcuts = []string{"s: start", "d: diff", "e: edit", "t: log", "n: new", "l: list", "←→/1-9: switch", "?: help", "q: quit"}
+			shortcuts = []string{"s: start", "d: diff", "e: edit", "t: log", "n: new", "l: list", "←→/1-9: switch", ",: settings", "?: help", "q: quit"}
 		case StateRunning:
-			shortcuts = []string{"p: pause", "x: stop", "d: diff", "t: log", "n: new", "l: list", "←→/1-9: switch", "?: help", "q: quit"}
+			shortcuts = []string{"p: pause", "x: stop", "d: diff", "t: log", "n: new", "l: list", "←→/1-9: switch", ",: settings", "?: help", "q: quit"}
 		case StateStopped, StateError:
-			shortcuts = []string{"s: retry", "d: diff", "e: edit", "t: log", "n: new", "l: list", "←→/1-9: switch", "?: help", "q: quit"}
+			shortcuts = []string{"s: retry", "d: diff", "e: edit", "t: log", "n: new", "l: list", "←→/1-9: switch", ",: settings", "?: help", "q: quit"}
 		default:
-			shortcuts = []string{"d: diff", "e: edit", "t: log", "n: new", "l: list", "←→/1-9: switch", "?: help", "q: quit"}
+			shortcuts = []string{"d: diff", "e: edit", "t: log", "n: new", "l: list", "←→/1-9: switch", ",: settings", "?: help", "q: quit"}
 		}
 	}
 	shortcutsStr := footerStyle.Render(strings.Join(shortcuts, "  │  "))
@@ -313,18 +313,18 @@ func (a *App) renderNarrowFooter() string {
 
 	if a.viewMode == ViewLog {
 		// Log view shortcuts - condensed
-		shortcuts = []string{"t", "e", "n", "1-9", "?", "q"}
+		shortcuts = []string{"t", "e", "n", "1-9", ",", "?", "q"}
 	} else {
 		// Dashboard view shortcuts - condensed
 		switch a.state {
 		case StateReady, StatePaused:
-			shortcuts = []string{"s", "e", "t", "n", "1-9", "?", "q"}
+			shortcuts = []string{"s", "e", "t", "n", "1-9", ",", "?", "q"}
 		case StateRunning:
-			shortcuts = []string{"p", "x", "t", "n", "1-9", "?", "q"}
+			shortcuts = []string{"p", "x", "t", "n", "1-9", ",", "?", "q"}
 		case StateStopped, StateError:
-			shortcuts = []string{"s", "e", "t", "n", "1-9", "?", "q"}
+			shortcuts = []string{"s", "e", "t", "n", "1-9", ",", "?", "q"}
 		default:
-			shortcuts = []string{"e", "t", "n", "1-9", "?", "q"}
+			shortcuts = []string{"e", "t", "n", "1-9", ",", "?", "q"}
 		}
 	}
 	shortcutsStr := footerStyle.Render(strings.Join(shortcuts, " "))
@@ -556,7 +556,7 @@ func (a *App) renderErrorPanel(width, height int) string {
 	var content strings.Builder
 
 	// Error header
-	errorIcon := statusFailedStyle.Render(IconFailed)
+	errorIcon := statusFailedStyle.Render(glyph(IconFailed, "x"))
 	errorTitle := StateErrorStyle.Render("ERROR")
 	content.WriteString(fmt.Sprintf("%s %s\n", errorIcon, errorTitle))
 	content.WriteString(DividerStyle.Render(strings.Repeat("─", width-4)))
@@ -588,7 +588,7 @@ func (a *App) renderErrorPanel(width, height int) string {
 			logName = filepath.Base(p)
 		}
 	}
-	content.WriteString(hintStyle.Render(fmt.Sprintf("💡 Tip: Check %s in the PRD directory for full error details.", logName)))
+	content.WriteString(hintStyle.Render(fmt.Sprintf("%s Tip: Check %s in the PRD directory for full error details.", glyph("💡", ">"), logName)))
 	content.WriteString("\n\n")
 
 	// Retry instructions
@@ -612,7 +612,7 @@ func (a *App) renderEmptyPRDPanel(width, height int) string {
 	var content strings.Builder
 
 	// Centered empty state message
-	emptyIcon := lipgloss.NewStyle().Foreground(MutedColor).Render("📋")
+	emptyIcon := lipgloss.NewStyle().Foreground(MutedColor).Render(glyph("📋", "="))
 	emptyTitle := titleStyle.Render("No User Stories")
 	content.WriteString(fmt.Sprintf("%s %s\n", emptyIcon, emptyTitle))
 	content.WriteString(DividerStyle.Render(strings.Repeat("─", width-4)))

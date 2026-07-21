@@ -59,6 +59,7 @@ func (h *HelpOverlay) GetCategories() []ShortcutCategory {
 		Shortcuts: []Shortcut{
 			{Key: "t", Description: "Toggle log view"},
 			{Key: "d", Description: "Toggle diff view"},
+			{Key: ",", Description: "Settings"},
 			{Key: "?", Description: "Help overlay"},
 		},
 	}

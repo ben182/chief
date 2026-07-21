@@ -212,7 +212,7 @@ func (c *CompletionScreen) Render() string {
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(SuccessColor)
-	content.WriteString(headerStyle.Render("🎉 PRD Complete!"))
+	content.WriteString(headerStyle.Render(glyph("🎉", "*") + " PRD Complete!"))
 	content.WriteString("\n")
 
 	// Subtitle

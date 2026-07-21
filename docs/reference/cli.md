@@ -302,6 +302,18 @@ When Chief is running, the TUI provides real-time feedback and interactive contr
 The TUI has three views: **Dashboard** showing stories and progress, **Log** streaming the agent's output in real time, and **Diff** showing the commit diff for the selected story. Press `t` to toggle Dashboard/Log, or `d` to open the Diff view.
 :::
 
+## Environment Variables
+
+| Variable | Effect |
+|----------|--------|
+| `CHIEF_AGENT` | Agent CLI to use: `claude`, `codex`, `opencode`, `cursor`, or `gemini`. Overridden by `--agent`. |
+| `CHIEF_AGENT_PATH` | Custom path to the agent CLI binary. Overridden by `--agent-path`. |
+| `CHIEF_MODEL` | Model passed to the Claude CLI via `--model`. Overridden by `--model`. |
+| `NO_COLOR` | Any non-empty value strips all colors/styling from the TUI ([no-color.org](https://no-color.org)). |
+| `CHIEF_ASCII` | Truthy value (`1`/`true`/`yes`/`on`) replaces emoji/Unicode icons with ASCII fallbacks, for terminals that render them poorly. |
+
+Agent resolution order: `--agent` / `--agent-path` / `--model` flags → `CHIEF_AGENT` / `CHIEF_AGENT_PATH` / `CHIEF_MODEL` → `.chief/config.yaml` → default `claude`. See [Configuration → Appearance](/reference/configuration#appearance) for the TUI appearance variables.
+
 ## Exit Codes
 
 Chief uses standard exit codes:

@@ -200,31 +200,32 @@ func (l *LogViewer) totalLines() int {
 	return l.totalLineCount
 }
 
-// getToolIcon returns an emoji icon for a tool name.
+// getToolIcon returns an emoji icon for a tool name, or a short ASCII tag when
+// the TUI is in ASCII mode (CHIEF_ASCII).
 func getToolIcon(toolName string) string {
 	switch toolName {
 	case "Read":
-		return "📖"
+		return glyph("📖", "[R]")
 	case "Edit":
-		return "✏️"
+		return glyph("✏️", "[E]")
 	case "Write":
-		return "📝"
+		return glyph("📝", "[W]")
 	case "Bash":
-		return "🔨"
+		return glyph("🔨", "[$]")
 	case "Glob":
-		return "🔍"
+		return glyph("🔍", "[G]")
 	case "Grep":
-		return "🔎"
+		return glyph("🔎", "[/]")
 	case "Task":
-		return "🤖"
+		return glyph("🤖", "[T]")
 	case "Skill":
-		return "🧐"
+		return glyph("🧐", "[S]")
 	case "WebFetch":
-		return "🌐"
+		return glyph("🌐", "[@]")
 	case "WebSearch":
-		return "🌐"
+		return glyph("🌐", "[@]")
 	default:
-		return "⚙️"
+		return glyph("⚙️", "[*]")
 	}
 }
 
@@ -619,7 +620,7 @@ func (l *LogViewer) renderRetrying(entry LogEntry) []string {
 		text = "Retrying..."
 	}
 
-	lines := []string{retryStyle.Render("🔄 " + text)}
+	lines := []string{retryStyle.Render(glyph("🔄", "~") + " " + text)}
 
 	// Surface the crashed process's stderr so users don't have to dig in log files.
 	if len(entry.CrashLog) > 0 {

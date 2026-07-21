@@ -289,6 +289,25 @@ Chief automatically prunes git's internal worktree tracking on startup, but does
    ```
 3. Or push the branch and resolve via a pull request on GitHub
 
+## Garbled Icons or Unreadable Colors
+
+**Symptom:** Status/tool icons show as boxes, question marks, or double-width gaps; or text is barely visible (e.g. pale yellow/green on a light terminal).
+
+**Cause:** Some terminals, multiplexers, or piped-log setups render emoji poorly (mis-measured widths break the layout). Very old or minimal color profiles can also clash with the palette.
+
+**Solution:**
+
+- Colors adapt to the terminal background automatically. If they still look wrong, strip styling entirely:
+  ```bash
+  NO_COLOR=1 chief
+  ```
+- Replace emoji/Unicode icons with ASCII fallbacks:
+  ```bash
+  CHIEF_ASCII=1 chief
+  ```
+
+See [Configuration → Appearance](/reference/configuration#appearance) for details.
+
 ## Still Stuck?
 
 If none of these solutions help:

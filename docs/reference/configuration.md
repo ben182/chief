@@ -142,6 +142,30 @@ agent login
 
 Chief runs Cursor in headless mode with `--trust` and `--force` so it can modify files without prompts. See [Cursor CLI documentation](https://cursor.com/docs/cli/overview) for details.
 
+## Appearance
+
+The TUI adapts to your terminal automatically and can be forced into plainer modes via environment variables.
+
+- **Adaptive colors** — the color palette detects your terminal's background and picks a matching variant: the original bright theme on dark terminals, and darker, higher-contrast tones on light terminals (the dark-mode pale greens/yellows are nearly invisible on white). No configuration required.
+- **`NO_COLOR`** — set to any non-empty value (per [no-color.org](https://no-color.org)) to strip all colors and styling. The TUI degrades to plain text.
+- **`CHIEF_ASCII`** — set to a truthy value (`1`, `true`, `yes`, `on`) to replace Unicode/emoji icons with ASCII fallbacks. Useful for terminals, multiplexers, or piped logs that render emoji poorly (mis-measured widths break the layout).
+
+| Variable | Effect |
+|----------|--------|
+| `NO_COLOR` | Any non-empty value disables all colors/styling (plain text). |
+| `CHIEF_ASCII` | Truthy value (`1`/`true`/`yes`/`on`) switches status icons, log tool cards, and decorative glyphs to ASCII. |
+
+Icon fallbacks in ASCII mode:
+
+| Unicode | ASCII | Meaning |
+|---------|-------|---------|
+| `✓` | `v` | Passed |
+| `●` | `*` | In progress |
+| `○` | `.` | Pending |
+| `✗` | `x` | Failed |
+| `⚑` | `!` | Needs review |
+| `📖 ✏️ 📝 🔨 🔍 🔎 🤖 🧐 🌐 ⚙️` | `[R] [E] [W] [$] [G] [/] [T] [S] [@] [*]` | Log tool cards (Read/Edit/Write/Bash/Glob/Grep/Task/Skill/Web/other) |
+
 ## Permission Handling
 
 Some agents (like Claude Code) ask for permission before executing bash commands, writing files, and making network requests. Chief automatically configures the agent for autonomous operation by disabling these prompts.

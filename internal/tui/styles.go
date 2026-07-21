@@ -5,25 +5,31 @@ package tui
 
 import "github.com/charmbracelet/lipgloss"
 
-// Color palette - consistent colors used throughout the TUI
+// Color palette - consistent colors used throughout the TUI.
+//
+// Every color is an AdaptiveColor so lipgloss picks the variant that matches
+// the terminal's detected background: the Dark values keep the original
+// Catppuccin-style look on dark terminals, while the Light values swap in
+// darker, higher-contrast tones so the UI stays legible on light backgrounds
+// (pale yellows/greens on white are otherwise nearly invisible).
 var (
 	// Primary colors
-	PrimaryColor = lipgloss.Color("#00D7FF") // Cyan - primary brand, in-progress states
-	SuccessColor = lipgloss.Color("#5AF78E") // Green - passed, complete states
-	WarningColor = lipgloss.Color("#F3F99D") // Yellow - paused, warning states
-	ErrorColor   = lipgloss.Color("#FF5C57") // Red - failed, error states
-	MutedColor   = lipgloss.Color("#6C7086") // Gray - pending, muted text
-	BorderColor  = lipgloss.Color("#45475A") // Dark gray - borders, dividers
+	PrimaryColor = lipgloss.AdaptiveColor{Dark: "#00D7FF", Light: "#007899"} // Cyan - primary brand, in-progress states
+	SuccessColor = lipgloss.AdaptiveColor{Dark: "#5AF78E", Light: "#1A7F37"} // Green - passed, complete states
+	WarningColor = lipgloss.AdaptiveColor{Dark: "#F3F99D", Light: "#9A6700"} // Yellow - paused, warning states
+	ErrorColor   = lipgloss.AdaptiveColor{Dark: "#FF5C57", Light: "#CF222E"} // Red - failed, error states
+	MutedColor   = lipgloss.AdaptiveColor{Dark: "#6C7086", Light: "#57606A"} // Gray - pending, muted text
+	BorderColor  = lipgloss.AdaptiveColor{Dark: "#45475A", Light: "#D0D7DE"} // Borders, dividers
 
 	// Text colors
-	TextColor       = lipgloss.Color("#CDD6F4") // Light gray - primary text
-	TextMutedColor  = lipgloss.Color("#6C7086") // Muted text
-	TextBrightColor = lipgloss.Color("#FFFFFF") // Bright white - emphasis
+	TextColor       = lipgloss.AdaptiveColor{Dark: "#CDD6F4", Light: "#1F2328"} // Primary text
+	TextMutedColor  = lipgloss.AdaptiveColor{Dark: "#6C7086", Light: "#57606A"} // Muted text
+	TextBrightColor = lipgloss.AdaptiveColor{Dark: "#FFFFFF", Light: "#000000"} // Emphasis
 
 	// Background colors
-	BgColor          = lipgloss.Color("#1E1E2E") // Dark background
-	BgSelectedColor  = lipgloss.Color("#313244") // Selected item background
-	BgHighlightColor = lipgloss.Color("#45475A") // Highlight background
+	BgColor          = lipgloss.AdaptiveColor{Dark: "#1E1E2E", Light: "#FFFFFF"} // Base background
+	BgSelectedColor  = lipgloss.AdaptiveColor{Dark: "#313244", Light: "#EAEEF2"} // Selected item background
+	BgHighlightColor = lipgloss.AdaptiveColor{Dark: "#45475A", Light: "#D0D7DE"} // Highlight background
 )
 
 // Aliases for backward compatibility with existing code
@@ -199,9 +205,9 @@ var (
 
 // Status icons
 const (
-	IconPassed     = "✓"
-	IconInProgress = "●"
-	IconPending    = "○"
+	IconPassed      = "✓"
+	IconInProgress  = "●"
+	IconPending     = "○"
 	IconFailed      = "✗"
 	IconPaused      = "◐"
 	IconNeedsReview = "⚑"
@@ -218,15 +224,15 @@ const (
 // GetStatusIcon returns the appropriate icon for a story's status.
 func GetStatusIcon(passed, inProgress, needsReview bool) string {
 	if passed {
-		return statusPassedStyle.Render(IconPassed)
+		return statusPassedStyle.Render(glyph(IconPassed, "v"))
 	}
 	if needsReview {
-		return statusPausedStyle.Render(IconNeedsReview)
+		return statusPausedStyle.Render(glyph(IconNeedsReview, "!"))
 	}
 	if inProgress {
-		return statusInProgressStyle.Render(IconInProgress)
+		return statusInProgressStyle.Render(glyph(IconInProgress, "*"))
 	}
-	return statusPendingStyle.Render(IconPending)
+	return statusPendingStyle.Render(glyph(IconPending, "."))
 }
 
 // GetStateStyle returns the appropriate style for an app state.
