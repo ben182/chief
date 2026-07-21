@@ -53,52 +53,50 @@ func reviewInstruction(reviewSkill string) string {
 		"made to pass, do NOT commit and do NOT output <chief-done/>.\n"
 }
 
-// questionFormatNative instructs the agent to ask each grilling question through
-// a native multiple-choice UI (Claude Code's question tool).
-const questionFormatNative = `### Every question carries your recommended answer
+// questionFormatBatch grills the user in rounds following the batch-grill-me
+// methodology: map the work as a design tree and, each round, ask the whole
+// frontier of currently-answerable questions at once — every question carrying a
+// recommended answer — then wait for the batch of answers before recomputing the
+// frontier. It is deliberately presented in plain prose: the native
+// multiple-choice picker (AskUserQuestion) is not used, so this one format
+// applies to every provider.
+const questionFormatBatch = `### Grill in rounds — ask the whole frontier at once
 
-Ask each question with the AskUserQuestion tool. It renders a native picker the
-user navigates with the arrow keys — far clearer than reading lettered options
-and typing "1A". Rules:
+Map the work as a **design tree**: every decision branches into the decisions
+that hang off it. Work the tree in **rounds**. The **frontier** is every decision
+whose prerequisites are already settled — the questions you can ask *now* without
+guessing at answers you haven't heard yet.
 
-- One question per tool call. Never batch several questions into one call.
-- Offer only the 2–4 genuine choices.
-- Put your recommended choice FIRST and append " (Recommended)" to its label; put
-  the one-line reason in that option's description.
-- The tool always adds an "Other" free-text escape, so the user can redirect even
-  when none of your options fit.
+Ask the entire frontier in a single round, then **stop and wait** for the user's
+answers before the next round. Do not trickle questions out one at a time, and do
+not ask a question whose answer depends on another still open this round — that
+one belongs to a *later* round. Each round the user's answers reshape the tree:
+settled decisions push the frontier outward and unblock the questions that
+depended on them. Recompute the frontier and ask the next round. Keep going until
+the frontier is empty — every branch visited, nothing silently assumed.
 
-After each answer, ask the next question. Write nothing until every open decision
-is resolved.`
+**Present each round in plain prose — never a native multiple-choice picker or
+question tool.** Number the questions so answers map back cleanly, and give every
+question your recommended answer with a one-line reason, so the user can confirm
+the whole batch ("all your recs") or redirect individual ones. Show the
+alternatives, but make the recommendation explicit:
 
-// questionFormatLettered is the fallback for providers without a native question
-// UI: one question per message, presented as indented lettered options.
-const questionFormatLettered = `### Every question carries your recommended answer
+    Round 2 — persistence & limits
 
-For each question, give your recommended answer and a one-line reason, so the user
-can simply confirm ("yes" / "go with your rec") or redirect. Show the
-alternatives, but make the recommendation explicit. Present it like this:
+    1. State persistence — should open sessions survive a restart?
+       A. Yes, persist to disk   (recommended: you already persist settings, so
+          it's consistent)
+       B. No, sessions are ephemeral
+       C. Persist only on an explicit "save"
 
-    Question 3 — State persistence
+    2. Session cap — is there a maximum number of open sessions?
+       A. No cap   (recommended: nothing in the current UI implies one)
+       B. Cap at N
 
-    Should open sessions survive a restart?
-      A. Yes, persist to localStorage   (recommended: you already do this in the
-         settings panel, so it's consistent)
-      B. No, sessions are ephemeral
-      C. Persist only on explicit "save"
+    (Confirm the recommendations, or redirect any of them.)
 
-    (Confirm A, or pick another.)
-
-Ask only one such block per message. Wait for the reply. Then ask the next.`
-
-// questionFormat picks the grilling question format for a provider based on
-// whether its interactive session can render native multiple-choice questions.
-func questionFormat(nativeQuestions bool) string {
-	if nativeQuestions {
-		return questionFormatNative
-	}
-	return questionFormatLettered
-}
+Wait for the round's answers, then compute and ask the next round. Write nothing
+until the frontier is empty.`
 
 // exploreModelClaude instructs the Claude interactive session to run codebase
 // exploration on Opus via a subagent, so exploration quality does not depend on
@@ -134,7 +132,7 @@ func GetInitPrompt(prdDir, context string, nativeQuestions bool) string {
 	}
 	result := strings.ReplaceAll(initPromptTemplate, "{{PRD_DIR}}", prdDir)
 	result = strings.ReplaceAll(result, "{{CONTEXT}}", context)
-	result = strings.ReplaceAll(result, "{{QUESTION_FORMAT}}", questionFormat(nativeQuestions))
+	result = strings.ReplaceAll(result, "{{QUESTION_FORMAT}}", questionFormatBatch)
 	return strings.ReplaceAll(result, "{{EXPLORE_MODEL}}", exploreModel(nativeQuestions))
 }
 
@@ -142,7 +140,7 @@ func GetInitPrompt(prdDir, context string, nativeQuestions bool) string {
 // provider-appropriate question format substituted.
 func GetEditPrompt(prdDir string, nativeQuestions bool) string {
 	result := strings.ReplaceAll(editPromptTemplate, "{{PRD_DIR}}", prdDir)
-	result = strings.ReplaceAll(result, "{{QUESTION_FORMAT}}", questionFormat(nativeQuestions))
+	result = strings.ReplaceAll(result, "{{QUESTION_FORMAT}}", questionFormatBatch)
 	return strings.ReplaceAll(result, "{{EXPLORE_MODEL}}", exploreModel(nativeQuestions))
 }
 

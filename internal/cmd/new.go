@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/minicodemonkey/chief/embed"
+	"github.com/minicodemonkey/chief/internal/git"
 	"github.com/minicodemonkey/chief/internal/loop"
 	"github.com/minicodemonkey/chief/internal/prd"
 )
@@ -54,6 +55,21 @@ func RunNew(opts NewOptions) error {
 
 	if opts.Provider == nil {
 		return fmt.Errorf("new command requires Provider to be set")
+	}
+
+	// Give the PRD its own branch (chief/<name>) right away, matching how the
+	// loop branches when a PRD is started. This keeps the PRD and its later
+	// implementation off the default branch. It's a convenience, not a hard
+	// requirement, so a git failure only warns and lets PRD authoring continue.
+	if git.IsGitRepo(opts.BaseDir) {
+		expectedBranch := fmt.Sprintf("chief/%s", opts.Name)
+		if current, err := git.GetCurrentBranch(opts.BaseDir); err == nil && current != expectedBranch {
+			if err := git.CreateBranch(opts.BaseDir, expectedBranch); err != nil {
+				fmt.Printf("Warning: could not create branch %s: %v\n", expectedBranch, err)
+			} else {
+				fmt.Printf("Created branch %s\n", expectedBranch)
+			}
+		}
 	}
 
 	// Get the init prompt with the PRD directory path

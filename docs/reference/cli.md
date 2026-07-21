@@ -120,12 +120,13 @@ chief new [name] [context]
 **How it works:**
 
 1. When the agent is Claude, Chief first shows a model picker (see below) — pick which Claude model drives the session
-2. Chief launches the agent CLI with a specialized PRD-creation prompt. For Claude the session runs with `--dangerously-skip-permissions`, so it can read the repo and write `prd.md` without a permission prompt on every step
-3. The agent first asks, in plain prose, **what you want to build and why** — before touching your codebase (it does not guess the feature from the PRD name). If you passed `context`, it plays that back to confirm instead of asking
-4. Only once the goal is clear does it explore the repository, then grill you one decision at a time to resolve every open question. Codebase exploration always runs on **Opus** (via a subagent), independent of the model you picked for the session — so a lighter session model (e.g. Fable) speeds up the conversation without degrading how well the repo is understood
-5. After you confirm the shared understanding, the agent writes `prd.md` in one pass
-6. When done, type `/exit` to leave the agent session
-7. Chief validates the `prd.md` can be parsed
+2. If you're in a git repo, Chief creates (or checks out) a `chief/<name>` branch up front — the same branch the loop uses when the PRD is later run — so the PRD and its implementation land off your default branch. If the branch can't be created, Chief warns and continues so PRD authoring is never blocked
+3. Chief launches the agent CLI with a specialized PRD-creation prompt. For Claude the session runs with `--dangerously-skip-permissions`, so it can read the repo and write `prd.md` without a permission prompt on every step
+4. The agent first asks, in plain prose, **what you want to build and why** — before touching your codebase (it does not guess the feature from the PRD name). If you passed `context`, it plays that back to confirm instead of asking
+5. Only once the goal is clear does it explore the repository, then grill you in **rounds**: it maps the decisions as a tree and asks the whole *frontier* of currently-answerable questions at once (each numbered, each with a recommended answer), waits for your batch of answers, then recomputes the frontier for the next round — no native multiple-choice picker, just plain prose you can confirm or redirect. Codebase exploration always runs on **Opus** (via a subagent), independent of the model you picked for the session — so a lighter session model (e.g. Fable) speeds up the conversation without degrading how well the repo is understood
+6. After you confirm the shared understanding, the agent writes `prd.md` in one pass
+7. When done, type `/exit` to leave the agent session
+8. Chief validates the `prd.md` can be parsed
 
 **Model picker (Claude only):**
 

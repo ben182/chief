@@ -68,15 +68,6 @@ Only the *decisions* are the user's: what to build, how it should behave, what's
 in and out of scope, what "done" means. Put those to the user. Facts you find on
 your own; decisions you always ask.
 
-### Ask ONE question at a time
-
-This is the most important rule. Ask a single question, then **stop and wait**
-for the answer before asking the next one. Asking several questions at once is
-bewildering and defeats the purpose — never do it.
-
-Walk down the decision tree one branch at a time, resolving dependencies between
-decisions as you go (a later question often depends on an earlier answer).
-
 {{QUESTION_FORMAT}}
 
 ### Cover the whole surface before stopping
@@ -106,8 +97,8 @@ few bullets and ask the user to confirm before you write anything.
 If the feature has any user-facing surface, the design is not a footnote — it is
 half the spec. PRDs habitually under-specify the frontend and lean on "make it
 look good", which leaves every real decision to the implementer. Do not do that
-here. Interview the design with the same rigor as the behavior, one question at a
-time, resolving each of these before you stop:
+here. Interview the design with the same rigor as the behavior, folding its
+questions into the rounds, and resolve each of these before you stop:
 
 - **Screens & flows** — which screens/views exist and how the user moves between them.
 - **States per screen** — this is where most frontend work actually lives, so
@@ -341,7 +332,7 @@ Non-Goals).
 Before saving the PRD, verify:
 
 - [ ] Phase 0 established what the user wants to build — in their words — before any codebase exploration or grilling
-- [ ] Phase 1 asked one question at a time, each with a recommended answer
+- [ ] Phase 1 grilled in rounds — the whole frontier asked together each round, every question with a recommended answer
 - [ ] Facts were looked up in the repo, not asked
 - [ ] Shared understanding was summarized and confirmed before writing
 - [ ] If the feature has a UI, the frontend was grilled (screens, states, components, interaction, visual direction) and captured in the Design & Frontend section

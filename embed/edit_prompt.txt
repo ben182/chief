@@ -42,12 +42,6 @@ question can be answered by looking (how a similar story is written, what alread
 exists, which IDs are taken), **look it up — do not ask.** Only the *decisions*
 are the user's: what should change, why, and how it should behave.{{EXPLORE_MODEL}}
 
-### Ask ONE question at a time
-
-Ask a single question, then **stop and wait** for the answer before asking the
-next. Asking several questions at once is bewildering — never do it. Walk the
-decision tree one branch at a time, resolving dependencies as you go.
-
 {{QUESTION_FORMAT}}
 
 Cover at least: **what exactly changes**, **why**, **impact on existing stories**
@@ -146,7 +140,7 @@ The PRD reader may be a junior developer or AI agent. Therefore:
 
 Before saving the edited PRD, verify:
 
-- [ ] Trivial change: edited directly; otherwise grilled one question at a time, each with a recommended answer
+- [ ] Trivial change: edited directly; otherwise grilled in rounds — the whole frontier each round, every question with a recommended answer
 - [ ] Facts were looked up in the PRD/repo, not asked
 - [ ] For non-trivial changes, intended edits were summarized and confirmed before writing
 - [ ] Existing story IDs are preserved (not renumbered)

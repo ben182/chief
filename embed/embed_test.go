@@ -135,17 +135,17 @@ func TestGetInitPrompt(t *testing.T) {
 func TestGetInitPromptQuestionFormat(t *testing.T) {
 	prdDir := "/path/to/.chief/prds/main"
 
-	native := GetInitPrompt(prdDir, "", true)
-	if !strings.Contains(native, "AskUserQuestion tool") {
-		t.Error("Expected native question format to reference the AskUserQuestion tool")
-	}
-
-	lettered := GetInitPrompt(prdDir, "", false)
-	if strings.Contains(lettered, "AskUserQuestion tool") {
-		t.Error("Expected lettered fallback to omit the native question tool")
-	}
-	if !strings.Contains(lettered, "lettered") && !strings.Contains(lettered, "A. ") {
-		t.Error("Expected lettered fallback to present lettered options")
+	// The batch-grill format is provider-independent: both the native and the
+	// non-native provider get the same rounds-based grilling, and neither uses
+	// the AskUserQuestion picker.
+	for _, native := range []bool{true, false} {
+		prompt := GetInitPrompt(prdDir, "", native)
+		if !strings.Contains(prompt, "frontier") {
+			t.Errorf("native=%v: expected batch-grill format to describe the frontier", native)
+		}
+		if strings.Contains(prompt, "AskUserQuestion") {
+			t.Errorf("native=%v: expected grilling to avoid the AskUserQuestion picker", native)
+		}
 	}
 }
 
@@ -197,8 +197,11 @@ func TestGetEditPrompt(t *testing.T) {
 	if strings.Contains(prompt, "{{QUESTION_FORMAT}}") {
 		t.Error("Expected {{QUESTION_FORMAT}} to be substituted")
 	}
-	if !strings.Contains(GetEditPrompt("/test/path/prds/main", true), "AskUserQuestion tool") {
-		t.Error("Expected native edit prompt to reference the AskUserQuestion tool")
+	if !strings.Contains(GetEditPrompt("/test/path/prds/main", true), "frontier") {
+		t.Error("Expected edit prompt to use the batch-grill frontier format")
+	}
+	if strings.Contains(GetEditPrompt("/test/path/prds/main", true), "AskUserQuestion") {
+		t.Error("Expected edit prompt grilling to avoid the AskUserQuestion picker")
 	}
 }
 
