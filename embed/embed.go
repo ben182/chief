@@ -19,6 +19,9 @@ var editPromptTemplate string
 //go:embed detect_setup_prompt.txt
 var detectSetupPromptTemplate string
 
+//go:embed summary_prompt.txt
+var summaryPromptTemplate string
+
 // GetPrompt returns the agent prompt with the progress path and
 // current story context substituted. The storyContext is the JSON of the
 // current story to work on, inlined directly into the prompt so that the
@@ -118,4 +121,22 @@ func GetEditPrompt(prdDir string, nativeQuestions bool) string {
 // GetDetectSetupPrompt returns the prompt for detecting project setup commands.
 func GetDetectSetupPrompt() string {
 	return detectSetupPromptTemplate
+}
+
+// GetSummaryPrompt returns the run-summary prompt with the target file path, the
+// commit list, and the optional parked-stories note substituted. commits is a
+// one-line-per-commit log; parked lists stories that were left for human review
+// (empty when none), which is rendered as an extra context block.
+func GetSummaryPrompt(summaryPath, commits string, parked []string) string {
+	parkedBlock := ""
+	if len(parked) > 0 {
+		parkedBlock = "\nThe following stories were parked for human review (they could not be" +
+			" completed automatically) — call these out under \"Offene Punkte\":\n"
+		for _, s := range parked {
+			parkedBlock += "- " + s + "\n"
+		}
+	}
+	result := strings.ReplaceAll(summaryPromptTemplate, "{{SUMMARY_PATH}}", summaryPath)
+	result = strings.ReplaceAll(result, "{{COMMITS}}", commits)
+	return strings.ReplaceAll(result, "{{PARKED}}", parkedBlock)
 }

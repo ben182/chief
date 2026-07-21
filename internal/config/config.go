@@ -53,14 +53,21 @@ type OnCompleteConfig struct {
 	Push     bool `yaml:"push"`
 	CreatePR bool `yaml:"createPR"`
 	Notify   bool `yaml:"notify"`
+	// Summary, when true, generates a human-facing SUMMARY.md next to the PRD
+	// once the run finishes (what was built, how to test it, where the new
+	// functionality lives, open follow-ups) and commits it so it rides along in
+	// the push/PR. Runs both on full completion and when max iterations is hit,
+	// as long as the branch has commits to describe.
+	Summary bool `yaml:"summary"`
 }
 
-// Default returns a Config with default values. Notify defaults to true so a
-// walk-away run pings the user when it finishes; yaml.Unmarshal only overrides
-// keys that are present, so an explicit `notify: false` still disables it.
+// Default returns a Config with default values. Notify and Summary default to
+// true so a walk-away run both pings the user and leaves a summary when it
+// finishes; yaml.Unmarshal only overrides keys that are present, so an explicit
+// `notify: false` / `summary: false` still disables them.
 func Default() *Config {
 	return &Config{
-		OnComplete: OnCompleteConfig{Notify: true},
+		OnComplete: OnCompleteConfig{Notify: true, Summary: true},
 	}
 }
 

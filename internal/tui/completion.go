@@ -47,6 +47,8 @@ type CompletionScreen struct {
 	confetti *Confetti
 
 	// Auto-action state
+	summaryState AutoActionState
+	summaryError string
 	pushState    AutoActionState
 	pushError    string
 	prState      AutoActionState
@@ -73,6 +75,8 @@ func (c *CompletionScreen) Configure(prdName string, completed, total int, branc
 	c.storyTimings = storyTimings
 	c.totalCost = totalCost
 	// Reset auto-action state
+	c.summaryState = AutoActionIdle
+	c.summaryError = ""
 	c.pushState = AutoActionIdle
 	c.pushError = ""
 	c.prState = AutoActionIdle
@@ -113,6 +117,22 @@ func (c *CompletionScreen) Branch() string {
 // HasBranch returns true if the completion screen has a branch set.
 func (c *CompletionScreen) HasBranch() bool {
 	return c.branch != ""
+}
+
+// SetSummaryInProgress marks summary generation as in progress.
+func (c *CompletionScreen) SetSummaryInProgress() {
+	c.summaryState = AutoActionInProgress
+}
+
+// SetSummarySuccess marks summary generation as successful.
+func (c *CompletionScreen) SetSummarySuccess() {
+	c.summaryState = AutoActionSuccess
+}
+
+// SetSummaryError marks summary generation as failed with an error message.
+func (c *CompletionScreen) SetSummaryError(errMsg string) {
+	c.summaryState = AutoActionError
+	c.summaryError = errMsg
 }
 
 // SetPushInProgress marks the push as in progress.
@@ -168,7 +188,7 @@ func (c *CompletionScreen) HasConfetti() bool {
 
 // IsAutoActionRunning returns true if any auto-action is currently in progress.
 func (c *CompletionScreen) IsAutoActionRunning() bool {
-	return c.pushState == AutoActionInProgress || c.prState == AutoActionInProgress
+	return c.summaryState == AutoActionInProgress || c.pushState == AutoActionInProgress || c.prState == AutoActionInProgress
 }
 
 // Render renders the completion screen with confetti background.
@@ -294,6 +314,9 @@ func (c *CompletionScreen) calculateModalHeight() int {
 
 	// Auto-action lines
 	autoLines := 0
+	if c.summaryState != AutoActionIdle {
+		autoLines++
+	}
 	if c.pushState != AutoActionIdle {
 		autoLines++
 	}
@@ -450,6 +473,20 @@ func (c *CompletionScreen) renderAutoActions(innerWidth int) string {
 	successStyle := lipgloss.NewStyle().Foreground(SuccessColor)
 	errorStyle := lipgloss.NewStyle().Foreground(ErrorColor)
 	spinnerStyle := lipgloss.NewStyle().Foreground(PrimaryColor)
+
+	// Summary status
+	if c.summaryState != AutoActionIdle {
+		switch c.summaryState {
+		case AutoActionInProgress:
+			frame := spinnerChars[c.spinnerFrame%len(spinnerChars)]
+			lines.WriteString(spinnerStyle.Render(fmt.Sprintf("%s Writing run summary...", frame)))
+		case AutoActionSuccess:
+			lines.WriteString(successStyle.Render("✓ Wrote run summary (SUMMARY.md)"))
+		case AutoActionError:
+			lines.WriteString(errorStyle.Render(fmt.Sprintf("✗ Summary failed: %s", c.summaryError)))
+		}
+		lines.WriteString("\n")
+	}
 
 	// Push status
 	if c.pushState != AutoActionIdle {

@@ -22,6 +22,8 @@ worktree:
 onComplete:
   push: true
   createPR: true
+  summary: true      # write & commit a SUMMARY.md when the run finishes
+  notify: true       # desktop notification when the run finishes
 loop:
   watchdogTimeoutSeconds: 300   # kill a silent agent after N seconds; 0 = default (5 min)
 review:
@@ -38,6 +40,8 @@ review:
 | `worktree.setup` | string | `""` | Shell command to run in new worktrees (e.g., `npm install`, `go mod download`) |
 | `onComplete.push` | bool | `false` | Automatically push the branch to remote when a PRD completes. Only runs if the branch has at least one commit. |
 | `onComplete.createPR` | bool | `false` | Automatically create a pull request when a PRD completes (requires `gh` CLI). Only runs after a successful push, so a run with no commits creates no PR. |
+| `onComplete.summary` | bool | `true` | When a run finishes (or hits max iterations with committed work), run the agent once more to write a human-facing `SUMMARY.md` next to the PRD — what was built, how to test it, where the new functionality lives, and open/parked follow-ups. The file is committed automatically (force-added, so it lands even when `.chief/` is gitignored); with `onComplete.push` on, it rides along in the pushed branch/PR. Only runs when the branch has at least one commit. |
+| `onComplete.notify` | bool | `true` | Send a desktop notification when a run finishes (macOS `osascript`, Linux `notify-send`). |
 | `loop.watchdogTimeoutSeconds` | int | `0` | Seconds of agent silence (no output) before the watchdog kills the hung process. `0` uses the built-in default of 5 minutes. Raise it when the agent runs long, silent builds or test suites that would otherwise trip the watchdog. |
 | `review.skill` | string | `""` | Name of a skill (e.g. `/code-quality`) the agent must run at the end of each iteration to review its changes against your standards, fix anything flagged, and only then commit. Empty disables the review step. Because Chief treats a story as done only once a matching commit lands, a review that blocks the commit automatically causes the story to be retried. |
 

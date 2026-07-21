@@ -164,3 +164,32 @@ func TestGetEditPrompt(t *testing.T) {
 		t.Error("Expected native edit prompt to reference the AskUserQuestion tool")
 	}
 }
+
+func TestGetSummaryPrompt(t *testing.T) {
+	commits := "abc123 feat: S1 - add thing\ndef456 feat: S2 - add other"
+	prompt := GetSummaryPrompt("/proj/.chief/prds/default/SUMMARY.md", commits, nil)
+
+	if strings.Contains(prompt, "{{SUMMARY_PATH}}") || strings.Contains(prompt, "{{COMMITS}}") || strings.Contains(prompt, "{{PARKED}}") {
+		t.Errorf("unsubstituted placeholder left in prompt:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "/proj/.chief/prds/default/SUMMARY.md") {
+		t.Error("summary path not inlined")
+	}
+	if !strings.Contains(prompt, "feat: S1 - add thing") {
+		t.Error("commit list not inlined")
+	}
+	// No parked stories: no parked block should appear.
+	if strings.Contains(prompt, "parked for human review") {
+		t.Error("did not expect a parked block when parked is empty")
+	}
+}
+
+func TestGetSummaryPrompt_Parked(t *testing.T) {
+	prompt := GetSummaryPrompt("/x/SUMMARY.md", "abc feat: S1 - a", []string{"S3 - flaky thing", "S7 - hard thing"})
+	if !strings.Contains(prompt, "parked for human review") {
+		t.Error("expected parked block")
+	}
+	if !strings.Contains(prompt, "S3 - flaky thing") || !strings.Contains(prompt, "S7 - hard thing") {
+		t.Error("parked stories not listed")
+	}
+}

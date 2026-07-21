@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +16,7 @@ import (
 	"github.com/minicodemonkey/chief/internal/loop"
 	"github.com/minicodemonkey/chief/internal/notify"
 	"github.com/minicodemonkey/chief/internal/prd"
+	"github.com/minicodemonkey/chief/internal/summary"
 )
 
 // PRDUpdateMsg is sent when the PRD file changes.
@@ -97,6 +100,14 @@ type autoActionResultMsg struct {
 	err     error
 	prURL   string // Only set for successful PR creation
 	prTitle string // Only set for successful PR creation
+}
+
+// summaryResultMsg is sent when post-completion run-summary generation finishes.
+type summaryResultMsg struct {
+	prdName      string
+	err          error
+	showOnScreen bool // true: reflect state on the completion screen; false: only lastActivity
+	pushAfter    bool // whether to start auto-push once the summary lands
 }
 
 // completionSpinnerTickMsg is sent to animate the completion screen spinner.
@@ -465,6 +476,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case autoActionResultMsg:
 		return a.handleAutoActionResult(msg)
+
+	case summaryResultMsg:
+		return a.handleSummaryResult(msg)
 
 	case backgroundAutoActionResultMsg:
 		return a.handleBackgroundAutoAction(msg)
@@ -1053,6 +1067,17 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 		if isCurrentPRD {
 			a.state = StatePaused
 			a.lastActivity = "Max iterations reached"
+			// A capped run is still a partial result worth summarizing: the
+			// stories that did complete have commits. Generate (and commit) a
+			// summary of what got done so far. No push chain — the run didn't
+			// finish, so we only leave the summary on the branch.
+			if a.config != nil && a.config.OnComplete.Summary {
+				if branch := a.branchFor(prdName); branch != "" &&
+					git.CommitCount(a.completionGitDir(prdName), branch) > 0 {
+					a.lastActivity = "Max iterations reached — writing summary..."
+					autoActionCmd = a.runAutoSummary(prdName, branch, false, false)
+				}
+			}
 		}
 	case loop.EventError:
 		if isCurrentPRD {
@@ -1367,10 +1392,21 @@ func (a *App) showCompletionScreen(prdName string) tea.Cmd {
 	// Always start confetti tick
 	cmds := []tea.Cmd{tickConfetti()}
 
-	// Trigger auto-push if configured and there is committed work to push.
-	// A run can complete with zero commits (every story parked, or the agent
-	// never committed); pushing then would create an empty branch and PR.
-	if a.config != nil && a.config.OnComplete.Push && branch != "" && commitCount > 0 {
+	// Post-completion actions only make sense when there is committed work: a run
+	// can finish with zero commits (every story parked, or the agent never
+	// committed), and there is then nothing to summarize, push, or PR.
+	summaryEnabled := a.config != nil && a.config.OnComplete.Summary
+	pushEnabled := a.config != nil && a.config.OnComplete.Push
+	canAct := branch != "" && commitCount > 0
+
+	switch {
+	case summaryEnabled && canAct:
+		// Summarize first, then chain into push (if enabled) so the summary commit
+		// rides along in the pushed branch / PR.
+		a.completionScreen.SetSummaryInProgress()
+		cmds = append(cmds, tickCompletionSpinner(),
+			a.runAutoSummary(prdName, branch, true, pushEnabled))
+	case pushEnabled && canAct:
 		a.completionScreen.SetPushInProgress()
 		cmds = append(cmds, tickCompletionSpinner(), a.runAutoPush())
 	}
@@ -1387,9 +1423,13 @@ type backgroundAutoActionResultMsg struct {
 	err     error
 }
 
-// runBackgroundAutoActions triggers auto-push/PR for a background PRD that just completed.
+// runBackgroundAutoActions triggers summary/push/PR for a background PRD that
+// just completed (no completion screen is shown for background PRDs). It writes
+// and commits the summary first, best-effort, so it rides along in the push.
 func (a *App) runBackgroundAutoActions(prdName string) tea.Cmd {
-	if a.config == nil || !a.config.OnComplete.Push {
+	summaryEnabled := a.config != nil && a.config.OnComplete.Summary
+	pushEnabled := a.config != nil && a.config.OnComplete.Push
+	if !summaryEnabled && !pushEnabled {
 		return nil
 	}
 
@@ -1404,12 +1444,28 @@ func (a *App) runBackgroundAutoActions(prdName string) tea.Cmd {
 		dir = instance.WorktreeDir
 	}
 
-	// Don't push a branch with no committed work (see showCompletionScreen).
+	// Don't act on a branch with no committed work (see showCompletionScreen).
 	if git.CommitCount(dir, branch) == 0 {
 		return nil
 	}
 
+	provider := a.provider
+	prdPath := instance.PRDPath
+	prdDir := filepath.Join(dir, ".chief", "prds", prdName)
+
 	return func() tea.Msg {
+		if summaryEnabled {
+			var parked []string
+			if p, err := prd.LoadPRD(prdPath); err == nil {
+				parked = parkedStoryLabels(p)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			_, _ = summary.Generate(ctx, provider, dir, prdDir, branch, parked) // best-effort
+			cancel()
+		}
+		if !pushEnabled {
+			return nil
+		}
 		if err := git.PushBranch(dir, branch); err != nil {
 			return backgroundAutoActionResultMsg{prdName: prdName, action: "push", err: err}
 		}
@@ -1476,6 +1532,86 @@ func (a App) handleBackgroundAutoAction(msg backgroundAutoActionResultMsg) (tea.
 		}
 	}
 
+	return a, nil
+}
+
+// branchFor returns the branch a PRD's loop is running on, or "" if unknown.
+func (a *App) branchFor(prdName string) string {
+	if inst := a.manager.GetInstance(prdName); inst != nil {
+		return inst.Branch
+	}
+	return ""
+}
+
+// completionGitDir returns the directory whose branch post-completion actions
+// (summary, push) operate on: the PRD's worktree when configured, else the
+// project root.
+func (a *App) completionGitDir(prdName string) string {
+	if inst := a.manager.GetInstance(prdName); inst != nil && inst.WorktreeDir != "" {
+		return inst.WorktreeDir
+	}
+	return a.baseDir
+}
+
+// parkedStoryLabels returns "ID - Title" for every story parked for human
+// review, so the summary can call them out under its open-points section.
+func parkedStoryLabels(p *prd.PRD) []string {
+	if p == nil {
+		return nil
+	}
+	var out []string
+	for _, s := range p.UserStories {
+		if s.NeedsReview {
+			out = append(out, s.ID+" - "+s.Title)
+		}
+	}
+	return out
+}
+
+// runAutoSummary returns a tea.Cmd that generates and commits the run summary in
+// the background. showOnScreen reflects progress on the completion screen;
+// pushAfter asks the handler to start auto-push once the summary lands.
+func (a *App) runAutoSummary(prdName, branch string, showOnScreen, pushAfter bool) tea.Cmd {
+	provider := a.provider
+	gitDir := a.completionGitDir(prdName)
+	prdDir := filepath.Join(gitDir, ".chief", "prds", prdName)
+	parked := parkedStoryLabels(a.prd)
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		_, err := summary.Generate(ctx, provider, gitDir, prdDir, branch, parked)
+		if errors.Is(err, summary.ErrNothingToSummarize) {
+			err = nil // nothing to describe; treat as a clean skip
+		}
+		return summaryResultMsg{prdName: prdName, err: err, showOnScreen: showOnScreen, pushAfter: pushAfter}
+	}
+}
+
+// handleSummaryResult reflects summary completion on the UI and, when requested,
+// chains into auto-push so the summary commit is included in the pushed branch.
+func (a App) handleSummaryResult(msg summaryResultMsg) (tea.Model, tea.Cmd) {
+	if msg.showOnScreen {
+		if msg.err != nil {
+			a.completionScreen.SetSummaryError(msg.err.Error())
+		} else {
+			a.completionScreen.SetSummarySuccess()
+		}
+		// Push even if the summary failed: the per-story commits are still worth
+		// pushing, and the failure is already surfaced on the completion screen.
+		if msg.pushAfter && a.completionScreen.HasBranch() {
+			a.completionScreen.SetPushInProgress()
+			return a, tea.Batch(tickCompletionSpinner(), a.runAutoPush())
+		}
+		return a, nil
+	}
+	// No completion screen (e.g. a max-iterations partial run): note the outcome.
+	if msg.prdName == a.prdName {
+		if msg.err != nil {
+			a.lastActivity = "Summary failed: " + msg.err.Error()
+		} else {
+			a.lastActivity = "Run summary written"
+		}
+	}
 	return a, nil
 }
 

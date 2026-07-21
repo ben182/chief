@@ -177,6 +177,47 @@ func FindCommitForStory(dir, storyID, title string) (string, error) {
 	return hash, nil
 }
 
+// CommitLog returns a one-line-per-commit log (`<short-hash> <subject>`) of the
+// commits on branch that are not on the default branch, oldest first. It is used
+// to feed the run summary generator the list of work that landed. Returns an
+// empty string (no error) when the range can't be determined or is empty, so the
+// caller can simply skip summarizing when there is nothing to describe.
+func CommitLog(repoDir, branch string) (string, error) {
+	defaultBranch, err := GetDefaultBranch(repoDir)
+	if err != nil {
+		return "", err
+	}
+	cmd := exec.Command("git", "log", "--reverse", "--format=%h %s", defaultBranch+".."+branch)
+	cmd.Dir = repoDir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// CommitPaths stages the given paths and commits them with message. Paths are
+// force-added (`git add -f`) so a file lives under an otherwise-gitignored
+// directory (e.g. `.chief/`) is still committed. Paths may be absolute or
+// relative to dir. Returns an error if nothing was staged or the commit fails.
+func CommitPaths(dir, message string, paths ...string) error {
+	if len(paths) == 0 {
+		return fmt.Errorf("no paths to commit")
+	}
+	addArgs := append([]string{"add", "-f", "--"}, paths...)
+	add := exec.Command("git", addArgs...)
+	add.Dir = dir
+	if out, err := add.CombinedOutput(); err != nil {
+		return fmt.Errorf("git add failed: %s", strings.TrimSpace(string(out)))
+	}
+	commit := exec.Command("git", append([]string{"commit", "-m", message, "--"}, paths...)...)
+	commit.Dir = dir
+	if out, err := commit.CombinedOutput(); err != nil {
+		return fmt.Errorf("git commit failed: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // getMergeBase returns the merge base commit between two refs.
 func getMergeBase(dir, ref1, ref2 string) (string, error) {
 	cmd := exec.Command("git", "merge-base", ref1, ref2)

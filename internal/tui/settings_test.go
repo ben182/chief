@@ -20,8 +20,8 @@ func TestSettingsOverlay_LoadFromConfig(t *testing.T) {
 	}
 	s.LoadFromConfig(cfg)
 
-	if len(s.items) != 4 {
-		t.Fatalf("expected 4 items, got %d", len(s.items))
+	if len(s.items) != 5 {
+		t.Fatalf("expected 5 items, got %d", len(s.items))
 	}
 	if s.items[0].Key != "worktree.setup" || s.items[0].StringVal != "npm install" {
 		t.Errorf("worktree.setup item: got key=%s val=%s", s.items[0].Key, s.items[0].StringVal)
@@ -31,6 +31,12 @@ func TestSettingsOverlay_LoadFromConfig(t *testing.T) {
 	}
 	if s.items[2].Key != "onComplete.createPR" || s.items[2].BoolVal {
 		t.Errorf("onComplete.createPR item: got key=%s val=%v", s.items[2].Key, s.items[2].BoolVal)
+	}
+	if s.items[3].Key != "onComplete.summary" {
+		t.Errorf("onComplete.summary item: got key=%s", s.items[3].Key)
+	}
+	if s.items[4].Key != "onComplete.notify" {
+		t.Errorf("onComplete.notify item: got key=%s", s.items[4].Key)
 	}
 	if s.selectedIndex != 0 {
 		t.Errorf("expected selectedIndex=0, got %d", s.selectedIndex)
@@ -84,18 +90,24 @@ func TestSettingsOverlay_Navigation(t *testing.T) {
 		t.Errorf("expected index=3 after third MoveDown, got %d", s.selectedIndex)
 	}
 
-	// Can't go beyond last item
 	s.MoveDown()
-	if s.selectedIndex != 3 {
-		t.Errorf("expected index=3 (clamped), got %d", s.selectedIndex)
+	if s.selectedIndex != 4 {
+		t.Errorf("expected index=4 after fourth MoveDown, got %d", s.selectedIndex)
+	}
+
+	// Can't go beyond last item (5 items → last index 4)
+	s.MoveDown()
+	if s.selectedIndex != 4 {
+		t.Errorf("expected index=4 (clamped), got %d", s.selectedIndex)
 	}
 
 	s.MoveUp()
-	if s.selectedIndex != 2 {
-		t.Errorf("expected index=2 after MoveUp, got %d", s.selectedIndex)
+	if s.selectedIndex != 3 {
+		t.Errorf("expected index=3 after MoveUp, got %d", s.selectedIndex)
 	}
 
 	// Can't go before first item
+	s.MoveUp()
 	s.MoveUp()
 	s.MoveUp()
 	if s.selectedIndex != 0 {

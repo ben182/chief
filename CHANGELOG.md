@@ -5,6 +5,7 @@ All notable changes to Chief are documented in this file.
 ## [Unreleased]
 
 ### Features
+- **Run summary on completion** — when a run finishes (or hits max iterations with committed work), Chief runs the agent once more to write a `SUMMARY.md` next to the PRD: what was built, **how to test it**, where the new functionality lives, and any open/parked follow-ups. The file is committed automatically (force-added so it lands even when `.chief/` is gitignored) and, when auto-push is on, rides along in the pushed branch/PR. On by default; toggle via settings (`,`) or `onComplete.summary: false` in `.chief/config.yaml`
 - **Default PRD renamed `main` → `default`** — the unnamed PRD now lives at `.chief/prds/default/` to avoid confusion with git branch names ([#9](https://github.com/MiniCodeMonkey/chief/issues/9)). Existing `.chief/prds/main/` setups still load: bare `chief` falls back to `main` when no `default` exists. For `chief status`/`edit` on an old setup, pass the name explicitly (`chief status main`)
 - **Desktop notification on completion** — when a run finishes, Chief pings the desktop (macOS `osascript`, Linux `notify-send`) so you don't have to babysit long loops. On by default; toggle via settings (`,`) or `onComplete.notify: false` in `.chief/config.yaml`
 - **Per-story cost** — the dashboard shows a running USD total and the completion screen breaks cost down per story (Claude only; other providers don't report cost). Parsed from the agent's `result` event

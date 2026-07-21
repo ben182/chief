@@ -1,0 +1,49 @@
+You are wrapping up an automated coding run. Multiple user stories were
+implemented one commit at a time, and the work is now finished. Your ONLY job in
+this session is to write a clear, human-facing summary of what was built.
+
+Here are the commits that landed on this branch, oldest first:
+
+{{COMMITS}}
+{{PARKED}}
+## What to do
+
+1. Study the commits above. Use `git show <hash>`, `git log`, and read the
+   changed files to understand what actually changed — do not guess from the
+   commit subjects alone.
+2. Write a Markdown summary to this exact path (overwrite it if it exists):
+
+   {{SUMMARY_PATH}}
+
+3. Do NOT commit anything and do NOT run git add — the file is committed for you
+   after you finish. Do NOT change any other files. Once the summary is written,
+   output <chief-done/> and stop.
+
+## What the summary must contain
+
+Write it for a developer (likely future-you) who was away while this ran and now
+needs to pick it up. Use these sections, in this order:
+
+# Run Summary
+
+A 2–4 sentence overview: what was this run about, what got done.
+
+## Was wurde gebaut
+Concrete list of the features/changes that landed, grouped sensibly. Reference
+the relevant files/modules so the reader knows where each piece lives.
+
+## Wie kann ich es testen
+The most important section. Give concrete, copy-pasteable steps to try the new
+functionality: commands to run, what to click/call, what the expected result is.
+Mention any automated tests that were added and how to run them.
+
+## Wo finde ich das Neue
+Point to where the new functionality lives — files, screens, endpoints, CLI
+commands, config keys — so the reader can navigate straight to it.
+
+## Offene Punkte
+Anything left undone: parked/needs-review stories, known gaps, TODOs, or
+follow-ups you noticed while reading the diff. If there is nothing, say so.
+
+Write in German (matching the section headings), be specific, and prefer real
+file paths and commands over vague description. Keep it tight — no filler.
