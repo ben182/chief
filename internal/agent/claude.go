@@ -64,9 +64,13 @@ func (p *ClaudeProvider) LoopCommand(ctx context.Context, prompt, workDir string
 	return cmd
 }
 
-// InteractiveCommand implements loop.Provider.
+// InteractiveCommand implements loop.Provider. It launches the interactive
+// Claude session (used by `chief new`/`chief edit`) with
+// --dangerously-skip-permissions so the PRD interview can read the repository
+// and write prd.md without a permission prompt on every tool call, matching the
+// autonomous LoopCommand.
 func (p *ClaudeProvider) InteractiveCommand(workDir, prompt string) *exec.Cmd {
-	args := []string{prompt}
+	args := []string{"--dangerously-skip-permissions", prompt}
 	if p.model != "" {
 		args = append(args, "--model", p.model)
 	}

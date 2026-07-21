@@ -76,15 +76,21 @@ func TestClaudeProvider_InteractiveCommand(t *testing.T) {
 	if cmd.Dir != "/work" {
 		t.Errorf("InteractiveCommand Dir = %q, want /work", cmd.Dir)
 	}
-	if len(cmd.Args) != 2 || cmd.Args[0] != "/bin/claude" || cmd.Args[1] != "my prompt" {
-		t.Errorf("InteractiveCommand Args = %v, want [/bin/claude my prompt]", cmd.Args)
+	want := []string{"/bin/claude", "--dangerously-skip-permissions", "my prompt"}
+	if len(cmd.Args) != len(want) {
+		t.Fatalf("InteractiveCommand Args = %v, want %v", cmd.Args, want)
+	}
+	for i := range want {
+		if cmd.Args[i] != want[i] {
+			t.Errorf("InteractiveCommand Args[%d] = %q, want %q", i, cmd.Args[i], want[i])
+		}
 	}
 }
 
 func TestClaudeProvider_InteractiveCommandWithModel(t *testing.T) {
 	p := NewClaudeProvider("/bin/claude", "fable")
 	cmd := p.InteractiveCommand("/work", "my prompt")
-	want := []string{"/bin/claude", "my prompt", "--model", "fable"}
+	want := []string{"/bin/claude", "--dangerously-skip-permissions", "my prompt", "--model", "fable"}
 	if len(cmd.Args) != len(want) {
 		t.Fatalf("InteractiveCommand Args = %v, want %v", cmd.Args, want)
 	}
@@ -104,7 +110,7 @@ func TestClaudeProvider_SetModel(t *testing.T) {
 	if p.Model() != "opus" {
 		t.Errorf("Model() = %q, want opus", p.Model())
 	}
-	if cmd := p.InteractiveCommand("/w", "x"); len(cmd.Args) != 4 || cmd.Args[3] != "opus" {
+	if cmd := p.InteractiveCommand("/w", "x"); len(cmd.Args) != 5 || cmd.Args[4] != "opus" {
 		t.Errorf("after SetModel, InteractiveCommand Args = %v", cmd.Args)
 	}
 }

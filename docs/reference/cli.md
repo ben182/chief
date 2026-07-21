@@ -120,7 +120,7 @@ chief new [name] [context]
 **How it works:**
 
 1. When the agent is Claude, Chief first shows a model picker (see below) — pick which Claude model drives the session
-2. Chief launches the agent CLI with a specialized PRD-creation prompt
+2. Chief launches the agent CLI with a specialized PRD-creation prompt. For Claude the session runs with `--dangerously-skip-permissions`, so it can read the repo and write `prd.md` without a permission prompt on every step
 3. The agent first asks, in plain prose, **what you want to build and why** — before touching your codebase (it does not guess the feature from the PRD name). If you passed `context`, it plays that back to confirm instead of asking
 4. Only once the goal is clear does it explore the repository, then grill you one decision at a time to resolve every open question. Codebase exploration always runs on **Opus** (via a subagent), independent of the model you picked for the session — so a lighter session model (e.g. Fable) speeds up the conversation without degrading how well the repo is understood
 5. After you confirm the shared understanding, the agent writes `prd.md` in one pass
