@@ -12,7 +12,7 @@ func TestGetETA(t *testing.T) {
 		stories[i].Passes = true
 	}
 	app := newTestApp(stories, 120, 20)
-	app.storyTimings = []StoryTiming{
+	app.storyTimings[app.prdName] = []StoryTiming{
 		{Duration: 10 * time.Minute},
 		{Duration: 20 * time.Minute},
 		{Duration: 30 * time.Minute},
@@ -30,9 +30,9 @@ func TestGetETA(t *testing.T) {
 
 func TestGetETA_NotEnoughTimings(t *testing.T) {
 	app := newTestApp(makeStories(6), 120, 20)
-	app.storyTimings = []StoryTiming{{Duration: time.Minute}, {Duration: time.Minute}}
+	app.storyTimings[app.prdName] = []StoryTiming{{Duration: time.Minute}}
 	if _, ok := app.GetETA(); ok {
-		t.Error("expected no ETA with fewer than 3 timings")
+		t.Error("expected no ETA with fewer than 2 timings")
 	}
 }
 
@@ -42,7 +42,7 @@ func TestGetETA_AllComplete(t *testing.T) {
 		stories[i].Passes = true
 	}
 	app := newTestApp(stories, 120, 20)
-	app.storyTimings = []StoryTiming{
+	app.storyTimings[app.prdName] = []StoryTiming{
 		{Duration: time.Minute}, {Duration: time.Minute}, {Duration: time.Minute},
 	}
 	if _, ok := app.GetETA(); ok {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/minicodemonkey/chief/internal/prd"
 )
@@ -15,6 +16,11 @@ func newTestApp(stories []prd.UserStory, width, height int) *App {
 		width:    width,
 		height:   height,
 		viewMode: ViewDashboard,
+
+		storyTimings:      make(map[string][]StoryTiming),
+		currentStoryID:    make(map[string]string),
+		currentStoryStart: make(map[string]time.Time),
+		currentStoryCost:  make(map[string]float64),
 	}
 }
 

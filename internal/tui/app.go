@@ -221,12 +221,14 @@ type App struct {
 	// Completion screen
 	completionScreen *CompletionScreen
 
-	// Story timing tracking
-	storyTimings      []StoryTiming
-	currentStoryID    string
-	currentStoryStart time.Time
-	currentStoryCost  float64 // cost accrued for the in-progress story (across retries)
-	totalCost         float64 // cumulative cost across all stories this run
+	// Story timing tracking, keyed by PRD name. Keeping this per-PRD (rather than
+	// a single set of fields for the viewed PRD) means the ETA survives tab
+	// switches and is tracked for background PRDs too, not just the one on screen.
+	storyTimings      map[string][]StoryTiming
+	currentStoryID    map[string]string
+	currentStoryStart map[string]time.Time
+	currentStoryCost  map[string]float64 // cost accrued for the in-progress story (across retries), per PRD
+	totalCost         float64            // cumulative cost across all stories this run
 
 	// Settings overlay
 	settingsOverlay *SettingsOverlay
@@ -362,6 +364,11 @@ func NewAppWithOptions(prdPath string, maxIter int, provider loop.Provider) (*Ap
 		completionScreen: NewCompletionScreen(),
 		settingsOverlay:  NewSettingsOverlay(),
 		quitConfirm:      NewQuitConfirmation(),
+
+		storyTimings:      make(map[string][]StoryTiming),
+		currentStoryID:    make(map[string]string),
+		currentStoryStart: make(map[string]time.Time),
+		currentStoryCost:  make(map[string]float64),
 	}, nil
 }
 
@@ -872,15 +879,18 @@ func (a App) doStartLoop(prdName, prdDir string) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Reset this PRD's story timing state for the fresh run (only this PRD's
+	// entries — other PRDs' timings are kept so their ETAs survive).
+	a.storyTimings[prdName] = nil
+	a.currentStoryID[prdName] = ""
+	a.currentStoryStart[prdName] = time.Time{}
+	a.currentStoryCost[prdName] = 0
+
 	// Update state if this is the current PRD
 	if prdName == a.prdName {
 		a.state = StateRunning
 		a.startTime = time.Now()
 		a.lastActivity = "Starting loop..."
-		// Reset story timing state
-		a.storyTimings = nil
-		a.currentStoryID = ""
-		a.currentStoryStart = time.Time{}
 		return a, tickElapsed()
 	}
 
@@ -1005,12 +1015,14 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 	case loop.EventIterationStart:
 		if isCurrentPRD {
 			a.lastActivity = "Starting iteration..."
-			// Start tracking story timing if this is a new story
-			if event.StoryID != "" && event.StoryID != a.currentStoryID {
-				a.finalizeStoryTiming()
-				a.currentStoryID = event.StoryID
-				a.currentStoryStart = time.Now()
-			}
+		}
+		// Track story timing for every PRD, not just the viewed one, so the ETA
+		// survives tab switches and background runs. Start a new story's clock
+		// when the loop reports a story ID different from the one we're timing.
+		if event.StoryID != "" && event.StoryID != a.currentStoryID[prdName] {
+			a.finalizeStoryTiming(prdName)
+			a.currentStoryID[prdName] = event.StoryID
+			a.currentStoryStart[prdName] = time.Now()
 		}
 	case loop.EventAssistantText:
 		if isCurrentPRD {
@@ -1026,27 +1038,27 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 			a.lastActivity = "Tool completed"
 		}
 	case loop.EventResult:
+		a.currentStoryCost[prdName] += event.Cost
 		if isCurrentPRD {
-			a.currentStoryCost += event.Cost
 			a.totalCost += event.Cost
 		}
 	case loop.EventStoryDone:
 		if isCurrentPRD {
 			a.lastActivity = "Story done"
-			// Finalize story timing
-			a.finalizeStoryTiming()
 		}
+		// Finalize story timing (for every PRD, not just the viewed one)
+		a.finalizeStoryTiming(prdName)
 	case loop.EventStoryNeedsReview:
 		if isCurrentPRD {
 			a.lastActivity = event.Text
-			a.finalizeStoryTiming()
 		}
+		a.finalizeStoryTiming(prdName)
 	case loop.EventComplete:
+		// Finalize the last story's timing for any PRD that completes.
+		a.finalizeStoryTiming(prdName)
 		if isCurrentPRD {
 			a.state = StateComplete
 			a.lastActivity = "All stories complete!"
-			// Finalize the last story's timing
-			a.finalizeStoryTiming()
 			autoActionCmd = a.showCompletionScreen(prdName)
 		} else {
 			// For background PRDs, trigger auto-push/PR without showing completion screen
@@ -1333,29 +1345,35 @@ func (a *App) cleanupWorktreeSetup() {
 	}
 }
 
-// finalizeStoryTiming records the duration of the currently tracked story.
-func (a *App) finalizeStoryTiming() {
-	if a.currentStoryID == "" {
+// finalizeStoryTiming records the duration of the story currently tracked for
+// the given PRD. No-op if no story is being timed for that PRD.
+func (a *App) finalizeStoryTiming(prdName string) {
+	id := a.currentStoryID[prdName]
+	if id == "" {
 		return
 	}
-	duration := time.Since(a.currentStoryStart)
-	title := a.currentStoryID
-	// Look up the story title from the PRD
-	for _, story := range a.prd.UserStories {
-		if story.ID == a.currentStoryID {
-			title = story.Title
-			break
+	duration := time.Since(a.currentStoryStart[prdName])
+	title := id
+	// The story title is only resolvable for the viewed PRD (a.prd); background
+	// PRDs fall back to the ID. Titles are only shown on the completion screen,
+	// which always belongs to the current PRD.
+	if prdName == a.prdName {
+		for _, story := range a.prd.UserStories {
+			if story.ID == id {
+				title = story.Title
+				break
+			}
 		}
 	}
-	a.storyTimings = append(a.storyTimings, StoryTiming{
-		StoryID:  a.currentStoryID,
+	a.storyTimings[prdName] = append(a.storyTimings[prdName], StoryTiming{
+		StoryID:  id,
 		Title:    title,
 		Duration: duration,
-		Cost:     a.currentStoryCost,
+		Cost:     a.currentStoryCost[prdName],
 	})
-	a.currentStoryID = ""
-	a.currentStoryStart = time.Time{}
-	a.currentStoryCost = 0
+	a.currentStoryID[prdName] = ""
+	a.currentStoryStart[prdName] = time.Time{}
+	a.currentStoryCost[prdName] = 0
 }
 
 // showCompletionScreen configures and shows the completion screen for a PRD.
@@ -1386,7 +1404,7 @@ func (a *App) showCompletionScreen(prdName string) tea.Cmd {
 	hasAutoActions := a.config != nil && (a.config.OnComplete.Push || a.config.OnComplete.CreatePR)
 
 	totalDuration := a.GetElapsedTime()
-	a.completionScreen.Configure(prdName, completed, total, branch, commitCount, hasAutoActions, totalDuration, a.storyTimings, a.totalCost)
+	a.completionScreen.Configure(prdName, completed, total, branch, commitCount, hasAutoActions, totalDuration, a.storyTimings[prdName], a.totalCost)
 	a.completionScreen.SetSize(a.width, a.height)
 	a.viewMode = ViewCompletion
 
@@ -2350,11 +2368,10 @@ func (a App) switchToPRD(name, prdPath string) (tea.Model, tea.Cmd) {
 	a.tabBar.SetActiveByName(name)
 	a.tabBar.Refresh()
 
-	// Clear log viewer and story timing (each PRD has its own log/timing)
+	// Clear the log viewer (it only holds the viewed PRD's log). Story timings
+	// are kept per PRD and intentionally NOT cleared here, so switching tabs
+	// doesn't wipe the data the ETA depends on.
 	a.logViewer.Clear()
-	a.storyTimings = nil
-	a.currentStoryID = ""
-	a.currentStoryStart = time.Time{}
 
 	// Return with new watcher listeners (and elapsed tick if running)
 	cmds := []tea.Cmd{a.listenForPRDChanges(), a.listenForProgressChanges()}
@@ -2513,16 +2530,18 @@ func (a *App) GetCompletionPercentage() float64 {
 }
 
 // minTimingsForETA is how many completed stories are needed before showing an
-// ETA. The first stories are unrepresentative (codebase exploration, pattern
-// establishment), so we wait until velocity settles.
-const minTimingsForETA = 3
+// ETA. The very first story is unrepresentative (codebase exploration, pattern
+// establishment), so we skip it and start estimating from the second — waiting
+// for three meant small PRDs finished before an ETA ever appeared.
+const minTimingsForETA = 2
 
 // GetETA estimates the time remaining to complete the PRD from observed
 // per-story velocity. Returns (eta, true) once enough stories have finished for
 // the estimate to be meaningful. Per-story durations already exclude idle time
 // between sessions, so overnight gaps don't skew the average.
 func (a *App) GetETA() (time.Duration, bool) {
-	if len(a.storyTimings) < minTimingsForETA {
+	timings := a.storyTimings[a.prdName]
+	if len(timings) < minTimingsForETA {
 		return 0, false
 	}
 	remaining := 0
@@ -2535,12 +2554,12 @@ func (a *App) GetETA() (time.Duration, bool) {
 		return 0, false
 	}
 	var total time.Duration
-	for _, t := range a.storyTimings {
+	for _, t := range timings {
 		total += t.Duration
 	}
 	// ponytail: plain mean; switch to a recency-weighted average if early
 	// exploration stories skew the estimate too high in practice.
-	avg := total / time.Duration(len(a.storyTimings))
+	avg := total / time.Duration(len(timings))
 	return avg * time.Duration(remaining), true
 }
 
