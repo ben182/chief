@@ -302,8 +302,8 @@ func NewAppWithOptions(prdPath string, maxIter int, provider loop.Provider) (*Ap
 	}
 
 	// Determine base directory for PRD picker
-	// If path contains .chief/prds/, go up to the project root (4 levels up from prd.json)
-	// .chief/prds/<name>/prd.json -> .chief/prds/<name> -> .chief/prds -> .chief -> project root
+	// If path contains .chief/prds/, go up to the project root (4 levels up from prd.md)
+	// .chief/prds/<name>/prd.md -> .chief/prds/<name> -> .chief/prds -> .chief -> project root
 	baseDir := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(prdPath))))
 	if !strings.Contains(prdPath, ".chief/prds/") {
 		// Fallback to current working directory
@@ -867,7 +867,7 @@ func (a App) doStartLoop(prdName, prdDir string) (tea.Model, tea.Cmd) {
 	// Check if this PRD is registered, if not register it
 	if instance := a.manager.GetInstance(prdName); instance == nil {
 		// Find the PRD path
-		prdPath := filepath.Join(prdDir, "prd.json")
+		prdPath := filepath.Join(prdDir, "prd.md")
 		a.manager.Register(prdName, prdPath)
 	}
 
@@ -1436,7 +1436,7 @@ func (a *App) finalizeStoryTiming(prdName string) {
 	a.currentStoryTokens[prdName] = TokenUsage{}
 }
 
-// prdPathForPRD returns the prd.json path for a PRD by name, or "" if unknown.
+// prdPathForPRD returns the prd.md path for a PRD by name, or "" if unknown.
 func (a *App) prdPathForPRD(prdName string) string {
 	if prdName == a.prdName {
 		return a.prdPath
@@ -1649,7 +1649,10 @@ func (a App) handleBackgroundAutoAction(msg backgroundAutoActionResultMsg) (tea.
 			prdName := msg.prdName
 			branch := instance.Branch
 			dir := a.baseDir
-			prdPath := filepath.Join(a.baseDir, ".chief", "prds", prdName, "prd.json")
+			prdPath := instance.PRDPath
+			if prdPath == "" {
+				prdPath = filepath.Join(a.baseDir, ".chief", "prds", prdName, "prd.md")
+			}
 			return a, func() tea.Msg {
 				p, err := prd.LoadPRD(prdPath)
 				if err != nil {
@@ -1772,8 +1775,12 @@ func (a *App) runAutoCreatePR() tea.Cmd {
 	branch := a.completionScreen.Branch()
 	dir := a.baseDir
 
-	// Load the PRD to generate PR content
-	prdPath := filepath.Join(a.baseDir, ".chief", "prds", prdName, "prd.json")
+	// Load the PRD to generate PR content. Use the registered path (prd.md) so
+	// parsing succeeds - the old prd.json layout was migrated away.
+	prdPath := a.prdPathForPRD(prdName)
+	if prdPath == "" {
+		prdPath = filepath.Join(a.baseDir, ".chief", "prds", prdName, "prd.md")
+	}
 	return func() tea.Msg {
 		p, err := prd.LoadPRD(prdPath)
 		if err != nil {
@@ -2054,7 +2061,7 @@ func (a App) finishWorktreeSetup() (tea.Model, tea.Cmd) {
 	prdDir := filepath.Join(a.baseDir, ".chief", "prds", prdName)
 
 	// Register or update with worktree info
-	prdPath := filepath.Join(prdDir, "prd.json")
+	prdPath := filepath.Join(prdDir, "prd.md")
 	if instance := a.manager.GetInstance(prdName); instance == nil {
 		a.manager.RegisterWithWorktree(prdName, prdPath, worktreePath, branchName)
 	} else {
