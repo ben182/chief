@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -579,6 +580,13 @@ func (a *App) renderErrorPanel(width, height int) string {
 	logName := "claude.log"
 	if a.provider != nil {
 		logName = a.provider.LogFileName()
+	}
+	// Prefer the actual per-run (timestamped) log file name when the loop has
+	// opened one, so the tip points at the right file rather than the static base.
+	if inst := a.manager.GetInstance(a.prdName); inst != nil && inst.Loop != nil {
+		if p := inst.Loop.LogPath(); p != "" {
+			logName = filepath.Base(p)
+		}
 	}
 	content.WriteString(hintStyle.Render(fmt.Sprintf("💡 Tip: Check %s in the PRD directory for full error details.", logName)))
 	content.WriteString("\n\n")

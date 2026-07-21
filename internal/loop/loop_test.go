@@ -910,3 +910,21 @@ func TestLoop_DoneWithoutCommitIsNotTrusted(t *testing.T) {
 		t.Error("story must not be marked done without a matching commit")
 	}
 }
+
+// TestTimestampedLogName verifies per-run log names carry a sortable timestamp.
+func TestTimestampedLogName(t *testing.T) {
+	ts := time.Date(2026, 7, 21, 14, 32, 5, 0, time.UTC)
+	tests := []struct {
+		base string
+		want string
+	}{
+		{"claude.log", "claude-2026-07-21-143205.log"},
+		{"codex.log", "codex-2026-07-21-143205.log"},
+		{"noext", "noext-2026-07-21-143205"},
+	}
+	for _, tt := range tests {
+		if got := timestampedLogName(tt.base, ts); got != tt.want {
+			t.Errorf("timestampedLogName(%q) = %q, want %q", tt.base, got, tt.want)
+		}
+	}
+}

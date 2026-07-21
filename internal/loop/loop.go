@@ -45,6 +45,24 @@ func DefaultRetryConfig() RetryConfig {
 	}
 }
 
+// logTimestampLayout is the sortable, filesystem-safe timestamp embedded in each
+// per-run log file name. It matches the layout the summary package uses.
+const logTimestampLayout = "2006-01-02-150405"
+
+// timestampedLogName turns a provider's static log file name (e.g. "claude.log")
+// into a per-run name carrying t's timestamp (e.g. "claude-2006-01-02-150405.log").
+// A name without a ".log" suffix still gets the timestamp appended before any
+// extension, falling back gracefully for unexpected names.
+func timestampedLogName(base string, t time.Time) string {
+	ext := filepath.Ext(base)
+	name := strings.TrimSuffix(base, ext)
+	if name == "" {
+		name = base
+		ext = ""
+	}
+	return name + "-" + t.Format(logTimestampLayout) + ext
+}
+
 // Loop manages the core agent loop that invokes the configured agent repeatedly until all stories are complete.
 type Loop struct {
 	prdPath         string
@@ -57,6 +75,7 @@ type Loop struct {
 	provider        Provider
 	agentCmd        *exec.Cmd
 	logFile         *os.File
+	logPath         string
 	mu              sync.Mutex
 	stopped         bool
 	paused          bool
@@ -154,20 +173,34 @@ func (l *Loop) Iteration() int {
 	return l.iteration
 }
 
+// LogPath returns the absolute path of the current run's log file, or "" if the
+// run has not opened one yet.
+func (l *Loop) LogPath() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.logPath
+}
+
 // Run executes the agent loop until completion or max iterations.
 func (l *Loop) Run(ctx context.Context) error {
 	if l.provider == nil {
 		return fmt.Errorf("loop provider is not configured")
 	}
 
-	// Open log file in PRD directory
+	// Open a per-run log file in the PRD directory. The name carries a timestamp
+	// (e.g. claude-2006-01-02-150405.log) so each run keeps its own log next to
+	// its own SUMMARY-<time>.md, instead of every run appending to one file that
+	// grows without bound and mixes runs together.
 	prdDir := filepath.Dir(l.prdPath)
-	logPath := filepath.Join(prdDir, l.provider.LogFileName())
+	logPath := filepath.Join(prdDir, timestampedLogName(l.provider.LogFileName(), time.Now()))
 	var err error
 	l.logFile, err = os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
+	l.mu.Lock()
+	l.logPath = logPath
+	l.mu.Unlock()
 	defer l.logFile.Close()
 	defer close(l.events)
 
