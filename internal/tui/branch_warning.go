@@ -324,7 +324,7 @@ func (b *BranchWarning) renderBranchName(content *strings.Builder) {
 		content.WriteString(branchLabelStyle.Render("Branch: "))
 		inputStyle := lipgloss.NewStyle().
 			Foreground(TextBrightColor).
-			Background(lipgloss.Color("237"))
+			Background(BgSelectedColor)
 		cursorStyle := lipgloss.NewStyle().Foreground(PrimaryColor).Blink(true)
 		content.WriteString(inputStyle.Render(b.branchName))
 		content.WriteString(cursorStyle.Render("▌"))
