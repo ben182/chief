@@ -21,6 +21,8 @@ your-project/
     │       ├── prd.md          # Structured PRD (you write, Chief reads/updates)
     │       ├── progress.md     # Progress log (Chief appends after each story)
     │       └── claude.log      # Raw agent output (for debugging)
+    ├── archive/                # Archived PRDs (hidden from the tab bar)
+    │   └── old-feature/        # Same layout as a prds/ entry, restorable
     └── worktrees/              # Isolated checkouts for parallel PRDs
         └── my-feature/         # Git worktree (full project checkout)
 ```
@@ -28,6 +30,7 @@ your-project/
 The root `.chief/` directory contains:
 - `config.yaml` — Project-level settings (see [Configuration](/reference/configuration))
 - `prds/` — One subdirectory per PRD with requirements, state, and logs
+- `archive/` — Archived PRDs, moved out of `prds/` so they no longer clutter the tab bar (created on first archive)
 - `worktrees/` — Git worktrees for parallel PRD isolation (created on demand)
 
 ## The `prds/` Subdirectory
@@ -106,6 +109,31 @@ Worktrees are created when you choose "Create worktree + branch" from the start 
 - Runs the configured setup command (e.g., `npm install`) automatically
 
 You can merge completed branches via `m` in the picker, and clean up worktrees via `c`.
+
+## Archiving PRDs
+
+Every folder under `.chief/prds/` shows up as a tab across the top of the TUI. Once a feature ships, its PRD keeps taking up a tab even though you're done with it. Archiving moves a PRD out of the way without deleting anything.
+
+Open the PRD list with `l`, select a PRD, and press:
+
+- `a` — **archive** the selected PRD. Its folder moves from `.chief/prds/<name>/` to `.chief/archive/<name>/`, so it disappears from the tab bar. If you archive the PRD you're currently viewing, the dashboard switches to the next remaining PRD.
+- `u` — **restore** (unarchive) the selected PRD. Its folder moves back into `.chief/prds/<name>/` and the tab reappears.
+
+Archived PRDs are listed in a separate **Archived** section at the bottom of the picker, so they stay discoverable and restorable.
+
+```
+.chief/
+├── prds/
+│   └── auth-system/       # Active — shown as a tab
+└── archive/
+    └── old-experiment/    # Archived — hidden from tabs, restorable with `u`
+```
+
+A few things to know:
+
+- **Nothing is deleted.** Archiving and restoring are just directory moves — the `prd.md`, `progress.md`, and logs travel with the folder. To delete a PRD for good, remove its folder from `.chief/archive/` (or `.chief/prds/`) yourself.
+- **Stop the loop first.** A running PRD can't be archived; stop it with `x` before archiving.
+- **Worktrees are left alone.** Archiving only moves the PRD folder. If the PRD has a git worktree, clean it up first with `c` if you no longer need it.
 
 ## The `config.yaml` File
 

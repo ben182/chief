@@ -2128,7 +2128,7 @@ func (a App) handlePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	case "enter":
 		entry := a.picker.GetSelectedEntry()
-		if entry != nil && entry.LoadError == nil {
+		if entry != nil && !entry.Archived && entry.LoadError == nil {
 			return a.switchToPRD(entry.Name, entry.Path)
 		}
 		return a, nil
@@ -2138,7 +2138,7 @@ func (a App) handlePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "e":
 		// Edit the selected PRD - launch interactive Claude session
 		entry := a.picker.GetSelectedEntry()
-		if entry != nil && entry.LoadError == nil {
+		if entry != nil && !entry.Archived && entry.LoadError == nil {
 			a.stopAllLoops()
 			a.stopWatcher()
 			return a, func() tea.Msg {
@@ -2150,7 +2150,7 @@ func (a App) handlePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Loop controls for the SELECTED PRD (not current)
 	case "s":
 		entry := a.picker.GetSelectedEntry()
-		if entry != nil && entry.LoadError == nil {
+		if entry != nil && !entry.Archived && entry.LoadError == nil {
 			state := entry.LoopState
 			if state == loop.LoopStateReady || state == loop.LoopStatePaused ||
 				state == loop.LoopStateStopped || state == loop.LoopStateError {
@@ -2202,6 +2202,44 @@ func (a App) handlePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Clean worktree for non-running PRD
 		if a.picker.CanClean() {
 			a.picker.StartCleanConfirmation()
+		}
+		return a, nil
+
+	case "a":
+		// Archive the selected (active, non-running) PRD.
+		if a.picker.CanArchive() {
+			entry := a.picker.GetSelectedEntry()
+			name := entry.Name
+			if err := prd.ArchivePRD(a.baseDir, name); err != nil {
+				a.lastActivity = "Archive failed: " + err.Error()
+				return a, nil
+			}
+			// Drop it from the loop manager so it no longer tracks state.
+			_ = a.manager.Unregister(name)
+			a.lastActivity = "Archived PRD: " + name
+			a.picker.Refresh()
+			a.tabBar.Refresh()
+			// If we archived the PRD currently being viewed, switch away from it.
+			if name == a.prdName {
+				if next := a.picker.FirstActiveEntry(); next != nil {
+					return a.switchToPRD(next.Name, next.Path)
+				}
+			}
+		}
+		return a, nil
+
+	case "u":
+		// Restore the selected archived PRD back into .chief/prds/.
+		if a.picker.CanRestore() {
+			entry := a.picker.GetSelectedEntry()
+			name := entry.Name
+			if err := prd.RestorePRD(a.baseDir, name); err != nil {
+				a.lastActivity = "Restore failed: " + err.Error()
+				return a, nil
+			}
+			a.lastActivity = "Restored PRD: " + name
+			a.picker.Refresh()
+			a.tabBar.Refresh()
 		}
 		return a, nil
 	}

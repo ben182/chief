@@ -1000,3 +1000,81 @@ func stripAnsi(s string) string {
 	}
 	return string(result)
 }
+
+// mkPRDFile creates <dir>/prd.md with minimal content.
+func mkPRDFile(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "prd.md"), []byte("# test\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+}
+
+func TestPickerRefreshIncludesArchivedPRDs(t *testing.T) {
+	base := t.TempDir()
+	mkPRDFile(t, filepath.Join(base, ".chief", "prds", "active"))
+	mkPRDFile(t, filepath.Join(base, ".chief", "archive", "old"))
+
+	p := NewPRDPicker(base, "active", nil)
+
+	var active, archived *PRDEntry
+	for i := range p.entries {
+		switch p.entries[i].Name {
+		case "active":
+			active = &p.entries[i]
+		case "old":
+			archived = &p.entries[i]
+		}
+	}
+	if active == nil || active.Archived {
+		t.Fatalf("expected an active entry that is not archived, got %+v", active)
+	}
+	if archived == nil || !archived.Archived {
+		t.Fatalf("expected an archived entry flagged Archived, got %+v", archived)
+	}
+}
+
+func TestCanArchiveAndRestore(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		entries: []PRDEntry{
+			{Name: "active", LoopState: loop.LoopStateReady},
+			{Name: "running", LoopState: loop.LoopStateRunning},
+			{Name: "old", Archived: true, LoopState: loop.LoopStateReady},
+		},
+	}
+
+	p.selectedIndex = 0
+	if !p.CanArchive() || p.CanRestore() {
+		t.Error("active ready PRD should be archivable, not restorable")
+	}
+
+	p.selectedIndex = 1
+	if p.CanArchive() {
+		t.Error("running PRD must not be archivable")
+	}
+
+	p.selectedIndex = 2
+	if p.CanArchive() || !p.CanRestore() {
+		t.Error("archived PRD should be restorable, not archivable")
+	}
+	if !p.SelectedIsArchived() {
+		t.Error("expected SelectedIsArchived() true for archived entry")
+	}
+}
+
+func TestFirstActiveEntrySkipsArchived(t *testing.T) {
+	p := &PRDPicker{
+		entries: []PRDEntry{
+			{Name: "old", Archived: true},
+			{Name: "broken", LoadError: fmt.Errorf("boom")},
+			{Name: "good"},
+		},
+	}
+	entry := p.FirstActiveEntry()
+	if entry == nil || entry.Name != "good" {
+		t.Fatalf("expected first active entry 'good', got %+v", entry)
+	}
+}

@@ -26,6 +26,7 @@ type PRDEntry struct {
 	Branch      string         // Git branch for this PRD (empty = no branch)
 	WorktreeDir string         // Worktree directory (empty = current directory)
 	Orphaned    bool           // True if worktree exists on disk but no running PRD tracks it
+	Archived    bool           // True if this PRD lives in .chief/archive/ (restorable)
 }
 
 // MergeResult holds the result of a merge operation for display.
@@ -138,6 +139,19 @@ func (p *PRDPicker) Refresh() {
 		addedNames["main"] = true
 	}
 
+	// Append archived PRDs (from .chief/archive/) at the end of the list, so old
+	// PRDs stay out of the tab bar but remain visible and restorable here.
+	archivedNames := make(map[string]bool)
+	if names, err := prd.ListArchived(p.basePath); err == nil {
+		for _, name := range names {
+			archivedNames[name] = true
+			archivedPath := filepath.Join(prd.ArchiveDir(p.basePath), name, "prd.md")
+			archivedEntry := p.loadPRDEntry(name, archivedPath)
+			archivedEntry.Archived = true
+			p.entries = append(p.entries, archivedEntry)
+		}
+	}
+
 	// Detect orphaned worktrees - worktrees on disk not tracked by any manager instance
 	diskWorktrees := git.DetectOrphanedWorktrees(p.basePath)
 	if len(diskWorktrees) > 0 {
@@ -154,6 +168,9 @@ func (p *PRDPicker) Refresh() {
 		for prdName, absPath := range diskWorktrees {
 			if trackedDirs[absPath] {
 				continue // This worktree is tracked by a running/registered PRD
+			}
+			if archivedNames[prdName] {
+				continue // Worktree belongs to an archived PRD; handled via restore
 			}
 			// Mark the matching entry as orphaned, or note it on existing entries
 			found := false
@@ -271,6 +288,16 @@ func (p *PRDPicker) IsEmpty() bool {
 	return len(p.entries) == 0
 }
 
+// FirstActiveEntry returns the first non-archived, loadable PRD entry, or nil.
+func (p *PRDPicker) FirstActiveEntry() *PRDEntry {
+	for i := range p.entries {
+		if !p.entries[i].Archived && p.entries[i].LoadError == nil {
+			return &p.entries[i]
+		}
+	}
+	return nil
+}
+
 // IsInputMode returns true if the picker is in input mode for new PRD name.
 func (p *PRDPicker) IsInputMode() bool {
 	return p.inputMode
@@ -345,8 +372,33 @@ func (p *PRDPicker) CanClean() bool {
 	if entry == nil || entry.WorktreeDir == "" {
 		return false
 	}
+	// Archived PRDs and running PRDs cannot be cleaned from here.
+	if entry.Archived {
+		return false
+	}
 	// Disabled for running PRDs - user must stop first
 	return entry.LoopState != loop.LoopStateRunning
+}
+
+// SelectedIsArchived returns true if the selected entry is an archived PRD.
+func (p *PRDPicker) SelectedIsArchived() bool {
+	entry := p.GetSelectedEntry()
+	return entry != nil && entry.Archived
+}
+
+// CanArchive returns true if the selected entry is an active, non-running PRD
+// that can be moved to the archive. Running PRDs must be stopped first.
+func (p *PRDPicker) CanArchive() bool {
+	entry := p.GetSelectedEntry()
+	if entry == nil || entry.Archived {
+		return false
+	}
+	return entry.LoopState != loop.LoopStateRunning
+}
+
+// CanRestore returns true if the selected entry is an archived PRD.
+func (p *PRDPicker) CanRestore() bool {
+	return p.SelectedIsArchived()
 }
 
 // StartCleanConfirmation opens the clean confirmation dialog for the selected entry.
@@ -486,6 +538,12 @@ func (p *PRDPicker) Render() string {
 
 		for i := startIdx; i < len(p.entries) && i < startIdx+listHeight; i++ {
 			entry := p.entries[i]
+			// Insert an "Archived" section header before the first archived entry.
+			if entry.Archived && (i == 0 || !p.entries[i-1].Archived) {
+				headerStyle := lipgloss.NewStyle().Foreground(MutedColor)
+				content.WriteString(headerStyle.Render("── Archived ──"))
+				content.WriteString("\n")
+			}
 			line := p.renderEntry(entry, i == p.selectedIndex, modalWidth-6)
 			content.WriteString(line)
 			content.WriteString("\n")
@@ -552,7 +610,14 @@ func (p *PRDPicker) renderEntry(entry PRDEntry, selected bool, width int) string
 	line.WriteString(nameStyle.Render(fmt.Sprintf("%-12s", name)))
 	line.WriteString(" ")
 
-	if entry.Orphaned && entry.LoadError != nil {
+	if entry.Archived {
+		archivedStyle := lipgloss.NewStyle().Foreground(MutedColor)
+		line.WriteString(archivedStyle.Render("[archived]"))
+		if entry.LoadError == nil && entry.Total > 0 {
+			line.WriteString(" ")
+			line.WriteString(archivedStyle.Render(fmt.Sprintf("%d/%d", entry.Completed, entry.Total)))
+		}
+	} else if entry.Orphaned && entry.LoadError != nil {
 		// Orphaned worktree with no PRD - show orphaned indicator
 		orphanedStyle := lipgloss.NewStyle().Foreground(WarningColor)
 		line.WriteString(orphanedStyle.Render("[orphaned worktree]"))
@@ -745,6 +810,11 @@ func (p *PRDPicker) buildFooterShortcuts() string {
 		return "↑/k ↓/j: nav  │  n: new  │  Esc/l: close"
 	}
 
+	// Archived PRDs only offer restore (and creating a new one).
+	if entry.Archived {
+		return "u: restore  │  n: new  │  Esc/l: close"
+	}
+
 	// Base shortcuts
 	base := "Enter: select  │  n: new  │  e: edit  │  Esc/l: close"
 
@@ -760,16 +830,22 @@ func (p *PRDPicker) buildFooterShortcuts() string {
 		cleanHint = "c: clean  │  "
 	}
 
+	// Add archive shortcut for non-running PRDs
+	archiveHint := ""
+	if p.CanArchive() {
+		archiveHint = "a: archive  │  "
+	}
+
 	// Add state-specific controls
 	switch entry.LoopState {
 	case loop.LoopStateReady, loop.LoopStatePaused, loop.LoopStateStopped, loop.LoopStateError:
-		return "s: start  │  " + mergeHint + cleanHint + base
+		return "s: start  │  " + mergeHint + cleanHint + archiveHint + base
 	case loop.LoopStateRunning:
 		return "p: pause  │  x: stop  │  " + base
 	case loop.LoopStateComplete:
-		return mergeHint + cleanHint + base
+		return mergeHint + cleanHint + archiveHint + base
 	default:
-		return "s: start  │  " + mergeHint + cleanHint + base
+		return "s: start  │  " + mergeHint + cleanHint + archiveHint + base
 	}
 }
 

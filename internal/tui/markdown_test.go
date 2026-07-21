@@ -83,6 +83,20 @@ func TestRenderGlamour_ZeroWidth(t *testing.T) {
 	}
 }
 
+func TestProgressStyleTamesInlineCode(t *testing.T) {
+	cfg := buildProgressStyle()
+
+	if cfg.Code.Color == nil {
+		t.Fatal("expected inline code to have an explicit color")
+	}
+	if *cfg.Code.Color == "203" {
+		t.Error("inline code still uses glamour's default red (ANSI 203)")
+	}
+	if cfg.Code.BackgroundColor != nil {
+		t.Errorf("expected inline code background box to be removed, got %q", *cfg.Code.BackgroundColor)
+	}
+}
+
 func TestStripANSI(t *testing.T) {
 	input := "\x1b[38;5;252mhello\x1b[0m \x1b[1mworld\x1b[0m"
 	got := stripANSI(input)

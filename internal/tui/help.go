@@ -71,6 +71,8 @@ func (h *HelpOverlay) GetCategories() []ShortcutCategory {
 			{Key: "e", Description: "Edit current PRD"},
 			{Key: "n", Description: "Create new PRD"},
 			{Key: "l", Description: "List/manage PRDs"},
+			{Key: "a", Description: "Archive PRD (in list)"},
+			{Key: "u", Description: "Restore PRD (in list)"},
 		},
 	}
 
