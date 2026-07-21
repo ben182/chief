@@ -52,11 +52,11 @@ export default defineConfig({
     nav: [
       { text: 'Home', link: '/' },
       { text: 'Docs', link: '/guide/quick-start' },
-      { text: 'GitHub', link: 'https://github.com/minicodemonkey/chief' }
+      { text: 'GitHub', link: 'https://github.com/ben182/chief' }
     ],
 
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/minicodemonkey/chief' }
+      { icon: 'github', link: 'https://github.com/ben182/chief' }
     ],
 
     search: {

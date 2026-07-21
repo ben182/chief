@@ -313,7 +313,7 @@ See [Configuration → Appearance](/reference/configuration#appearance) for deta
 If none of these solutions help:
 
 1. Check the [FAQ](/troubleshooting/faq)
-2. Search [GitHub Issues](https://github.com/minicodemonkey/chief/issues)
+2. Search [GitHub Issues](https://github.com/ben182/chief/issues)
 3. Open a new issue with:
    - Chief version (`chief --version`)
    - Your `prd.md` (sanitized)

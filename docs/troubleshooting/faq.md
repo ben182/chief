@@ -149,12 +149,12 @@ For specific problems and solutions.
 
 ### Where can I report bugs?
 
-[GitHub Issues](https://github.com/minicodemonkey/chief/issues)
+[GitHub Issues](https://github.com/ben182/chief/issues)
 
 ### Is there a community chat?
 
-Use [GitHub Discussions](https://github.com/minicodemonkey/chief/discussions) for questions and community support.
+Use [GitHub Discussions](https://github.com/ben182/chief/discussions) for questions and community support.
 
 ### Can I contribute?
 
-Yes! See [CONTRIBUTING.md](https://github.com/minicodemonkey/chief/blob/main/CONTRIBUTING.md) in the repository.
+Yes! See [CONTRIBUTING.md](https://github.com/ben182/chief/blob/main/CONTRIBUTING.md) in the repository.
