@@ -86,19 +86,11 @@ This method:
 
 ### Updating
 
-The easiest way to update is Chief's built-in update command, which works regardless of how you installed:
+This is a private fork built from source. To update, pull the latest changes and rebuild:
 
 ```bash
-chief update
+git pull && make
 ```
-
-If you installed via Homebrew, you can also use:
-
-```bash
-brew update && brew upgrade chief
-```
-
-Chief automatically checks for updates on startup and notifies you when a new version is available.
 
 ## Install Script
 

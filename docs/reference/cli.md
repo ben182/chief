@@ -22,7 +22,6 @@ chief [command] [flags]
 | `edit` | Open the PRD for editing |
 | `status` | Show current PRD progress |
 | `list` | List all PRDs in the project |
-| `update` | Update Chief to the latest version |
 
 ## Commands
 
@@ -238,37 +237,6 @@ chief list
 #   landing-page   12/12 stories complete ✓
 #   api-v2         0/6 stories complete
 ```
-
----
-
-### chief update
-
-Update Chief to the latest version. Downloads and installs the newest release from GitHub.
-
-```bash
-chief update
-```
-
-Chief checks the GitHub releases API, compares your current version to the latest, and downloads the appropriate binary for your platform if an update is available.
-
-**Examples:**
-
-```bash
-# Update to latest version
-chief update
-
-# Example output:
-#   Checking for updates...
-#   Downloading v0.5.2 (you have v0.4.0)...
-#   Updated to v0.5.2.
-```
-
-::: tip Automatic update check
-Chief performs a non-blocking version check every time you launch the TUI. If a newer version is available, you'll see a message like:
-```
-Chief v0.5.2 available (you have v0.5.1). Run 'chief update' to upgrade.
-```
-:::
 
 ---
 
