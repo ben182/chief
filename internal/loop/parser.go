@@ -43,6 +43,12 @@ const (
 	// so <chief-done/> can't be commit-verified and work isn't persisted between
 	// fresh-context iterations.
 	EventNoGitRepo
+	// EventReviewStart is emitted when the separate review agent starts reviewing
+	// a story's committed changes.
+	EventReviewStart
+	// EventReviewDone is emitted when the review agent has finished (and committed
+	// any fixes it made).
+	EventReviewDone
 	// EventUsage carries token usage (and derived cost) for an assistant message
 	// that produced no other surfaced event, so per-story totals stay accurate.
 	EventUsage
@@ -79,6 +85,10 @@ func (e EventType) String() string {
 		return "Result"
 	case EventNoGitRepo:
 		return "NoGitRepo"
+	case EventReviewStart:
+		return "ReviewStart"
+	case EventReviewDone:
+		return "ReviewDone"
 	case EventUsage:
 		return "Usage"
 	default:

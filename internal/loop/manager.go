@@ -238,11 +238,10 @@ func (m *Manager) Start(name string) error {
 	}
 	instance.Loop = NewLoopWithWorkDir(instance.PRDPath, workDir, "", m.maxIter, m.provider)
 	m.mu.RLock()
-	var reviewSkill string
+	instance.Loop.buildPrompt = promptBuilderForPRD(instance.PRDPath)
 	if m.config != nil {
-		reviewSkill = m.config.Review.Skill
+		instance.Loop.SetReview(m.config.Review.Skill, m.config.Review.Instructions)
 	}
-	instance.Loop.buildPrompt = promptBuilderForPRD(instance.PRDPath, reviewSkill)
 	instance.Loop.SetRetryConfig(m.retryConfig)
 	if m.config != nil && m.config.Loop.WatchdogTimeoutSeconds > 0 {
 		instance.Loop.SetWatchdogTimeout(time.Duration(m.config.Loop.WatchdogTimeoutSeconds) * time.Second)

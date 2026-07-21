@@ -344,7 +344,7 @@ func NewAppWithOptions(prdPath string, maxIter int, provider loop.Provider) (*Ap
 	// Create picker with manager reference (for creating new PRDs)
 	picker := NewPRDPicker(baseDir, prdName, manager)
 
-	return &App{
+	app := &App{
 		prd:              p,
 		prdPath:          prdPath,
 		prdName:          prdName,
@@ -376,7 +376,11 @@ func NewAppWithOptions(prdPath string, maxIter int, provider loop.Provider) (*Ap
 		currentStoryStart:  make(map[string]time.Time),
 		currentStoryCost:   make(map[string]float64),
 		currentStoryTokens: make(map[string]TokenUsage),
-	}, nil
+	}
+	// Signal in the story-done marker that a review still follows, so the reader
+	// knows the build agent's <chief-done/> isn't the final word on the story.
+	app.logViewer.SetReviewPending(cfg != nil && cfg.Review.Enabled())
+	return app, nil
 }
 
 // SetCompletionCallback sets a callback that is called when any PRD completes.
@@ -1087,6 +1091,10 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 			a.lastActivity = event.Text
 		}
 		a.finalizeStoryTiming(prdName)
+	case loop.EventReviewStart, loop.EventReviewDone:
+		if isCurrentPRD {
+			a.lastActivity = event.Text
+		}
 	case loop.EventComplete:
 		// Finalize the last story's timing for any PRD that completes.
 		a.finalizeStoryTiming(prdName)

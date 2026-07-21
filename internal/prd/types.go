@@ -97,7 +97,24 @@ func (p *PRD) AllResolved() bool {
 // suitable for inlining into the agent prompt. Returns nil when all stories
 // are complete.
 func (p *PRD) NextStoryContext() *string {
-	story := p.NextStory()
+	return storyContext(p.NextStory())
+}
+
+// StoryContextByID returns the story with the given ID formatted for inlining
+// into an agent prompt (used by the review agent, which targets a specific
+// already-built story rather than "the next one"). Returns nil if not found.
+func (p *PRD) StoryContextByID(id string) *string {
+	for i := range p.UserStories {
+		if p.UserStories[i].ID == id {
+			return storyContext(&p.UserStories[i])
+		}
+	}
+	return nil
+}
+
+// storyContext formats a story as JSON (with a plain-text fallback) for
+// inlining into an agent prompt. Returns nil for a nil story.
+func storyContext(story *UserStory) *string {
 	if story == nil {
 		return nil
 	}

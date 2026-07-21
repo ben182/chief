@@ -70,8 +70,9 @@ Here's what happens in each step:
 2. **Invoke Agent**: Constructs a prompt with the story details and project context, then spawns the agent
 3. **Agent Codes**: The agent reads files, writes code, runs tests, and fixes issues until the story is complete
 4. **Commit**: The agent commits the changes with a message like `feat: [US-001] - Feature Title`
-5. **Mark Complete**: Chief updates the story status in `prd.md` and records progress
-6. **Repeat**: If more stories remain, the loop continues
+5. **Review** (optional): If a review is configured, a separate agent with a fresh context reviews the committed changes, fixes anything it finds, and amends the commit — see [The Review Agent](/concepts/code-review)
+6. **Mark Complete**: Chief updates the story status in `prd.md` and records progress
+7. **Repeat**: If more stories remain, the loop continues
 
 This isolation is intentional. If something breaks, you know exactly which story caused it. Each commit represents one complete feature.
 

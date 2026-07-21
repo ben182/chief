@@ -279,6 +279,35 @@ func TestPRD_NextStoryContext_ReturnsHighestPriority(t *testing.T) {
 	}
 }
 
+func TestPRD_StoryContextByID(t *testing.T) {
+	p := &PRD{
+		Project: "Test",
+		UserStories: []UserStory{
+			{ID: "US-001", Title: "First", Priority: 1, Passes: true},
+			{ID: "US-002", Title: "Second", Priority: 2, Passes: false},
+		},
+	}
+
+	// Looks up a specific story regardless of status (the review agent targets an
+	// already-completed story, which NextStory would skip).
+	ctx := p.StoryContextByID("US-001")
+	if ctx == nil {
+		t.Fatal("expected non-nil context for existing story")
+	}
+	var story UserStory
+	if err := json.Unmarshal([]byte(*ctx), &story); err != nil {
+		t.Fatalf("failed to parse story context JSON: %v", err)
+	}
+	if story.ID != "US-001" || story.Title != "First" {
+		t.Errorf("expected US-001/First, got %s/%s", story.ID, story.Title)
+	}
+
+	// Unknown ID returns nil.
+	if got := p.StoryContextByID("US-999"); got != nil {
+		t.Errorf("expected nil for unknown ID, got %q", *got)
+	}
+}
+
 func TestPRD_NextStoryContext_ReturnsNilWhenAllComplete(t *testing.T) {
 	p := &PRD{
 		Project: "Test",

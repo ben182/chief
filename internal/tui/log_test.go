@@ -1,6 +1,11 @@
 package tui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/minicodemonkey/chief/internal/loop"
+)
 
 func TestGetToolIcon(t *testing.T) {
 	tests := []struct {
@@ -151,6 +156,30 @@ func TestLogViewer_Clear(t *testing.T) {
 	}
 	if !lv.autoScroll {
 		t.Error("Expected autoScroll to be true after Clear")
+	}
+}
+
+func TestLogViewer_StoryDoneMarkerReflectsReviewPending(t *testing.T) {
+	entry := LogEntry{Type: loop.EventStoryDone}
+
+	// Without a pending review, the story is signed off outright.
+	lv := NewLogViewer()
+	lv.SetSize(80, 20)
+	plain := strings.Join(lv.renderStoryDone(entry), "\n")
+	if !strings.Contains(plain, "Story done") {
+		t.Errorf("expected final 'Story done' marker, got %q", plain)
+	}
+	if strings.Contains(plain, "review pending") {
+		t.Errorf("did not expect a review-pending hint without review, got %q", plain)
+	}
+
+	// With a pending review, the marker signals a review still follows.
+	lvr := NewLogViewer()
+	lvr.SetSize(80, 20)
+	lvr.SetReviewPending(true)
+	pending := strings.Join(lvr.renderStoryDone(entry), "\n")
+	if !strings.Contains(pending, "review pending") {
+		t.Errorf("expected 'review pending' hint when a review follows, got %q", pending)
 	}
 }
 

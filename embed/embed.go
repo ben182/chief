@@ -22,35 +22,56 @@ var detectSetupPromptTemplate string
 //go:embed summary_prompt.txt
 var summaryPromptTemplate string
 
+//go:embed review_prompt.txt
+var reviewPromptTemplate string
+
 // GetPrompt returns the agent prompt with the progress path and
 // current story context substituted. The storyContext is the JSON of the
 // current story to work on, inlined directly into the prompt so that the
 // agent does not need to read the entire prd.md file.
-//
-// reviewSkill, when non-empty, is the name of a project-specific skill (e.g.
-// "/code-quality") that the agent must run to review its changes before
-// committing. When empty, no review step is injected and the prompt is
-// identical to the pre-review behavior.
-func GetPrompt(progressPath, storyContext, storyID, storyTitle, reviewSkill string) string {
+func GetPrompt(progressPath, storyContext, storyID, storyTitle string) string {
 	result := strings.ReplaceAll(promptTemplate, "{{PROGRESS_PATH}}", progressPath)
 	result = strings.ReplaceAll(result, "{{STORY_CONTEXT}}", storyContext)
 	result = strings.ReplaceAll(result, "{{STORY_ID}}", storyID)
-	result = strings.ReplaceAll(result, "{{STORY_TITLE}}", storyTitle)
-	return strings.ReplaceAll(result, "{{QUALITY_REVIEW}}", reviewInstruction(reviewSkill))
+	return strings.ReplaceAll(result, "{{STORY_TITLE}}", storyTitle)
 }
 
-// reviewInstruction builds the code-quality review step inserted before the
-// commit step. It returns an empty string when no review skill is configured,
-// so the numbered steps stay contiguous.
-func reviewInstruction(reviewSkill string) string {
-	reviewSkill = strings.TrimSpace(reviewSkill)
-	if reviewSkill == "" {
+// GetReviewPrompt returns the prompt for the separate review agent that runs
+// after a story's build agent has committed. It reviews the story's changes
+// with a fresh context, then fixes and re-commits anything it finds.
+//
+// storyContext is the current story's JSON (acceptance criteria etc.). skill is
+// an optional project skill to run (Claude-only; empty to skip). instructions
+// is optional free-form guidance. At least one of skill/instructions is set by
+// the caller (otherwise the review is disabled and this is never called).
+func GetReviewPrompt(progressPath, storyContext, storyID, storyTitle, skill, instructions string) string {
+	result := strings.ReplaceAll(reviewPromptTemplate, "{{PROGRESS_PATH}}", progressPath)
+	result = strings.ReplaceAll(result, "{{STORY_CONTEXT}}", storyContext)
+	result = strings.ReplaceAll(result, "{{STORY_ID}}", storyID)
+	result = strings.ReplaceAll(result, "{{STORY_TITLE}}", storyTitle)
+	result = strings.ReplaceAll(result, "{{REVIEW_SKILL}}", reviewSkillBlock(skill))
+	return strings.ReplaceAll(result, "{{REVIEW_INSTRUCTIONS}}", reviewInstructionsBlock(instructions))
+}
+
+// reviewSkillBlock renders the optional "run this skill" instruction, or an
+// empty string when no skill is configured.
+func reviewSkillBlock(skill string) string {
+	skill = strings.TrimSpace(skill)
+	if skill == "" {
 		return ""
 	}
-	return "3a. Before committing, run the `" + reviewSkill + "` skill to review ALL changes " +
-		"you made for this story against the project's code-quality standards. Fix anything it " +
-		"flags, then re-run it. Only proceed to commit once the review passes; if it cannot be " +
-		"made to pass, do NOT commit and do NOT output <chief-done/>.\n"
+	return "- Run the `" + skill + "` skill and address everything it flags.\n"
+}
+
+// reviewInstructionsBlock renders the optional free-form review guidance as its
+// own paragraph, or an empty string when none is configured.
+func reviewInstructionsBlock(instructions string) string {
+	instructions = strings.TrimSpace(instructions)
+	if instructions == "" {
+		return ""
+	}
+	return "- Pay particular attention to the following project-specific concerns:\n\n" +
+		instructions + "\n"
 }
 
 // questionFormatBatch grills the user in rounds following the batch-grill-me

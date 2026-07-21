@@ -89,6 +89,16 @@ type Loop struct {
 	attempts          map[string]int // per-story attempt count, keyed by story ID
 	maxAttempts       int            // attempts allowed per story before parking it for review
 	warnedNoGit       bool           // whether the "not a git repo" warning was already emitted
+
+	// Review agent: when reviewSkill or reviewInstructions is set, a separate
+	// agent reviews (and fixes) each story's committed changes before it is marked
+	// done. reviewMode is true only while that review agent is running, so
+	// processOutput/runIteration know a <chief-done/> came from the reviewer, not
+	// the build agent.
+	reviewSkill        string
+	reviewInstructions string
+	reviewMode         bool
+	sawReviewDone      bool
 }
 
 // maxStderrTail is how many trailing stderr lines are kept to surface on a crash.
@@ -130,16 +140,14 @@ func NewLoopWithWorkDir(prdPath, workDir string, prompt string, maxIter int, pro
 // The prompt is rebuilt on each iteration to inline the current story context.
 func NewLoopWithEmbeddedPrompt(prdPath string, maxIter int, provider Provider) *Loop {
 	l := NewLoop(prdPath, "", maxIter, provider)
-	l.buildPrompt = promptBuilderForPRD(prdPath, "")
+	l.buildPrompt = promptBuilderForPRD(prdPath)
 	return l
 }
 
 // promptBuilderForPRD returns a function that loads the PRD and builds a prompt
 // with the next story inlined. This is called before each iteration so that
 // newly completed stories are skipped. The returned storyID is stored on the Loop.
-// reviewSkill is the optional project-specific code-quality skill injected into
-// each prompt (empty disables the review step).
-func promptBuilderForPRD(prdPath, reviewSkill string) func() (string, string, string, error) {
+func promptBuilderForPRD(prdPath string) func() (string, string, string, error) {
 	return func() (string, string, string, error) {
 		p, err := prd.LoadPRD(prdPath)
 		if err != nil {
@@ -156,9 +164,27 @@ func promptBuilderForPRD(prdPath, reviewSkill string) func() (string, string, st
 
 		storyCtx := p.NextStoryContext()
 
-		prompt := embed.GetPrompt(prd.ProgressPath(prdPath), *storyCtx, story.ID, story.Title, reviewSkill)
+		prompt := embed.GetPrompt(prd.ProgressPath(prdPath), *storyCtx, story.ID, story.Title)
 		return prompt, story.ID, story.Title, nil
 	}
+}
+
+// SetReview configures the separate review agent. When either skill or
+// instructions is non-empty, a review agent runs after each story's build agent
+// commits: it reviews the committed changes with a fresh context and fixes and
+// re-commits anything it finds. Both empty disables the review.
+func (l *Loop) SetReview(skill, instructions string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.reviewSkill = skill
+	l.reviewInstructions = instructions
+}
+
+// reviewEnabled reports whether a review agent should run after a story commits.
+func (l *Loop) reviewEnabled() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return strings.TrimSpace(l.reviewSkill) != "" || strings.TrimSpace(l.reviewInstructions) != ""
 }
 
 // Events returns the channel for receiving events from the loop.
@@ -297,6 +323,13 @@ func (l *Loop) Run(ctx context.Context) error {
 			}
 		}
 		if saw && storyID != "" {
+			// The build agent finished and committed. Before marking the story
+			// done, run a separate review agent (fresh context) that reviews and
+			// fixes the committed changes. It is a best-effort quality gate: a
+			// review crash is logged but does not un-complete the story.
+			if l.reviewEnabled() {
+				l.runReview(ctx, currentIter, storyID, storyTitle)
+			}
 			_ = prd.SetStoryStatus(l.prdPath, storyID, "done")
 			l.commitStoryProgress(storyID, storyTitle)
 		} else if storyID != "" {
@@ -497,8 +530,10 @@ func (l *Loop) runIteration(ctx context.Context) error {
 		}
 		// Check if we killed the process ourselves after <chief-done/>.
 		// That's a graceful end of the iteration, not a crash, so don't retry.
+		// Covers both the build agent (sawStoryDone) and the review agent
+		// (sawReviewDone).
 		l.mu.Lock()
-		saw := l.sawStoryDone
+		saw := l.sawStoryDone || l.sawReviewDone
 		l.mu.Unlock()
 		if saw {
 			return nil
@@ -589,14 +624,29 @@ func (l *Loop) processOutput(r io.Reader) {
 			l.mu.Lock()
 			event.Iteration = l.iteration
 			if event.Type == EventStoryDone {
-				l.sawStoryDone = true
 				// Claude doesn't always exit after <chief-done/>, which leaves the
 				// scanner blocked until the watchdog kills it. Terminate the process
 				// now so the iteration ends immediately. runIteration treats a Wait
-				// error as success when sawStoryDone is set, so this is not a crash.
+				// error as success when the corresponding done flag is set, so this
+				// is not a crash.
+				reviewMode := l.reviewMode
+				if reviewMode {
+					l.sawReviewDone = true
+				} else {
+					l.sawStoryDone = true
+				}
 				if l.agentCmd != nil {
 					killProcessGroup(l.agentCmd.Process)
 				}
+				l.mu.Unlock()
+				// Swallow the reviewer's <chief-done/> so the TUI doesn't render a
+				// second "story done" for the same story; the build agent's done
+				// was already forwarded.
+				if reviewMode {
+					continue
+				}
+				l.events <- *event
+				continue
 			}
 			l.mu.Unlock()
 			l.events <- *event
@@ -740,6 +790,96 @@ func (l *Loop) commitStoryProgress(storyID, storyTitle string) {
 		return
 	}
 	_ = git.CommitPaths(dir, fmt.Sprintf("chore: track %s progress", storyID), paths...)
+}
+
+// runReview spawns a separate agent that reviews (and fixes) the changes the
+// build agent just committed for the story. It reuses runIteration for the
+// process plumbing (watchdog, output parsing, <chief-done/> handling) via the
+// reviewMode flag, but swaps in the review prompt. It is best-effort: a review
+// crash is surfaced as an event but never un-completes the story, so a flaky
+// reviewer can't block progress. The reviewer commits its own fixes; chief does
+// not gate the story on a pass/fail signal.
+func (l *Loop) runReview(ctx context.Context, iteration int, storyID, storyTitle string) {
+	// Skip cleanly if we're already shutting down.
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+	l.mu.Lock()
+	if l.stopped || l.paused {
+		l.mu.Unlock()
+		return
+	}
+	l.mu.Unlock()
+
+	prompt, err := l.buildReviewPrompt()
+	if err != nil {
+		l.events <- Event{
+			Type:      EventReviewDone,
+			Iteration: iteration,
+			StoryID:   storyID,
+			Text:      fmt.Sprintf("Review skipped for %s: %v", storyID, err),
+		}
+		return
+	}
+
+	l.events <- Event{
+		Type:      EventReviewStart,
+		Iteration: iteration,
+		StoryID:   storyID,
+		Text:      fmt.Sprintf("Reviewing story %s", storyID),
+	}
+
+	// Swap in the review prompt and enter review mode for the duration of this
+	// process. buildPrompt rebuilds l.prompt on the next iteration, so restoring
+	// the old prompt is unnecessary; but reviewMode/sawReviewDone must be reset.
+	l.mu.Lock()
+	l.prompt = prompt
+	l.reviewMode = true
+	l.sawReviewDone = false
+	l.mu.Unlock()
+
+	// A crashed reviewer is retried like any other iteration, but a persistent
+	// failure must not stall the loop, so errors are only logged.
+	runErr := l.runIterationWithRetry(ctx)
+
+	l.mu.Lock()
+	l.reviewMode = false
+	l.sawReviewDone = false
+	l.mu.Unlock()
+
+	text := fmt.Sprintf("Review complete for %s", storyID)
+	if runErr != nil && ctx.Err() == nil {
+		text = fmt.Sprintf("Review of %s did not finish cleanly: %v", storyID, runErr)
+	}
+	l.events <- Event{
+		Type:      EventReviewDone,
+		Iteration: iteration,
+		StoryID:   storyID,
+		Text:      text,
+	}
+}
+
+// buildReviewPrompt loads the PRD and builds the review-agent prompt for the
+// story currently being reviewed, inlining that story's context.
+func (l *Loop) buildReviewPrompt() (string, error) {
+	l.mu.Lock()
+	storyID := l.currentStoryID
+	storyTitle := l.currentStoryTitle
+	skill := l.reviewSkill
+	instructions := l.reviewInstructions
+	l.mu.Unlock()
+
+	p, err := prd.LoadPRD(l.prdPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to load PRD for review: %w", err)
+	}
+	storyCtx := p.StoryContextByID(storyID)
+	if storyCtx == nil {
+		return "", fmt.Errorf("story %s not found for review", storyID)
+	}
+	return embed.GetReviewPrompt(prd.ProgressPath(l.prdPath), *storyCtx, storyID, storyTitle, skill, instructions), nil
 }
 
 // IsRunning returns whether an agent process is currently running.

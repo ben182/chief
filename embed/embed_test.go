@@ -8,7 +8,7 @@ import (
 func TestGetPrompt(t *testing.T) {
 	progressPath := "/path/to/progress.md"
 	storyContext := `{"id":"US-001","title":"Test Story"}`
-	prompt := GetPrompt(progressPath, storyContext, "US-001", "Test Story", "")
+	prompt := GetPrompt(progressPath, storyContext, "US-001", "Test Story")
 
 	// Verify all placeholders were substituted
 	if strings.Contains(prompt, "{{PROGRESS_PATH}}") {
@@ -46,7 +46,7 @@ func TestGetPrompt(t *testing.T) {
 }
 
 func TestGetPrompt_NoFileReadInstruction(t *testing.T) {
-	prompt := GetPrompt("/path/progress.md", `{"id":"US-001"}`, "US-001", "Test Story", "")
+	prompt := GetPrompt("/path/progress.md", `{"id":"US-001"}`, "US-001", "Test Story")
 
 	// The prompt should NOT instruct Claude to read the PRD file
 	if strings.Contains(prompt, "Read the PRD") {
@@ -61,7 +61,7 @@ func TestPromptTemplateNotEmpty(t *testing.T) {
 }
 
 func TestGetPrompt_ChiefExclusion(t *testing.T) {
-	prompt := GetPrompt("/path/progress.md", `{"id":"US-001"}`, "US-001", "Test Story", "")
+	prompt := GetPrompt("/path/progress.md", `{"id":"US-001"}`, "US-001", "Test Story")
 
 	// The prompt must instruct Claude to never stage or commit .chief/ files
 	if !strings.Contains(prompt, ".chief/") {
@@ -72,35 +72,69 @@ func TestGetPrompt_ChiefExclusion(t *testing.T) {
 	}
 }
 
-func TestGetPrompt_ReviewSkill(t *testing.T) {
-	// With no review skill, no review step and no leftover placeholder.
-	empty := GetPrompt("/p.md", `{"id":"US-001"}`, "US-001", "Test Story", "")
-	if strings.Contains(empty, "{{QUALITY_REVIEW}}") {
-		t.Error("Expected {{QUALITY_REVIEW}} placeholder to be substituted")
+func TestGetPrompt_NoInlineReview(t *testing.T) {
+	// The build-agent prompt no longer carries an inline review step or its
+	// placeholder — review runs as a separate agent instead.
+	prompt := GetPrompt("/p.md", `{"id":"US-001"}`, "US-001", "Test Story")
+	if strings.Contains(prompt, "{{QUALITY_REVIEW}}") {
+		t.Error("Expected no leftover {{QUALITY_REVIEW}} placeholder in the build prompt")
 	}
-	if strings.Contains(empty, "3a.") {
-		t.Error("Expected no review step when reviewSkill is empty")
+	if strings.Contains(prompt, "3a.") {
+		t.Error("Expected no inline review step in the build prompt")
+	}
+}
+
+func TestGetReviewPrompt(t *testing.T) {
+	progressPath := "/path/to/progress.md"
+	storyContext := `{"id":"US-001","title":"Test Story"}`
+
+	// All placeholders substituted, story context and progress path inlined.
+	prompt := GetReviewPrompt(progressPath, storyContext, "US-001", "Test Story", "/code-quality", "Watch for N+1 queries")
+	for _, ph := range []string{"{{PROGRESS_PATH}}", "{{STORY_CONTEXT}}", "{{STORY_ID}}", "{{STORY_TITLE}}", "{{REVIEW_SKILL}}", "{{REVIEW_INSTRUCTIONS}}"} {
+		if strings.Contains(prompt, ph) {
+			t.Errorf("Expected placeholder %s to be substituted", ph)
+		}
+	}
+	if !strings.Contains(prompt, storyContext) {
+		t.Error("Expected review prompt to inline the story context")
+	}
+	if !strings.Contains(prompt, progressPath) {
+		t.Error("Expected review prompt to contain the progress path")
+	}
+	if !strings.Contains(prompt, "chief-done") {
+		t.Error("Expected review prompt to contain the chief-done stop condition")
+	}
+	if !strings.Contains(prompt, "/code-quality") {
+		t.Error("Expected review prompt to reference the configured skill")
+	}
+	if !strings.Contains(prompt, "Watch for N+1 queries") {
+		t.Error("Expected review prompt to include the free-form instructions")
 	}
 
-	// With a review skill, the step is injected and references the skill.
-	withSkill := GetPrompt("/p.md", `{"id":"US-001"}`, "US-001", "Test Story", "/code-quality")
-	if strings.Contains(withSkill, "{{QUALITY_REVIEW}}") {
-		t.Error("Expected {{QUALITY_REVIEW}} placeholder to be substituted")
+	// With neither skill nor instructions, those blocks are simply empty (the
+	// caller only invokes this when at least one is set, but it must not leave
+	// dangling placeholders or the literal words).
+	bare := GetReviewPrompt(progressPath, storyContext, "US-001", "Test Story", "", "")
+	if strings.Contains(bare, "{{REVIEW_SKILL}}") || strings.Contains(bare, "{{REVIEW_INSTRUCTIONS}}") {
+		t.Error("Expected optional review blocks to be substituted away when empty")
 	}
-	if !strings.Contains(withSkill, "/code-quality") {
-		t.Error("Expected review step to reference the configured skill")
+	if strings.Contains(bare, "Run the `") {
+		t.Error("Expected no skill line when skill is empty")
 	}
-	if !strings.Contains(withSkill, "3a.") {
-		t.Error("Expected review step to be inserted before the commit step")
+
+	// Whitespace-only values are treated as absent.
+	blank := GetReviewPrompt(progressPath, storyContext, "US-001", "Test Story", "  ", "  ")
+	if strings.Contains(blank, "Run the `") {
+		t.Error("Expected whitespace-only skill to be omitted")
 	}
-	// The review step must sit before the commit step.
-	if strings.Index(withSkill, "3a.") > strings.Index(withSkill, "4. If checks pass, commit") {
-		t.Error("Expected review step to precede the commit step")
+	if strings.Contains(blank, "particular attention") {
+		t.Error("Expected whitespace-only instructions to be omitted")
 	}
-	// Whitespace-only skill is treated as disabled.
-	blank := GetPrompt("/p.md", `{"id":"US-001"}`, "US-001", "Test Story", "   ")
-	if strings.Contains(blank, "3a.") {
-		t.Error("Expected whitespace-only reviewSkill to disable the review step")
+}
+
+func TestReviewPromptTemplateNotEmpty(t *testing.T) {
+	if reviewPromptTemplate == "" {
+		t.Error("Expected reviewPromptTemplate to be embedded and non-empty")
 	}
 }
 

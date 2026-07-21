@@ -452,7 +452,7 @@ func TestLoop_ParksStoryAfterMaxAttempts(t *testing.T) {
 	}
 
 	l := NewLoopWithWorkDir(prdPath, dir, "", 50, &mockProvider{cliPath: scriptPath})
-	l.buildPrompt = promptBuilderForPRD(prdPath, "")
+	l.buildPrompt = promptBuilderForPRD(prdPath)
 	l.SetMaxAttemptsPerStory(2)
 	l.DisableRetry()
 
@@ -886,7 +886,7 @@ func TestLoop_DoneWithoutCommitIsNotTrusted(t *testing.T) {
 	}
 
 	l := NewLoopWithWorkDir(prdPath, dir, "", 20, &mockProvider{cliPath: scriptPath})
-	l.buildPrompt = promptBuilderForPRD(prdPath, "")
+	l.buildPrompt = promptBuilderForPRD(prdPath)
 	l.SetMaxAttemptsPerStory(1)
 	l.DisableRetry()
 
@@ -925,6 +925,123 @@ func TestLoop_DoneWithoutCommitIsNotTrusted(t *testing.T) {
 	if p.UserStories[0].Passes {
 		t.Error("story must not be marked done without a matching commit")
 	}
+}
+
+// TestLoop_SetReview verifies the review-enabled predicate reflects the
+// configured skill/instructions.
+func TestLoop_SetReview(t *testing.T) {
+	l := NewLoop("/test/prd.json", "test", 5, testProvider)
+	if l.reviewEnabled() {
+		t.Error("expected review disabled by default")
+	}
+	l.SetReview("/code-quality", "")
+	if !l.reviewEnabled() {
+		t.Error("expected review enabled with a skill")
+	}
+	l.SetReview("", "watch for N+1")
+	if !l.reviewEnabled() {
+		t.Error("expected review enabled with instructions only")
+	}
+	l.SetReview("  ", "  ")
+	if l.reviewEnabled() {
+		t.Error("expected whitespace-only config to be treated as disabled")
+	}
+}
+
+// TestLoop_ReviewAgentRunsAfterCommit verifies that when a review is configured,
+// a separate review agent runs after the build agent commits: the agent CLI is
+// invoked a second time, EventReviewStart/EventReviewDone are emitted, and the
+// story still ends up done. With no review configured, the CLI runs only once
+// and no review events are emitted.
+func TestLoop_ReviewAgentRunsAfterCommit(t *testing.T) {
+	newRun := func(t *testing.T, withReview bool) (calls int, reviewStart, reviewDone, storyDone bool) {
+		t.Helper()
+		dir := t.TempDir()
+		gitInit(t, dir)
+
+		prdPath := createTestPRD(t, dir, false)
+		callsPath := filepath.Join(dir, "calls.txt")
+
+		// Mock agent: records the call, implements + commits the story (idempotent
+		// so the review call's re-commit is a harmless no-op), then signals done.
+		scriptPath := filepath.Join(dir, "mock-claude")
+		script := "#!/bin/bash\n" +
+			"echo call >> " + callsPath + "\n" +
+			"echo content > " + filepath.Join(dir, "impl.txt") + "\n" +
+			"git -C " + dir + " add impl.txt >/dev/null 2>&1\n" +
+			"git -C " + dir + " commit -m 'feat: US-001 - Test Story' >/dev/null 2>&1\n" +
+			`echo '{"type":"assistant","message":{"content":[{"type":"text","text":"done <chief-done/>"}]}}'` + "\n"
+		if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+			t.Fatalf("write script: %v", err)
+		}
+
+		l := NewLoopWithWorkDir(prdPath, dir, "", 10, &mockProvider{cliPath: scriptPath})
+		l.buildPrompt = promptBuilderForPRD(prdPath)
+		l.DisableRetry()
+		if withReview {
+			l.SetReview("", "check the implementation carefully")
+		}
+
+		done := make(chan bool)
+		go func() {
+			for e := range l.Events() {
+				switch e.Type {
+				case EventReviewStart:
+					reviewStart = true
+				case EventReviewDone:
+					reviewDone = true
+				case EventStoryDone:
+					storyDone = true
+				}
+			}
+			done <- true
+		}()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := l.Run(ctx); err != nil {
+			t.Fatalf("Run returned error: %v", err)
+		}
+		<-done
+
+		data, err := os.ReadFile(callsPath)
+		if err != nil {
+			t.Fatalf("read calls: %v", err)
+		}
+		calls = strings.Count(strings.TrimSpace(string(data)), "\n") + 1
+
+		p, err := prd.LoadPRD(prdPath)
+		if err != nil {
+			t.Fatalf("reload prd: %v", err)
+		}
+		if !p.UserStories[0].Passes {
+			t.Error("expected story to be marked done")
+		}
+		return calls, reviewStart, reviewDone, storyDone
+	}
+
+	t.Run("with review: agent runs twice and emits review events", func(t *testing.T) {
+		calls, reviewStart, reviewDone, storyDone := newRun(t, true)
+		if calls != 2 {
+			t.Errorf("expected 2 agent invocations (build + review), got %d", calls)
+		}
+		if !reviewStart || !reviewDone {
+			t.Errorf("expected review events, got start=%v done=%v", reviewStart, reviewDone)
+		}
+		if !storyDone {
+			t.Error("expected EventStoryDone from the build agent")
+		}
+	})
+
+	t.Run("without review: agent runs once and emits no review events", func(t *testing.T) {
+		calls, reviewStart, reviewDone, _ := newRun(t, false)
+		if calls != 1 {
+			t.Errorf("expected 1 agent invocation (build only), got %d", calls)
+		}
+		if reviewStart || reviewDone {
+			t.Error("expected no review events when review is disabled")
+		}
+	})
 }
 
 // TestTimestampedLogName verifies per-run log names carry a sortable timestamp.

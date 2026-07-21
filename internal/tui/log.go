@@ -37,6 +37,7 @@ type LogViewer struct {
 	autoScroll       bool   // Auto-scroll to bottom when new content arrives
 	lastReadFilePath string // Track the last Read tool's file path for syntax highlighting
 	totalLineCount   int    // Running total of all rendered lines (O(1) lookup)
+	reviewPending    bool   // Whether a separate review agent runs after each story — changes the "story done" marker to signal a review still follows
 }
 
 // NewLogViewer creates a new log viewer.
@@ -46,6 +47,13 @@ func NewLogViewer() *LogViewer {
 		scrollPos:  0,
 		autoScroll: true,
 	}
+}
+
+// SetReviewPending records whether a separate review agent runs after each
+// story's build agent commits. When true, the "story done" marker makes clear a
+// review still follows instead of reading as the final word on the story.
+func (l *LogViewer) SetReviewPending(pending bool) {
+	l.reviewPending = pending
 }
 
 // AddEvent adds a loop event to the log.
@@ -79,7 +87,7 @@ func (l *LogViewer) AddEvent(event loop.Event) {
 	switch event.Type {
 	case loop.EventAssistantText, loop.EventToolStart, loop.EventToolResult,
 		loop.EventStoryDone, loop.EventStoryNeedsReview, loop.EventStoryNoCommit, loop.EventComplete, loop.EventError, loop.EventRetrying,
-		loop.EventWatchdogTimeout, loop.EventNoGitRepo:
+		loop.EventWatchdogTimeout, loop.EventNoGitRepo, loop.EventReviewStart, loop.EventReviewDone:
 		// Pre-render and cache lines
 		if l.width > 0 {
 			entry.cachedLines = l.renderEntry(entry)
@@ -362,6 +370,8 @@ func (l *LogViewer) renderEntry(entry LogEntry) []string {
 		return l.renderToolResult(entry)
 	case loop.EventStoryDone:
 		return l.renderStoryDone(entry)
+	case loop.EventReviewStart, loop.EventReviewDone:
+		return l.renderReview(entry)
 	case loop.EventComplete:
 		return l.renderComplete(entry)
 	case loop.EventError:
@@ -558,22 +568,61 @@ func stripLineNumbers(code string) string {
 	return strings.Join(result, "\n")
 }
 
-// renderStoryDone renders a story done marker.
+// renderStoryDone renders a story done marker. When a review agent still has to
+// run (reviewPending), it is styled as an intermediate "build done, review next"
+// marker in the in-progress color rather than the final success green, so the
+// reader knows the story is not yet signed off.
 func (l *LogViewer) renderStoryDone(entry LogEntry) []string {
+	label := glyph("✓ Story done", "[x] Story done")
+	color := SuccessColor
+	if l.reviewPending {
+		label = glyph("✓ Build done — review pending", "[x] Build done - review pending")
+		color = WarningColor
+	}
+
 	storyStyle := lipgloss.NewStyle().
-		Foreground(SuccessColor).
+		Foreground(color).
 		Bold(true).
 		Padding(0, 1)
 
-	dividerStyle := lipgloss.NewStyle().Foreground(SuccessColor)
+	dividerStyle := lipgloss.NewStyle().Foreground(color)
 	divider := dividerStyle.Render(strings.Repeat("─", l.width-4))
 
 	return []string{
 		"",
 		divider,
-		storyStyle.Render("✓ Story done"),
+		storyStyle.Render(label),
 		divider,
 		"",
+	}
+}
+
+// renderReview renders the separate review agent's start/finish markers so the
+// review phase is visibly distinct from the build agent's work in the log.
+func (l *LogViewer) renderReview(entry LogEntry) []string {
+	// The start marker uses the primary accent (a phase is underway); the done
+	// marker turns success-green — this is the point the story is actually signed
+	// off, after the yellow "review pending" build marker.
+	color := PrimaryColor
+	icon := glyph("🔍", "[review]")
+	text := entry.Text
+	if entry.Type == loop.EventReviewDone {
+		color = SuccessColor
+		icon = glyph("✓", "[x]")
+		if text == "" {
+			text = "Review complete"
+		}
+	} else if text == "" {
+		text = "Reviewing changes"
+	}
+
+	reviewStyle := lipgloss.NewStyle().
+		Foreground(color).
+		Bold(true).
+		Padding(0, 1)
+	return []string{
+		"",
+		reviewStyle.Render(icon + " " + text),
 	}
 }
 

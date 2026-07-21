@@ -62,6 +62,43 @@ func TestSaveAndLoad(t *testing.T) {
 	}
 }
 
+func TestReviewConfigEnabled(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  ReviewConfig
+		want bool
+	}{
+		{"empty", ReviewConfig{}, false},
+		{"skill only", ReviewConfig{Skill: "/code-quality"}, true},
+		{"instructions only", ReviewConfig{Instructions: "watch for N+1"}, true},
+		{"both", ReviewConfig{Skill: "/cq", Instructions: "x"}, true},
+		{"whitespace only", ReviewConfig{Skill: "  ", Instructions: "\n\t"}, false},
+	}
+	for _, tt := range tests {
+		if got := tt.cfg.Enabled(); got != tt.want {
+			t.Errorf("%s: Enabled() = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestReviewConfigRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{Review: ReviewConfig{Skill: "/code-quality", Instructions: "watch for N+1 queries"}}
+	if err := Save(dir, cfg); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if loaded.Review.Skill != "/code-quality" {
+		t.Errorf("expected skill to round-trip, got %q", loaded.Review.Skill)
+	}
+	if loaded.Review.Instructions != "watch for N+1 queries" {
+		t.Errorf("expected instructions to round-trip, got %q", loaded.Review.Instructions)
+	}
+}
+
 func TestExists(t *testing.T) {
 	dir := t.TempDir()
 

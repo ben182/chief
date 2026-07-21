@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -18,14 +19,26 @@ type Config struct {
 	Review     ReviewConfig     `yaml:"review"`
 }
 
-// ReviewConfig holds the per-project code-quality review step that the agent
-// runs at the end of each iteration, before committing.
+// ReviewConfig holds the per-project code review that runs after a story's
+// build agent has committed. When enabled, chief spawns a *separate* agent with
+// a fresh context (it never sees the build agent's reasoning) that adversarially
+// reviews the story's changes, fixes anything it finds, and amends the commit —
+// a second pair of eyes rather than the author checking their own work.
 type ReviewConfig struct {
-	// Skill is the name of a skill the agent must run to review the changes it
-	// made for the current story (e.g. "/code-quality"). When set, chief injects
-	// an instruction into every iteration prompt telling the agent to run the
-	// skill, fix anything it flags, and only then commit. Empty disables it.
+	// Skill is the name of a project skill the review agent should run as part of
+	// its review (e.g. "/code-quality"). Claude-specific; other providers ignore
+	// it. Optional — Instructions alone are enough to enable the review.
 	Skill string `yaml:"skill"`
+	// Instructions is free-form guidance for the review agent (e.g. "watch for
+	// N+1 queries and missing tests"). Works with any provider. Optional — Skill
+	// alone is enough to enable the review.
+	Instructions string `yaml:"instructions"`
+}
+
+// Enabled reports whether a review agent should run: true when either a skill or
+// free-form instructions are configured.
+func (r ReviewConfig) Enabled() bool {
+	return strings.TrimSpace(r.Skill) != "" || strings.TrimSpace(r.Instructions) != ""
 }
 
 // LoopConfig holds agent-loop tuning knobs.
