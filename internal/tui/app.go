@@ -224,11 +224,12 @@ type App struct {
 	// Story timing tracking, keyed by PRD name. Keeping this per-PRD (rather than
 	// a single set of fields for the viewed PRD) means the ETA survives tab
 	// switches and is tracked for background PRDs too, not just the one on screen.
-	storyTimings      map[string][]StoryTiming
-	currentStoryID    map[string]string
-	currentStoryStart map[string]time.Time
-	currentStoryCost  map[string]float64 // cost accrued for the in-progress story (across retries), per PRD
-	totalCost         float64            // cumulative cost across all stories this run
+	storyTimings       map[string][]StoryTiming
+	currentStoryID     map[string]string
+	currentStoryStart  map[string]time.Time
+	currentStoryCost   map[string]float64    // cost accrued for the in-progress story (across retries), per PRD
+	currentStoryTokens map[string]TokenUsage // token usage accrued for the in-progress story, per PRD
+	totalCost          float64               // cumulative cost across all stories this run
 
 	// Settings overlay
 	settingsOverlay *SettingsOverlay
@@ -365,10 +366,11 @@ func NewAppWithOptions(prdPath string, maxIter int, provider loop.Provider) (*Ap
 		settingsOverlay:  NewSettingsOverlay(),
 		quitConfirm:      NewQuitConfirmation(),
 
-		storyTimings:      make(map[string][]StoryTiming),
-		currentStoryID:    make(map[string]string),
-		currentStoryStart: make(map[string]time.Time),
-		currentStoryCost:  make(map[string]float64),
+		storyTimings:       make(map[string][]StoryTiming),
+		currentStoryID:     make(map[string]string),
+		currentStoryStart:  make(map[string]time.Time),
+		currentStoryCost:   make(map[string]float64),
+		currentStoryTokens: make(map[string]TokenUsage),
 	}, nil
 }
 
@@ -885,6 +887,7 @@ func (a App) doStartLoop(prdName, prdDir string) (tea.Model, tea.Cmd) {
 	a.currentStoryID[prdName] = ""
 	a.currentStoryStart[prdName] = time.Time{}
 	a.currentStoryCost[prdName] = 0
+	a.currentStoryTokens[prdName] = TokenUsage{}
 
 	// Update state if this is the current PRD
 	if prdName == a.prdName {
@@ -1009,6 +1012,25 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 		a.logViewer.AddEvent(event)
 	}
 
+	// Accumulate token usage and derived cost onto the story currently being
+	// timed for this PRD. Claude reports these on every assistant message (its
+	// final result event never arrives because the loop kills the process on
+	// <chief-done/>); other providers report cost on the result event. Tracked
+	// for every PRD so background runs stay accurate.
+	if event.Cost > 0 || event.InputTokens > 0 || event.OutputTokens > 0 ||
+		event.CacheCreationTokens > 0 || event.CacheReadTokens > 0 {
+		a.currentStoryCost[prdName] += event.Cost
+		tok := a.currentStoryTokens[prdName]
+		tok.Input += event.InputTokens
+		tok.Output += event.OutputTokens
+		tok.CacheCreation += event.CacheCreationTokens
+		tok.CacheRead += event.CacheReadTokens
+		a.currentStoryTokens[prdName] = tok
+		if isCurrentPRD {
+			a.totalCost += event.Cost
+		}
+	}
+
 	var autoActionCmd tea.Cmd
 
 	switch event.Type {
@@ -1023,6 +1045,9 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 			a.finalizeStoryTiming(prdName)
 			a.currentStoryID[prdName] = event.StoryID
 			a.currentStoryStart[prdName] = time.Now()
+			// Start this story's cost/token counters fresh.
+			a.currentStoryCost[prdName] = 0
+			a.currentStoryTokens[prdName] = TokenUsage{}
 		}
 	case loop.EventAssistantText:
 		if isCurrentPRD {
@@ -1036,11 +1061,6 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 	case loop.EventToolResult:
 		if isCurrentPRD {
 			a.lastActivity = "Tool completed"
-		}
-	case loop.EventResult:
-		a.currentStoryCost[prdName] += event.Cost
-		if isCurrentPRD {
-			a.totalCost += event.Cost
 		}
 	case loop.EventStoryDone:
 		if isCurrentPRD {
@@ -1370,10 +1390,12 @@ func (a *App) finalizeStoryTiming(prdName string) {
 		Title:    title,
 		Duration: duration,
 		Cost:     a.currentStoryCost[prdName],
+		Tokens:   a.currentStoryTokens[prdName],
 	})
 	a.currentStoryID[prdName] = ""
 	a.currentStoryStart[prdName] = time.Time{}
 	a.currentStoryCost[prdName] = 0
+	a.currentStoryTokens[prdName] = TokenUsage{}
 }
 
 // showCompletionScreen configures and shows the completion screen for a PRD.

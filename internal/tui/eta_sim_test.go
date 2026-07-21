@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"math"
 	"testing"
 
 	"github.com/minicodemonkey/chief/internal/loop"
@@ -64,5 +65,42 @@ func TestETA_SimBackgroundPRD(t *testing.T) {
 	// The viewed PRD ("other") has no timings, so no ETA leaks across PRDs.
 	if _, ok := cur.GetETA(); ok {
 		t.Fatal("viewed PRD has no timings; expected no ETA")
+	}
+}
+
+// TestStoryUsage_AccumulatesCostAndTokens verifies that per-message cost and
+// token usage are summed onto the in-progress story and finalized with it.
+func TestStoryUsage_AccumulatesCostAndTokens(t *testing.T) {
+	app := newTestApp(makeStories(3), 120, 20)
+	app.prdName = "main"
+	app.logViewer = NewLogViewer()
+
+	cur := *app
+	step := func(ev loop.Event) {
+		m, _ := cur.handleLoopEvent("main", ev)
+		cur = m.(App)
+	}
+
+	id := cur.prd.UserStories[0].ID
+	step(loop.Event{Type: loop.EventIterationStart, StoryID: id})
+	step(loop.Event{Type: loop.EventToolStart, Tool: "Bash", Cost: 0.10, OutputTokens: 100, CacheReadTokens: 5000})
+	step(loop.Event{Type: loop.EventUsage, Cost: 0.05, OutputTokens: 50, InputTokens: 10})
+
+	cost, tok, ok := cur.storyUsage(id)
+	if !ok {
+		t.Fatal("expected usage for in-progress story")
+	}
+	if math.Abs(cost-0.15) > 1e-9 {
+		t.Fatalf("cost = %v, want 0.15", cost)
+	}
+	if tok.Output != 150 || tok.Input != 10 || tok.CacheRead != 5000 {
+		t.Fatalf("tokens = %+v", tok)
+	}
+
+	// After the story finalizes, the usage is preserved on the timing.
+	step(loop.Event{Type: loop.EventStoryDone})
+	cost, tok, ok = cur.storyUsage(id)
+	if !ok || math.Abs(cost-0.15) > 1e-9 || tok.Output != 150 {
+		t.Fatalf("finalized usage lost: cost=%v tok=%+v ok=%v", cost, tok, ok)
 	}
 }

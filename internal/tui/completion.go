@@ -23,7 +23,26 @@ type StoryTiming struct {
 	StoryID  string
 	Title    string
 	Duration time.Duration
-	Cost     float64 // total_cost_usd accumulated for the story (0 when unavailable)
+	Cost     float64    // USD cost accumulated for the story (0 when unavailable)
+	Tokens   TokenUsage // token usage accumulated for the story (Claude only)
+}
+
+// TokenUsage aggregates the token counts reported across a story's turns.
+type TokenUsage struct {
+	Input         int
+	Output        int
+	CacheCreation int
+	CacheRead     int
+}
+
+// Total returns the sum of all token categories.
+func (t TokenUsage) Total() int {
+	return t.Input + t.Output + t.CacheCreation + t.CacheRead
+}
+
+// IsZero reports whether any tokens were recorded.
+func (t TokenUsage) IsZero() bool {
+	return t.Total() == 0
 }
 
 // CompletionScreen manages the completion screen state shown when a PRD finishes.

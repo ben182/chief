@@ -508,6 +508,13 @@ func (a *App) renderDetailsPanel(width, height int) string {
 		statusStyle = statusPendingStyle
 	}
 	content.WriteString(fmt.Sprintf("%s %s  │  Priority: %g\n", statusIcon, statusStyle.Render(statusText), story.Priority))
+
+	// Cost & tokens for this story (live while in progress, final once done).
+	if cost, tokens, ok := a.storyUsage(story.ID); ok {
+		content.WriteString(renderStoryUsageLine(cost, tokens))
+		content.WriteString("\n")
+	}
+
 	content.WriteString(DividerStyle.Render(strings.Repeat("─", width-4)))
 	content.WriteString("\n\n")
 
@@ -738,6 +745,59 @@ func formatCost(c float64) string {
 		return fmt.Sprintf("$%.2f", c)
 	}
 	return fmt.Sprintf("$%.3f", c)
+}
+
+// formatTokenCount formats a token count compactly (e.g. 1234 -> "1.2K",
+// 2_500_000 -> "2.5M").
+func formatTokenCount(n int) string {
+	switch {
+	case n >= 1_000_000_000:
+		return fmt.Sprintf("%.1fB", float64(n)/1e9)
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1e6)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fK", float64(n)/1e3)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
+}
+
+// storyUsage returns the accumulated cost and token usage for a story in the
+// active PRD: live counters while it's the in-progress story, otherwise the
+// finalized totals. ok is false when nothing has been recorded yet.
+func (a *App) storyUsage(storyID string) (cost float64, tokens TokenUsage, ok bool) {
+	if a.currentStoryID[a.prdName] == storyID {
+		cost = a.currentStoryCost[a.prdName]
+		tokens = a.currentStoryTokens[a.prdName]
+		return cost, tokens, cost > 0 || !tokens.IsZero()
+	}
+	for _, st := range a.storyTimings[a.prdName] {
+		if st.StoryID == storyID {
+			return st.Cost, st.Tokens, st.Cost > 0 || !st.Tokens.IsZero()
+		}
+	}
+	return 0, TokenUsage{}, false
+}
+
+// renderStoryUsageLine formats a one-line cost + token summary for a story.
+func renderStoryUsageLine(cost float64, tokens TokenUsage) string {
+	labelStyle := lipgloss.NewStyle().Foreground(MutedColor)
+	valueStyle := lipgloss.NewStyle().Foreground(TextColor)
+
+	label := "Tokens: "
+	var parts []string
+	if cost > 0 {
+		label = "Cost: "
+		parts = append(parts, valueStyle.Render("~"+formatCost(cost)))
+	}
+	if !tokens.IsZero() {
+		tok := fmt.Sprintf("%s out · %s in · %s cache",
+			formatTokenCount(tokens.Output),
+			formatTokenCount(tokens.Input),
+			formatTokenCount(tokens.CacheCreation+tokens.CacheRead))
+		parts = append(parts, labelStyle.Render(tok))
+	}
+	return labelStyle.Render(label) + strings.Join(parts, labelStyle.Render("  ·  "))
 }
 
 // wrapText wraps text to fit within a given width.

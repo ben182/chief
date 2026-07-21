@@ -43,6 +43,9 @@ const (
 	// so <chief-done/> can't be commit-verified and work isn't persisted between
 	// fresh-context iterations.
 	EventNoGitRepo
+	// EventUsage carries token usage (and derived cost) for an assistant message
+	// that produced no other surfaced event, so per-story totals stay accurate.
+	EventUsage
 )
 
 // String returns the string representation of an EventType.
@@ -76,6 +79,8 @@ func (e EventType) String() string {
 		return "Result"
 	case EventNoGitRepo:
 		return "NoGitRepo"
+	case EventUsage:
+		return "Usage"
 	default:
 		return "Unknown"
 	}
@@ -93,7 +98,14 @@ type Event struct {
 	RetryCount int      // Current retry attempt (1-based)
 	RetryMax   int      // Maximum retries allowed
 	CrashLog   []string // last stderr lines from the crashed process (EventRetrying)
-	Cost       float64  // total_cost_usd for the iteration (EventResult, Claude only)
+	Cost       float64  // USD cost carried by this event (EventResult total_cost_usd, or per-message cost derived from token usage)
+
+	// Token usage carried by an assistant message (Claude). Summed per story by
+	// the UI. cache_read dominates cost when a large context is reused each turn.
+	InputTokens         int
+	OutputTokens        int
+	CacheCreationTokens int
+	CacheReadTokens     int
 }
 
 // streamMessage represents the top-level structure of a stream-json line.
@@ -106,7 +118,17 @@ type streamMessage struct {
 
 // assistantMessage represents the structure of an assistant message.
 type assistantMessage struct {
+	Model   string         `json:"model"`
 	Content []contentBlock `json:"content"`
+	Usage   *usageInfo     `json:"usage,omitempty"`
+}
+
+// usageInfo holds per-message token counts reported by Claude.
+type usageInfo struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 }
 
 // contentBlock represents a block of content in an assistant message.
@@ -178,7 +200,29 @@ func parseAssistantMessage(raw json.RawMessage) *Event {
 		return nil
 	}
 
-	for _, block := range msg.Content {
+	ev := eventForContent(msg.Content)
+
+	// Attach per-message token usage and derived cost. Claude reports usage on
+	// every assistant message; the final `result` event (which carries
+	// total_cost_usd) never arrives because the loop kills the process on
+	// <chief-done/>, so accumulating per-message usage is the reliable source.
+	if msg.Usage != nil {
+		if ev == nil {
+			ev = &Event{Type: EventUsage}
+		}
+		ev.InputTokens = msg.Usage.InputTokens
+		ev.OutputTokens = msg.Usage.OutputTokens
+		ev.CacheCreationTokens = msg.Usage.CacheCreationInputTokens
+		ev.CacheReadTokens = msg.Usage.CacheReadInputTokens
+		ev.Cost = costForUsage(msg.Model, msg.Usage)
+	}
+
+	return ev
+}
+
+// eventForContent maps the first actionable content block to an event.
+func eventForContent(content []contentBlock) *Event {
+	for _, block := range content {
 		switch block.Type {
 		case "text":
 			text := block.Text
@@ -202,7 +246,6 @@ func parseAssistantMessage(raw json.RawMessage) *Event {
 			}
 		}
 	}
-
 	return nil
 }
 

@@ -17,10 +17,11 @@ func newTestApp(stories []prd.UserStory, width, height int) *App {
 		height:   height,
 		viewMode: ViewDashboard,
 
-		storyTimings:      make(map[string][]StoryTiming),
-		currentStoryID:    make(map[string]string),
-		currentStoryStart: make(map[string]time.Time),
-		currentStoryCost:  make(map[string]float64),
+		storyTimings:       make(map[string][]StoryTiming),
+		currentStoryID:     make(map[string]string),
+		currentStoryStart:  make(map[string]time.Time),
+		currentStoryCost:   make(map[string]float64),
+		currentStoryTokens: make(map[string]TokenUsage),
 	}
 }
 
