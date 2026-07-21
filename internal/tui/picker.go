@@ -479,7 +479,7 @@ func (p *PRDPicker) HasCleanResult() bool {
 // Render renders the PRD picker modal.
 func (p *PRDPicker) Render() string {
 	// Modal dimensions
-	modalWidth := min(60, p.width-10)
+	modalWidth := min(72, p.width-10)
 	modalHeight := min(20, p.height-6)
 
 	if modalWidth < 30 {
@@ -603,11 +603,11 @@ func (p *PRDPicker) renderEntry(entry PRDEntry, selected bool, width int) string
 		nameStyle = nameStyle.Bold(true).Foreground(TextBrightColor)
 	}
 	name := entry.Name
-	maxNameLen := 12
+	maxNameLen := 20
 	if len(name) > maxNameLen {
 		name = name[:maxNameLen-2] + ".."
 	}
-	line.WriteString(nameStyle.Render(fmt.Sprintf("%-12s", name)))
+	line.WriteString(nameStyle.Render(fmt.Sprintf("%-20s", name)))
 	line.WriteString(" ")
 
 	if entry.Archived {
@@ -622,7 +622,7 @@ func (p *PRDPicker) renderEntry(entry PRDEntry, selected bool, width int) string
 		orphanedStyle := lipgloss.NewStyle().Foreground(WarningColor)
 		line.WriteString(orphanedStyle.Render("[orphaned worktree]"))
 		// Show worktree path if space allows
-		remaining := width - 32 - 18 // account for indicator + name + orphaned label
+		remaining := width - 40 - 18 // account for indicator + name + orphaned label
 		if remaining > 10 && entry.WorktreeDir != "" {
 			pathStyle := lipgloss.NewStyle().Foreground(MutedColor)
 			displayPath := p.worktreeDisplayPath(entry)
@@ -666,8 +666,8 @@ func (p *PRDPicker) renderEntry(entry PRDEntry, selected bool, width int) string
 		if entry.Branch != "" {
 			branchPathStyle := lipgloss.NewStyle().Foreground(MutedColor)
 			// Calculate remaining space for branch and path info
-			// Base content uses: 2 (indicator) + 12 (name) + 1 (space) + 8 (progress) + 1 (space) + ~3 (count) + 1 (space) + ~2 (state) = ~30
-			remaining := width - 32
+			// Base content uses: 2 (indicator) + 20 (name) + 1 (space) + 8 (progress) + 1 (space) + ~3 (count) + 1 (space) + ~2 (state) = ~38
+			remaining := width - 40
 			if remaining > 10 {
 				branchStr := entry.Branch
 				pathStr := p.worktreeDisplayPath(entry)

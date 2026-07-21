@@ -186,7 +186,7 @@ func (t *TabBar) renderTab(entry TabEntry, number int) string {
 
 	// Build tab content: name + indicators
 	name := entry.Name
-	maxNameLen := 8
+	maxNameLen := 16
 	if len(name) > maxNameLen {
 		name = name[:maxNameLen-1] + "."
 	}
@@ -297,7 +297,7 @@ func (t *TabBar) renderCompactTab(entry TabEntry, number int) string {
 
 	// Shorter name
 	name := entry.Name
-	maxNameLen := 5
+	maxNameLen := 9
 	if len(name) > maxNameLen {
 		name = name[:maxNameLen-1] + "."
 	}
