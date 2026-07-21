@@ -122,7 +122,7 @@ chief new [name] [context]
 1. When the agent is Claude, Chief first shows a model picker (see below) — pick which Claude model drives the session
 2. Chief launches the agent CLI with a specialized PRD-creation prompt
 3. The agent first asks, in plain prose, **what you want to build and why** — before touching your codebase (it does not guess the feature from the PRD name). If you passed `context`, it plays that back to confirm instead of asking
-4. Only once the goal is clear does it explore the repository, then grill you one decision at a time to resolve every open question
+4. Only once the goal is clear does it explore the repository, then grill you one decision at a time to resolve every open question. Codebase exploration always runs on **Opus** (via a subagent), independent of the model you picked for the session — so a lighter session model (e.g. Fable) speeds up the conversation without degrading how well the repo is understood
 5. After you confirm the shared understanding, the agent writes `prd.md` in one pass
 6. When done, type `/exit` to leave the agent session
 7. Chief validates the `prd.md` can be parsed
@@ -136,6 +136,8 @@ Before the session starts, Chief opens an interactive picker so you can choose t
 - **Custom…** — type any model ID (e.g. `claude-opus-4-8`)
 
 The chosen model is passed to the Claude CLI via `--model`. The picker is skipped when you pin a model explicitly with the `--model` flag, and it does not appear for non-Claude agents. Pressing `Esc` cancels without creating the PRD.
+
+The chosen model drives the **conversation** (grilling and PRD writing). Codebase exploration is always delegated to an **Opus** subagent regardless of this choice, so picking a lighter model like Fable trims cost on the back-and-forth without weakening how well Chief reads your repository.
 
 **What it creates:**
 

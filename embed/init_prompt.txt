@@ -62,7 +62,7 @@ behavior, edge case, and boundary is decided.
 Now that you know what you are building (Phase 0), explore the repository and
 the context above before you grill. If a question can be answered by looking
 (what stack is used, how similar features are built, what patterns exist, where
-things live), **look it up — do not ask.**
+things live), **look it up — do not ask.**{{EXPLORE_MODEL}}
 
 Only the *decisions* are the user's: what to build, how it should behave, what's
 in and out of scope, what "done" means. Put those to the user. Facts you find on

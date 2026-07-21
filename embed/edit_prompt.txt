@@ -40,7 +40,7 @@ resolved. The goal is a shared understanding of the change, not a document.
 Before you ask anything, read the existing PRD and explore the repository. If a
 question can be answered by looking (how a similar story is written, what already
 exists, which IDs are taken), **look it up — do not ask.** Only the *decisions*
-are the user's: what should change, why, and how it should behave.
+are the user's: what should change, why, and how it should behave.{{EXPLORE_MODEL}}
 
 ### Ask ONE question at a time
 

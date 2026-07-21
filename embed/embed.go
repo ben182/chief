@@ -100,6 +100,32 @@ func questionFormat(nativeQuestions bool) string {
 	return questionFormatLettered
 }
 
+// exploreModelClaude instructs the Claude interactive session to run codebase
+// exploration on Opus via a subagent, so exploration quality does not depend on
+// whichever model the user picked in the new/edit model picker (a lighter model
+// like Fable is fine for the conversation, but should not drive exploration).
+// It is prefixed with two newlines so it reads as its own paragraph after the
+// "look it up" sentence it follows.
+const exploreModelClaude = `
+
+**Explore the codebase on Opus, always.** Do the exploration by delegating it to
+a subagent with its model set to Opus — use the Explore agent if your setup has
+one, otherwise a general-purpose subagent — no matter which model drives this
+session. This keeps exploration high-quality even when the session runs on a
+lighter, faster model. Do NOT read large parts of the repository inline on the
+session model.`
+
+// exploreModel returns the exploration-model instruction for a provider. Only
+// Claude Code supports both the model picker and subagents with a per-call model
+// override, so the block is injected only when native questions are available
+// (the same signal used to detect Claude); other providers get an empty string.
+func exploreModel(nativeQuestions bool) string {
+	if nativeQuestions {
+		return exploreModelClaude
+	}
+	return ""
+}
+
 // GetInitPrompt returns the PRD generator prompt with the PRD directory, optional
 // context, and provider-appropriate question format substituted.
 func GetInitPrompt(prdDir, context string, nativeQuestions bool) string {
@@ -108,14 +134,16 @@ func GetInitPrompt(prdDir, context string, nativeQuestions bool) string {
 	}
 	result := strings.ReplaceAll(initPromptTemplate, "{{PRD_DIR}}", prdDir)
 	result = strings.ReplaceAll(result, "{{CONTEXT}}", context)
-	return strings.ReplaceAll(result, "{{QUESTION_FORMAT}}", questionFormat(nativeQuestions))
+	result = strings.ReplaceAll(result, "{{QUESTION_FORMAT}}", questionFormat(nativeQuestions))
+	return strings.ReplaceAll(result, "{{EXPLORE_MODEL}}", exploreModel(nativeQuestions))
 }
 
 // GetEditPrompt returns the PRD editor prompt with the PRD directory and
 // provider-appropriate question format substituted.
 func GetEditPrompt(prdDir string, nativeQuestions bool) string {
 	result := strings.ReplaceAll(editPromptTemplate, "{{PRD_DIR}}", prdDir)
-	return strings.ReplaceAll(result, "{{QUESTION_FORMAT}}", questionFormat(nativeQuestions))
+	result = strings.ReplaceAll(result, "{{QUESTION_FORMAT}}", questionFormat(nativeQuestions))
+	return strings.ReplaceAll(result, "{{EXPLORE_MODEL}}", exploreModel(nativeQuestions))
 }
 
 // GetDetectSetupPrompt returns the prompt for detecting project setup commands.

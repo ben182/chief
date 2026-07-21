@@ -149,6 +149,43 @@ func TestGetInitPromptQuestionFormat(t *testing.T) {
 	}
 }
 
+func TestGetInitPromptExploreModel(t *testing.T) {
+	prdDir := "/path/to/.chief/prds/main"
+
+	native := GetInitPrompt(prdDir, "", true)
+	if !strings.Contains(native, "Explore the codebase on Opus") {
+		t.Error("Expected Claude prompt to pin codebase exploration to Opus")
+	}
+	if strings.Contains(native, "{{EXPLORE_MODEL}}") {
+		t.Error("Expected {{EXPLORE_MODEL}} to be substituted")
+	}
+
+	nonNative := GetInitPrompt(prdDir, "", false)
+	if strings.Contains(nonNative, "Explore the codebase on Opus") {
+		t.Error("Expected non-Claude prompt to omit the Opus exploration instruction")
+	}
+	if strings.Contains(nonNative, "{{EXPLORE_MODEL}}") {
+		t.Error("Expected {{EXPLORE_MODEL}} to be substituted (empty) for non-Claude")
+	}
+}
+
+func TestGetEditPromptExploreModel(t *testing.T) {
+	prdDir := "/path/to/.chief/prds/main"
+
+	native := GetEditPrompt(prdDir, true)
+	if !strings.Contains(native, "Explore the codebase on Opus") {
+		t.Error("Expected Claude edit prompt to pin codebase exploration to Opus")
+	}
+	if strings.Contains(native, "{{EXPLORE_MODEL}}") {
+		t.Error("Expected {{EXPLORE_MODEL}} to be substituted in edit prompt")
+	}
+
+	nonNative := GetEditPrompt(prdDir, false)
+	if strings.Contains(nonNative, "{{EXPLORE_MODEL}}") {
+		t.Error("Expected {{EXPLORE_MODEL}} to be substituted (empty) in edit prompt")
+	}
+}
+
 func TestGetEditPrompt(t *testing.T) {
 	prompt := GetEditPrompt("/test/path/prds/main", false)
 	if prompt == "" {
