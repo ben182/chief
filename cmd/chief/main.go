@@ -291,6 +291,9 @@ func runNew() {
 	}
 
 	opts.Provider = resolveProvider(flagAgent, flagPath, flagModel)
+	if !selectModelForProvider(opts.Provider, "Create PRD", flagModel) {
+		return // user cancelled the model select
+	}
 	if err := cmd.RunNew(opts); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -309,6 +312,9 @@ func runEdit() {
 	}
 
 	opts.Provider = resolveProvider(flagAgent, flagPath, flagModel)
+	if !selectModelForProvider(opts.Provider, "Edit PRD", flagModel) {
+		return // user cancelled the model select
+	}
 	if err := cmd.RunEdit(opts); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -360,6 +366,28 @@ func resolveProvider(flagAgent, flagPath, flagModel string) loop.Provider {
 		os.Exit(1)
 	}
 	return provider
+}
+
+// selectModelForProvider shows an interactive Claude model picker before an
+// interactive PRD flow and applies the choice to the provider. It only runs for
+// the Claude provider and is skipped when the user already pinned a model via
+// the --model flag. Returns false if the user cancelled the picker (the caller
+// should abort), true otherwise.
+func selectModelForProvider(provider loop.Provider, title, flagModel string) bool {
+	claude, ok := provider.(*agent.ClaudeProvider)
+	if !ok || flagModel != "" {
+		return true
+	}
+	model, cancelled, err := tui.RunModelSelect(title, claude.Model())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	if cancelled {
+		return false
+	}
+	claude.SetModel(model)
+	return true
 }
 
 func runTUIWithOptions(opts *TUIOptions) {
@@ -524,8 +552,8 @@ Usage:
 
 Commands:
   start [name]              Launch the TUI and begin the loop immediately
-  new [name] [context]      Create a new PRD interactively
-  edit [name] [options]     Edit an existing PRD interactively
+  new [name] [context]      Create a new PRD interactively (prompts for the Claude model unless --model is set)
+  edit [name] [options]     Edit an existing PRD interactively (prompts for the Claude model unless --model is set)
   status [name]             Show progress for a PRD (default: default)
   list                      List all PRDs with progress
   help                      Show this help message

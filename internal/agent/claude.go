@@ -31,6 +31,15 @@ func NewClaudeProvider(cliPath string, model ...string) *ClaudeProvider {
 // Name implements loop.Provider.
 func (p *ClaudeProvider) Name() string { return "Claude" }
 
+// Model returns the model the provider passes to the CLI via --model, or "" when
+// none is configured (the CLI then uses its own default).
+func (p *ClaudeProvider) Model() string { return p.model }
+
+// SetModel overrides the model passed to the CLI via --model. An empty string
+// clears it so the CLI falls back to its own default. Used by the PRD new/edit
+// flows to apply an interactively chosen model.
+func (p *ClaudeProvider) SetModel(model string) { p.model = model }
+
 // SupportsInteractiveQuestions implements loop.Provider. Claude Code renders a
 // native multiple-choice question UI, so the PRD prompts use it instead of
 // lettered text options.
@@ -57,7 +66,11 @@ func (p *ClaudeProvider) LoopCommand(ctx context.Context, prompt, workDir string
 
 // InteractiveCommand implements loop.Provider.
 func (p *ClaudeProvider) InteractiveCommand(workDir, prompt string) *exec.Cmd {
-	cmd := exec.Command(p.cliPath, prompt)
+	args := []string{prompt}
+	if p.model != "" {
+		args = append(args, "--model", p.model)
+	}
+	cmd := exec.Command(p.cliPath, args...)
 	cmd.Dir = workDir
 	return cmd
 }

@@ -119,11 +119,22 @@ chief new [name] [context]
 
 **How it works:**
 
-1. Chief launches the agent CLI with a specialized PRD-creation prompt
-2. You describe your project, goals, and user stories conversationally
-3. The agent helps structure your requirements and writes `prd.md`
-4. When done, type `/exit` to leave the agent session
-5. Chief validates the `prd.md` can be parsed
+1. When the agent is Claude, Chief first shows a model picker (see below) — pick which Claude model drives the session
+2. Chief launches the agent CLI with a specialized PRD-creation prompt
+3. You describe your project, goals, and user stories conversationally
+4. The agent helps structure your requirements and writes `prd.md`
+5. When done, type `/exit` to leave the agent session
+6. Chief validates the `prd.md` can be parsed
+
+**Model picker (Claude only):**
+
+Before the session starts, Chief opens an interactive picker so you can choose the model for this PRD session:
+
+- **Default** — no `--model` is passed; the Claude CLI uses its own configured model
+- **Opus**, **Sonnet**, **Haiku**, **Fable** — passed to the CLI as `--model <alias>`
+- **Custom…** — type any model ID (e.g. `claude-opus-4-8`)
+
+The chosen model is passed to the Claude CLI via `--model`. The picker is skipped when you pin a model explicitly with the `--model` flag, and it does not appear for non-Claude agents. Pressing `Esc` cancels without creating the PRD.
 
 **What it creates:**
 
@@ -165,6 +176,8 @@ chief edit
 ```
 
 Launches the agent with your PRD loaded, allowing you to refine requirements, add stories, or update `prd.md` conversationally. When you `/exit`, Chief validates the updated `prd.md` can be parsed.
+
+Like `chief new`, this shows the [Claude model picker](#chief-new) before the session starts (Claude only; skipped when `--model` is set).
 
 **Arguments:**
 
