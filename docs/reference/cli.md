@@ -121,10 +121,11 @@ chief new [name] [context]
 
 1. When the agent is Claude, Chief first shows a model picker (see below) — pick which Claude model drives the session
 2. Chief launches the agent CLI with a specialized PRD-creation prompt
-3. You describe your project, goals, and user stories conversationally
-4. The agent helps structure your requirements and writes `prd.md`
-5. When done, type `/exit` to leave the agent session
-6. Chief validates the `prd.md` can be parsed
+3. The agent first asks, in plain prose, **what you want to build and why** — before touching your codebase (it does not guess the feature from the PRD name). If you passed `context`, it plays that back to confirm instead of asking
+4. Only once the goal is clear does it explore the repository, then grill you one decision at a time to resolve every open question
+5. After you confirm the shared understanding, the agent writes `prd.md` in one pass
+6. When done, type `/exit` to leave the agent session
+7. Chief validates the `prd.md` can be parsed
 
 **Model picker (Claude only):**
 
