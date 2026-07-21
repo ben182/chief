@@ -1,12 +1,12 @@
 #!/bin/sh
 # Chief Install Script
-# https://github.com/minicodemonkey/chief
+# https://github.com/ben182/chief
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/MiniCodeMonkey/chief/refs/heads/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/ben182/chief/refs/heads/main/install.sh | sh
 #
 # Or with a specific version:
-#   curl -fsSL https://raw.githubusercontent.com/MiniCodeMonkey/chief/refs/heads/main/install.sh | sh -s -- --version v0.1.0
+#   curl -fsSL https://raw.githubusercontent.com/ben182/chief/refs/heads/main/install.sh | sh -s -- --version v0.1.0
 #
 # This script:
 #   - Detects OS (darwin/linux) and architecture (amd64/arm64)
@@ -33,7 +33,7 @@ else
 fi
 
 # Configuration
-GITHUB_REPO="minicodemonkey/chief"
+GITHUB_REPO="ben182/chief"
 BINARY_NAME="chief"
 VERSION=""
 
@@ -215,8 +215,8 @@ parse_args() {
 Chief Install Script
 
 Usage:
-    curl -fsSL https://raw.githubusercontent.com/MiniCodeMonkey/chief/refs/heads/main/install.sh | sh
-    curl -fsSL https://raw.githubusercontent.com/MiniCodeMonkey/chief/refs/heads/main/install.sh | sh -s -- --version v0.1.0
+    curl -fsSL https://raw.githubusercontent.com/ben182/chief/refs/heads/main/install.sh | sh
+    curl -fsSL https://raw.githubusercontent.com/ben182/chief/refs/heads/main/install.sh | sh -s -- --version v0.1.0
 
 Options:
     --version, -v VERSION    Install a specific version (e.g., v0.1.0)
