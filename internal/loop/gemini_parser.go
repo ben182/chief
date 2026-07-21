@@ -10,13 +10,6 @@ type geminiStreamEvent struct {
 	Type string `json:"type"`
 }
 
-// geminiInitEvent represents the "init" event emitted at session start.
-type geminiInitEvent struct {
-	Type      string `json:"type"`
-	SessionID string `json:"session_id"`
-	Model     string `json:"model"`
-}
-
 // geminiMessageEvent represents a "message" event (user or assistant delta).
 type geminiMessageEvent struct {
 	Type    string `json:"type"`
@@ -39,13 +32,6 @@ type geminiToolResultEvent struct {
 	ToolID string `json:"tool_id"`
 	Status string `json:"status"`
 	Output string `json:"output,omitempty"`
-}
-
-// geminiErrorEvent represents an "error" event.
-type geminiErrorEvent struct {
-	Type     string `json:"type"`
-	Severity string `json:"severity"`
-	Message  string `json:"message"`
 }
 
 // ParseLineGemini parses a single line of Gemini's stream-json output and

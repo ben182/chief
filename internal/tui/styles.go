@@ -32,16 +32,6 @@ var (
 	BgHighlightColor = lipgloss.AdaptiveColor{Dark: "#45475A", Light: "#D0D7DE"} // Highlight background
 )
 
-// Aliases for backward compatibility with existing code
-var (
-	primaryColor = PrimaryColor
-	successColor = SuccessColor
-	warningColor = WarningColor
-	errorColor   = ErrorColor
-	mutedColor   = MutedColor
-	borderColor  = BorderColor
-)
-
 // Header styles
 var (
 	// Main header style with branding
@@ -211,14 +201,6 @@ const (
 	IconFailed      = "✗"
 	IconPaused      = "◐"
 	IconNeedsReview = "⚑"
-)
-
-// Backward compatibility aliases
-const (
-	iconPassed     = IconPassed
-	iconInProgress = IconInProgress
-	iconPending    = IconPending
-	iconFailed     = IconFailed
 )
 
 // GetStatusIcon returns the appropriate icon for a story's status.

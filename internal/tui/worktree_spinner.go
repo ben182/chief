@@ -147,17 +147,6 @@ func (w *WorktreeSpinner) Tick() {
 	w.spinnerFrame++
 }
 
-// completedStepLabels returns the labels for completed steps (for display after done).
-func (w *WorktreeSpinner) completedStepLabels() []string {
-	var labels []string
-	labels = append(labels, fmt.Sprintf("Created branch '%s' from '%s'", w.branchName, w.defaultBranch))
-	labels = append(labels, fmt.Sprintf("Created worktree at %s", w.worktreePath))
-	if w.setupCommand != "" {
-		labels = append(labels, fmt.Sprintf("Ran setup: %s", w.setupCommand))
-	}
-	return labels
-}
-
 // Render renders the spinner overlay.
 func (w *WorktreeSpinner) Render() string {
 	modalWidth := min(65, w.width-10)

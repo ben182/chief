@@ -213,12 +213,6 @@ func (b *BranchWarning) DeleteInputChar() {
 	}
 }
 
-// selectedOptionHasBranch returns true if the currently selected option involves branch creation.
-func (b *BranchWarning) selectedOptionHasBranch() bool {
-	opt := b.GetSelectedOption()
-	return opt == BranchOptionCreateWorktree || opt == BranchOptionCreateBranch
-}
-
 // Render renders the branch warning dialog.
 func (b *BranchWarning) Render() string {
 	// Modal dimensions

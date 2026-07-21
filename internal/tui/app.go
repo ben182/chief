@@ -937,11 +937,6 @@ func (a App) pauseLoopForPRD(prdName string) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-// stopLoop stops the loop for the current PRD immediately.
-func (a *App) stopLoop() {
-	a.stopLoopForPRD(a.prdName)
-}
-
 // stopLoopForPRD stops the loop for a specific PRD immediately.
 func (a *App) stopLoopForPRD(prdName string) {
 	if a.manager != nil {
@@ -2607,15 +2602,6 @@ func (a *App) adjustStoriesScroll() {
 	}
 }
 
-// markStoryInProgress clears any existing in-progress flags and marks the
-// given story as in-progress, then reloads the PRD from disk.
-func (a *App) markStoryInProgress(storyID string) {
-	_ = prd.SetStoryStatus(a.prdPath, storyID, "in-progress")
-	if p, err := prd.LoadPRD(a.prdPath); err == nil {
-		a.prd = p
-	}
-}
-
 // clearInProgress clears all in-progress flags by setting each in-progress
 // story's status to "todo" in the markdown file, then reloads.
 func (a *App) clearInProgress() {
@@ -2629,17 +2615,6 @@ func (a *App) clearInProgress() {
 	if dirty {
 		if p, err := prd.LoadPRD(a.prdPath); err == nil {
 			a.prd = p
-		}
-	}
-}
-
-// selectStoryByID sets the selected index to the story with the given ID.
-func (a *App) selectStoryByID(storyID string) {
-	for i, story := range a.prd.UserStories {
-		if story.ID == storyID {
-			a.selectedIndex = i
-			a.adjustStoriesScroll()
-			return
 		}
 	}
 }
