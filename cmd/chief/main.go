@@ -25,8 +25,6 @@ type TUIOptions struct {
 	PRDPath       string
 	MaxIterations int
 	Verbose       bool
-	Merge         bool
-	Force         bool
 	NoRetry       bool
 	Agent         string // --agent claude|codex|opencode|cursor
 	AgentPath     string // --agent-path
@@ -180,8 +178,6 @@ func parseTUIFlags() *TUIOptions {
 		PRDPath:       "", // Will be resolved later
 		MaxIterations: 0,  // 0 signals dynamic calculation (remaining stories + 5)
 		Verbose:       false,
-		Merge:         false,
-		Force:         false,
 		NoRetry:       false,
 	}
 
@@ -200,10 +196,6 @@ func parseTUIFlags() *TUIOptions {
 			return nil
 		case arg == "--verbose":
 			opts.Verbose = true
-		case arg == "--merge":
-			opts.Merge = true
-		case arg == "--force":
-			opts.Force = true
 		case arg == "--no-retry":
 			opts.NoRetry = true
 		case arg == "--agent" || arg == "--agent-path" || arg == "--model":
@@ -565,14 +557,8 @@ Global Options:
   --max-iterations N, -n N  Set maximum iterations (default: dynamic)
   --no-retry                Disable auto-retry on agent crashes
   --verbose                 Show raw agent output in log
-  --merge                   Auto-merge progress on conversion conflicts
-  --force                   Auto-overwrite on conversion conflicts
   --help, -h                Show this help message
   --version, -v             Show version number
-
-Edit Options:
-  --merge                   Auto-merge progress on conversion conflicts
-  --force                   Auto-overwrite on conversion conflicts
 
 Positional Arguments:
   <name>                    PRD name (loads .chief/prds/<name>/prd.md)
@@ -598,7 +584,6 @@ Examples:
                             Create PRD with context hint
   chief edit                Edit PRD in .chief/prds/default/
   chief edit auth           Edit PRD in .chief/prds/auth/
-  chief edit auth --merge   Edit and auto-merge progress
   chief status              Show progress for default PRD
   chief status auth         Show progress for auth PRD
   chief list                List all PRDs with progress
