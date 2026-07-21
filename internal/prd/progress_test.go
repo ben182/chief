@@ -263,3 +263,72 @@ func TestProgressPath(t *testing.T) {
 		t.Errorf("ProgressPath() = %q, want %q", got, want)
 	}
 }
+
+func TestTiming_AppendParseRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "progress.md")
+
+	// A story record written by the agent, without a trailing newline, so we also
+	// verify AppendTiming does not glue its comment onto the last line.
+	if err := os.WriteFile(path, []byte("## 2026-02-20 - US-001\n- Did the thing"), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	want := Timing{StoryID: "US-001", DurationMS: 84213, Cost: 0.1234, TokensIn: 1500, TokensOut: 3000, TokensCacheCreate: 10, TokensCacheRead: 20}
+	if err := AppendTiming(path, want); err != nil {
+		t.Fatalf("AppendTiming failed: %v", err)
+	}
+
+	got, err := ParseTimings(path)
+	if err != nil {
+		t.Fatalf("ParseTimings failed: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 timing, got %d", len(got))
+	}
+	if got[0] != want {
+		t.Errorf("round-trip mismatch:\n got %+v\nwant %+v", got[0], want)
+	}
+
+	// The timing comment must stay out of the human-readable progress content.
+	entries, err := ParseProgress(path)
+	if err != nil {
+		t.Fatalf("ParseProgress failed: %v", err)
+	}
+	if len(entries["US-001"]) != 1 {
+		t.Fatalf("expected 1 entry for US-001, got %d", len(entries["US-001"]))
+	}
+	if strings.Contains(entries["US-001"][0].Content, "chief-timing") {
+		t.Errorf("timing comment leaked into progress content: %q", entries["US-001"][0].Content)
+	}
+}
+
+func TestParseTimings_LatestWinsPerStory(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "progress.md")
+
+	// Two records for the same story (e.g. a re-run after needs-review); the most
+	// recent one must win while keeping its single slot.
+	for _, ms := range []int64{100, 250} {
+		if err := AppendTiming(path, Timing{StoryID: "US-001", DurationMS: ms}); err != nil {
+			t.Fatalf("AppendTiming failed: %v", err)
+		}
+	}
+	if err := AppendTiming(path, Timing{StoryID: "US-002", DurationMS: 500}); err != nil {
+		t.Fatalf("AppendTiming failed: %v", err)
+	}
+
+	got, err := ParseTimings(path)
+	if err != nil {
+		t.Fatalf("ParseTimings failed: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 timings, got %d", len(got))
+	}
+	if got[0].StoryID != "US-001" || got[0].DurationMS != 250 {
+		t.Errorf("expected US-001 with latest duration 250, got %+v", got[0])
+	}
+	if got[1].StoryID != "US-002" || got[1].DurationMS != 500 {
+		t.Errorf("expected US-002 with duration 500, got %+v", got[1])
+	}
+}
