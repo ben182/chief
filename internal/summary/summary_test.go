@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/minicodemonkey/chief/internal/loop"
+	"github.com/ben182/chief/internal/loop"
 )
 
 // fakeProvider is a loop.Provider whose loop command writes a fixed file (to

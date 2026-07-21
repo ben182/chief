@@ -13,9 +13,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/minicodemonkey/chief/embed"
-	"github.com/minicodemonkey/chief/internal/git"
-	"github.com/minicodemonkey/chief/internal/loop"
+	"github.com/ben182/chief/embed"
+	"github.com/ben182/chief/internal/git"
+	"github.com/ben182/chief/internal/loop"
 )
 
 // FilePrefix is the prefix of each timestamped run-summary file. Every run

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/minicodemonkey/chief/internal/loop"
+	"github.com/ben182/chief/internal/loop"
 )
 
 func TestGetToolIcon(t *testing.T) {

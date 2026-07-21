@@ -1,4 +1,4 @@
-module github.com/minicodemonkey/chief
+module github.com/ben182/chief
 
 go 1.24.0
 

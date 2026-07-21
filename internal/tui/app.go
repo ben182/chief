@@ -11,12 +11,12 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/minicodemonkey/chief/internal/config"
-	"github.com/minicodemonkey/chief/internal/git"
-	"github.com/minicodemonkey/chief/internal/loop"
-	"github.com/minicodemonkey/chief/internal/notify"
-	"github.com/minicodemonkey/chief/internal/prd"
-	"github.com/minicodemonkey/chief/internal/summary"
+	"github.com/ben182/chief/internal/config"
+	"github.com/ben182/chief/internal/git"
+	"github.com/ben182/chief/internal/loop"
+	"github.com/ben182/chief/internal/notify"
+	"github.com/ben182/chief/internal/prd"
+	"github.com/ben182/chief/internal/summary"
 )
 
 // PRDUpdateMsg is sent when the PRD file changes.

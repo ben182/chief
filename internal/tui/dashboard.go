@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/minicodemonkey/chief/internal/prd"
+	"github.com/ben182/chief/internal/prd"
 	"github.com/muesli/reflow/truncate"
 )
 

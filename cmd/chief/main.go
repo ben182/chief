@@ -8,13 +8,13 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/minicodemonkey/chief/internal/agent"
-	"github.com/minicodemonkey/chief/internal/cmd"
-	"github.com/minicodemonkey/chief/internal/config"
-	"github.com/minicodemonkey/chief/internal/git"
-	"github.com/minicodemonkey/chief/internal/loop"
-	"github.com/minicodemonkey/chief/internal/prd"
-	"github.com/minicodemonkey/chief/internal/tui"
+	"github.com/ben182/chief/internal/agent"
+	"github.com/ben182/chief/internal/cmd"
+	"github.com/ben182/chief/internal/config"
+	"github.com/ben182/chief/internal/git"
+	"github.com/ben182/chief/internal/loop"
+	"github.com/ben182/chief/internal/prd"
+	"github.com/ben182/chief/internal/tui"
 )
 
 // Version is set at build time via ldflags

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/minicodemonkey/chief/internal/loop"
+	"github.com/ben182/chief/internal/loop"
 )
 
 func TestOpenCodeProvider_Name(t *testing.T) {

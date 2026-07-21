@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/minicodemonkey/chief/internal/config"
+	"github.com/ben182/chief/internal/config"
 )
 
 // createTestPRDWithName creates a minimal test PRD file with a given name and returns its path.

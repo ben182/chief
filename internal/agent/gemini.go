@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/minicodemonkey/chief/internal/loop"
+	"github.com/ben182/chief/internal/loop"
 )
 
 // GeminiProvider implements loop.Provider for the Gemini CLI.

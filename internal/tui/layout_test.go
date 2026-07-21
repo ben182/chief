@@ -5,8 +5,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/minicodemonkey/chief/internal/agent"
-	"github.com/minicodemonkey/chief/internal/loop"
+	"github.com/ben182/chief/internal/agent"
+	"github.com/ben182/chief/internal/loop"
 )
 
 func TestIsNarrowMode(t *testing.T) {

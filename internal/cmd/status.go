@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/minicodemonkey/chief/internal/prd"
+	"github.com/ben182/chief/internal/prd"
 )
 
 // StatusOptions contains configuration for the status command.

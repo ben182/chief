@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/minicodemonkey/chief/internal/git"
+	"github.com/ben182/chief/internal/git"
 )
 
 // ghCheckResultMsg is sent when the gh CLI check completes.

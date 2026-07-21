@@ -4,7 +4,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/minicodemonkey/chief/internal/prd"
+	"github.com/ben182/chief/internal/prd"
 )
 
 func TestCheckGHCLI(t *testing.T) {

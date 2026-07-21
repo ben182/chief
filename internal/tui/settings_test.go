@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/minicodemonkey/chief/internal/config"
+	"github.com/ben182/chief/internal/config"
 )
 
 func TestSettingsOverlay_LoadFromConfig(t *testing.T) {

@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/minicodemonkey/chief/internal/config"
-	"github.com/minicodemonkey/chief/internal/prd"
+	"github.com/ben182/chief/internal/config"
+	"github.com/ben182/chief/internal/prd"
 )
 
 // LoopState represents the state of a loop instance.

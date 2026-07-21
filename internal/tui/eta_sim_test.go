@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/minicodemonkey/chief/internal/loop"
+	"github.com/ben182/chief/internal/loop"
 )
 
 // TestETA_SimContinuousRun simulates the real event stream for a continuous run

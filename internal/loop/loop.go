@@ -17,9 +17,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/minicodemonkey/chief/embed"
-	"github.com/minicodemonkey/chief/internal/git"
-	"github.com/minicodemonkey/chief/internal/prd"
+	"github.com/ben182/chief/embed"
+	"github.com/ben182/chief/internal/git"
+	"github.com/ben182/chief/internal/prd"
 )
 
 // RetryConfig configures automatic retry behavior on Claude crashes.

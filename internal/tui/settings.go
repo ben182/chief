@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/minicodemonkey/chief/internal/config"
+	"github.com/ben182/chief/internal/config"
 )
 
 // SettingsItemType represents the type of a settings item.

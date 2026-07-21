@@ -8,10 +8,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/minicodemonkey/chief/embed"
-	"github.com/minicodemonkey/chief/internal/git"
-	"github.com/minicodemonkey/chief/internal/loop"
-	"github.com/minicodemonkey/chief/internal/prd"
+	"github.com/ben182/chief/embed"
+	"github.com/ben182/chief/internal/git"
+	"github.com/ben182/chief/internal/loop"
+	"github.com/ben182/chief/internal/prd"
 )
 
 // NewOptions contains configuration for the new command.

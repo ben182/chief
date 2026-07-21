@@ -6,8 +6,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/minicodemonkey/chief/internal/config"
-	"github.com/minicodemonkey/chief/internal/loop"
+	"github.com/ben182/chief/internal/config"
+	"github.com/ben182/chief/internal/loop"
 )
 
 // Resolve returns the agent Provider using priority: flagAgent > CHIEF_AGENT env > config > "claude".

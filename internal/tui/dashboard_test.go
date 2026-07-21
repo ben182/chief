@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/minicodemonkey/chief/internal/prd"
+	"github.com/ben182/chief/internal/prd"
 )
 
 // newTestApp creates a minimal App for testing scroll and rendering.

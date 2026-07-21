@@ -4,7 +4,7 @@ import (
 	"context"
 	"os/exec"
 
-	"github.com/minicodemonkey/chief/internal/loop"
+	"github.com/ben182/chief/internal/loop"
 )
 
 // ClaudeProvider implements loop.Provider for the Claude Code CLI.
