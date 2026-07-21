@@ -32,7 +32,7 @@ type Timing struct {
 	TokensCacheRead   int
 }
 
-// ProgressPath returns the progress.md path for a given prd.json path.
+// ProgressPath returns the progress.md path for a given prd.md path.
 func ProgressPath(prdPath string) string {
 	return filepath.Join(filepath.Dir(prdPath), "progress.md")
 }
@@ -226,7 +226,7 @@ type ProgressWatcher struct {
 }
 
 // NewProgressWatcher creates a new watcher for progress.md in the same
-// directory as the given prd.json path.
+// directory as the given prd.md path.
 func NewProgressWatcher(prdPath string) (*ProgressWatcher, error) {
 	dir := filepath.Dir(prdPath)
 	fsWatcher, err := fsnotify.NewWatcher()

@@ -15,7 +15,7 @@ import (
 // PRDEntry represents a PRD in the picker list.
 type PRDEntry struct {
 	Name        string         // Directory name (e.g., "main", "feature-x")
-	Path        string         // Full path to prd.json
+	Path        string         // Full path to prd.md
 	PRD         *prd.PRD       // Loaded PRD data
 	LoadError   error          // Error if PRD couldn't be loaded
 	Completed   int            // Number of completed stories
@@ -186,7 +186,7 @@ func (p *PRDPicker) Refresh() {
 				}
 			}
 			// If no matching PRD entry exists, the worktree is truly orphaned
-			// (no prd.json at all). Still show it so the user knows it exists.
+			// (no prd.md at all). Still show it so the user knows it exists.
 			if !found {
 				p.entries = append(p.entries, PRDEntry{
 					Name:        prdName,

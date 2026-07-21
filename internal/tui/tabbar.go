@@ -14,7 +14,7 @@ import (
 // TabEntry represents a PRD tab in the tab bar.
 type TabEntry struct {
 	Name      string         // Directory name (e.g., "main", "feature-x")
-	Path      string         // Full path to prd.json
+	Path      string         // Full path to prd.md
 	Branch    string         // Git branch name (e.g., "chief/auth"), empty if none
 	LoopState loop.LoopState // Current loop state from manager
 	Completed int            // Number of completed stories

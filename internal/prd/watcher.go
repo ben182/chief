@@ -13,7 +13,7 @@ type WatcherEvent struct {
 	Error error
 }
 
-// Watcher watches a prd.json file for changes and sends events.
+// Watcher watches a prd.md file for changes and sends events.
 type Watcher struct {
 	path    string
 	watcher *fsnotify.Watcher

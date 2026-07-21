@@ -866,8 +866,12 @@ func (a *App) isAnotherPRDRunningInSameDir(prdName string) bool {
 func (a App) doStartLoop(prdName, prdDir string) (tea.Model, tea.Cmd) {
 	// Check if this PRD is registered, if not register it
 	if instance := a.manager.GetInstance(prdName); instance == nil {
-		// Find the PRD path
-		prdPath := filepath.Join(prdDir, "prd.md")
+		// Find the PRD path, preferring the already-known one (handles the legacy
+		// .chief/prd.md and direct-path layouts) before falling back to convention.
+		prdPath := a.prdPathForPRD(prdName)
+		if prdPath == "" {
+			prdPath = filepath.Join(prdDir, "prd.md")
+		}
 		a.manager.Register(prdName, prdPath)
 	}
 
@@ -1582,7 +1586,7 @@ func (a *App) runBackgroundAutoActions(prdName string) tea.Cmd {
 
 	provider := a.provider
 	prdPath := instance.PRDPath
-	prdDir := filepath.Join(dir, ".chief", "prds", prdName)
+	prdDir := a.summaryDir(prdName, dir)
 
 	return func() tea.Msg {
 		if summaryEnabled {
@@ -1687,6 +1691,23 @@ func (a *App) completionGitDir(prdName string) string {
 	return a.baseDir
 }
 
+// summaryDir returns the directory the run summary for prdName should be written
+// to, inside gitDir. It derives the PRD's own directory from its registered path
+// (so the legacy .chief/prd.md and direct-path layouts land beside the PRD rather
+// than in a phantom .chief/prds/<name>) and maps that location into gitDir, which
+// is the worktree for worktree runs and the project root otherwise.
+func (a *App) summaryDir(prdName, gitDir string) string {
+	prdPath := a.prdPathForPRD(prdName)
+	if prdPath == "" {
+		return filepath.Join(gitDir, ".chief", "prds", prdName)
+	}
+	rel, err := filepath.Rel(a.baseDir, filepath.Dir(prdPath))
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return filepath.Join(gitDir, ".chief", "prds", prdName)
+	}
+	return filepath.Join(gitDir, rel)
+}
+
 // parkedStoryLabels returns "ID - Title" for every story parked for human
 // review, so the summary can call them out under its open-points section.
 func parkedStoryLabels(p *prd.PRD) []string {
@@ -1708,7 +1729,7 @@ func parkedStoryLabels(p *prd.PRD) []string {
 func (a *App) runAutoSummary(prdName, branch string, showOnScreen, pushAfter bool) tea.Cmd {
 	provider := a.provider
 	gitDir := a.completionGitDir(prdName)
-	prdDir := filepath.Join(gitDir, ".chief", "prds", prdName)
+	prdDir := a.summaryDir(prdName, gitDir)
 	parked := parkedStoryLabels(a.prd)
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -2060,8 +2081,12 @@ func (a App) finishWorktreeSetup() (tea.Model, tea.Cmd) {
 	branchName := a.worktreeSpinner.branchName
 	prdDir := filepath.Join(a.baseDir, ".chief", "prds", prdName)
 
-	// Register or update with worktree info
-	prdPath := filepath.Join(prdDir, "prd.md")
+	// Register or update with worktree info. Prefer the already-known PRD path
+	// (handles the legacy .chief/prd.md and direct-path layouts) over convention.
+	prdPath := a.prdPathForPRD(prdName)
+	if prdPath == "" {
+		prdPath = filepath.Join(prdDir, "prd.md")
+	}
 	if instance := a.manager.GetInstance(prdName); instance == nil {
 		a.manager.RegisterWithWorktree(prdName, prdPath, worktreePath, branchName)
 	} else {
