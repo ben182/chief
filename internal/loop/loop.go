@@ -411,6 +411,13 @@ func (l *Loop) runIteration(ctx context.Context) error {
 	setProcessGroup(cmd) // kill the whole subprocess tree, not just the direct child
 	l.mu.Lock()
 	l.agentCmd = cmd
+	// Clear the command on every return path (success or error) so IsRunning()
+	// doesn't keep reporting a finished process as running during retry delays.
+	defer func() {
+		l.mu.Lock()
+		l.agentCmd = nil
+		l.mu.Unlock()
+	}()
 	l.stderrTail = nil // reset crash diagnostics for this iteration
 	// Initialize watchdog state
 	l.lastOutputTime = time.Now()
@@ -433,11 +440,21 @@ func (l *Loop) runIteration(ctx context.Context) error {
 		return fmt.Errorf("failed to start %s: %w", l.provider.Name(), err)
 	}
 
-	// Start watchdog goroutine to detect hung processes
+	// Start watchdog goroutine to detect hung processes. watchdogStopped is
+	// closed when the goroutine has fully returned, so runIteration can join it
+	// below before returning — otherwise the watchdog could still be mid-send on
+	// l.events when Run() closes that channel, panicking with "send on closed
+	// channel".
 	watchdogDone := make(chan struct{})
+	watchdogStopped := make(chan struct{})
 	var watchdogFired atomic.Bool
 	if watchdogTimeout > 0 {
-		go l.runWatchdog(watchdogTimeout, watchdogDone, &watchdogFired)
+		go func() {
+			defer close(watchdogStopped)
+			l.runWatchdog(watchdogTimeout, watchdogDone, &watchdogFired)
+		}()
+	} else {
+		close(watchdogStopped)
 	}
 
 	// Process stdout in a separate goroutine
@@ -458,8 +475,10 @@ func (l *Loop) runIteration(ctx context.Context) error {
 	// Wait for output processing to complete
 	wg.Wait()
 
-	// Stop watchdog
+	// Stop the watchdog and wait for it to fully exit before returning, so it
+	// can never send on l.events after Run() has closed the channel.
 	close(watchdogDone)
+	<-watchdogStopped
 
 	// Wait for the command to finish
 	if err := l.agentCmd.Wait(); err != nil {
@@ -488,10 +507,6 @@ func (l *Loop) runIteration(ctx context.Context) error {
 		}
 		return fmt.Errorf("%s exited with error: %w", l.provider.Name(), err)
 	}
-
-	l.mu.Lock()
-	l.agentCmd = nil
-	l.mu.Unlock()
 
 	return nil
 }

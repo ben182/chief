@@ -386,10 +386,16 @@ func TestLoop_StoryDoneEndsIterationWithoutWatchdog(t *testing.T) {
 	dir := t.TempDir()
 
 	// Mock agent: emit chief-done, then hang far longer than the watchdog timeout.
+	// Use `exec sleep` so bash replaces itself with sleep, keeping a single
+	// process that is its own process-group leader. A plain `sleep 30` would run
+	// as a bash *child*; under the race detector's heavy scheduling the
+	// chief-done process-group kill could race the fork and leave that child
+	// orphaned, holding the stdout pipe open until sleep exited 30s later — a
+	// test artifact, not the behaviour under test.
 	scriptPath := filepath.Join(dir, "mock-claude")
 	script := "#!/bin/bash\n" +
 		`echo '{"type":"assistant","message":{"content":[{"type":"text","text":"done <chief-done/>"}]}}'` + "\n" +
-		"sleep 30\n"
+		"exec sleep 30\n"
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
 		t.Fatalf("Failed to create mock script: %v", err)
 	}
@@ -602,8 +608,12 @@ func TestLoop_WatchdogKillsHungProcess(t *testing.T) {
 
 	// Start watchdog with a short check interval
 	watchdogDone := make(chan struct{})
+	watchdogStopped := make(chan struct{})
 	var fired atomic.Bool
-	go l.runWatchdog(timeout, watchdogDone, &fired)
+	go func() {
+		defer close(watchdogStopped)
+		l.runWatchdog(timeout, watchdogDone, &fired)
+	}()
 
 	// processOutput will block until pipe is closed (by watchdog killing would close it,
 	// but in this test we close it manually after watchdog fires)
@@ -615,6 +625,7 @@ func TestLoop_WatchdogKillsHungProcess(t *testing.T) {
 
 	l.processOutput(r)
 	close(watchdogDone)
+	<-watchdogStopped
 	close(l.events)
 	<-done
 
@@ -663,8 +674,12 @@ func TestLoop_WatchdogDoesNotFireForActiveProcess(t *testing.T) {
 	l.mu.Unlock()
 
 	watchdogDone := make(chan struct{})
+	watchdogStopped := make(chan struct{})
 	var fired atomic.Bool
-	go l.runWatchdog(timeout, watchdogDone, &fired)
+	go func() {
+		defer close(watchdogStopped)
+		l.runWatchdog(timeout, watchdogDone, &fired)
+	}()
 
 	// Send output regularly, then close
 	go func() {
@@ -677,6 +692,7 @@ func TestLoop_WatchdogDoesNotFireForActiveProcess(t *testing.T) {
 
 	l.processOutput(r)
 	close(watchdogDone)
+	<-watchdogStopped
 	close(l.events)
 	<-done
 
