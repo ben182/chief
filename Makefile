@@ -1,5 +1,5 @@
 # Chief - Autonomous PRD Agent
-# https://github.com/minicodemonkey/chief
+# https://github.com/ben182/chief
 
 BINARY_NAME := chief
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")

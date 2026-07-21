@@ -11,7 +11,7 @@ Thanks for your interest in contributing to Chief! Here's how to get started.
 ## Getting Started
 
 ```bash
-git clone https://github.com/minicodemonkey/chief.git
+git clone https://github.com/ben182/chief.git
 cd chief
 make build
 ```
@@ -66,7 +66,7 @@ brew link chief
 
 ## Reporting Bugs
 
-Open an issue on [GitHub Issues](https://github.com/minicodemonkey/chief/issues) with:
+Open an issue on [GitHub Issues](https://github.com/ben182/chief/issues) with:
 
 - Steps to reproduce
 - Expected vs actual behavior

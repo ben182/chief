@@ -13,11 +13,11 @@ export default defineConfig({
     ['meta', { property: 'og:site_name', content: 'Chief' }],
     ['meta', { property: 'og:title', content: 'Chief — Autonomous PRD Agent' }],
     ['meta', { property: 'og:description', content: 'Write a PRD, run Chief, watch your code get built. An autonomous agent that transforms product requirements into working code.' }],
-    ['meta', { property: 'og:image', content: 'https://chiefloop.com/images/og-default.png' }],
+    ['meta', { property: 'og:image', content: 'https://ben182.github.io/chief/images/og-default.png' }],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
     ['meta', { name: 'twitter:title', content: 'Chief — Autonomous PRD Agent' }],
     ['meta', { name: 'twitter:description', content: 'Write a PRD, run Chief, watch your code get built. An autonomous agent that transforms product requirements into working code.' }],
-    ['meta', { name: 'twitter:image', content: 'https://chiefloop.com/images/og-default.png' }],
+    ['meta', { name: 'twitter:image', content: 'https://ben182.github.io/chief/images/og-default.png' }],
   ],
 
   // Force dark mode only

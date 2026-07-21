@@ -83,11 +83,11 @@ brews:
   - name: chief
     # Repository to push the formula to
     repository:
-      owner: minicodemonkey
+      owner: ben182
       name: homebrew-chief
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
-    homepage: "https://chiefloop.com"
+    homepage: "https://ben182.github.io/chief"
     description: "Autonomous agent loop for working through PRDs with Claude Code"
     license: "MIT"
     # Custom install script
