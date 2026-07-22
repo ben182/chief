@@ -66,9 +66,9 @@ Chief works through your stories methodically. Each iteration focuses on a singl
 
 Here's what happens in each step:
 
-1. **Pick Story**: Chief finds the highest-priority incomplete story
+1. **Pick Story**: Chief selects the next story along the dependency frontier — the highest-priority incomplete story whose `Blocked by` dependencies are all done. See [PRD Format](/concepts/prd-format#story-selection-logic) for the full selection algorithm
 2. **Invoke Agent**: Constructs a prompt with the story details and project context, then spawns the agent
-3. **Agent Codes**: The agent reads files, writes code, runs tests, and fixes issues until the story is complete
+3. **Agent Codes**: The agent reads files, writes code, runs tests, and fixes issues until the story is complete. It works test-first in small vertical slices, testing observable behavior at the seams agreed during PRD authoring (see [PRD Format](/concepts/prd-format#what-chief-new-grilling-adds))
 4. **Commit**: The agent commits the changes with a message like `feat: US-001 - Feature Title`
 5. **Review** (optional): If a review is configured, a separate agent with a fresh context reviews the committed changes, fixes anything it finds, and amends the commit — see [The Review Agent](/concepts/code-review)
 6. **Mark Complete**: Chief updates the story status in `prd.md` and records progress

@@ -32,6 +32,7 @@ Below each story heading, Chief recognizes these bold-label fields:
 |-------|--------|----------|---------|-------------|
 | Status | `**Status:** value` | No | `todo` | Current state: `done`, `in-progress`, `todo`, or `needs-review` |
 | Priority | `**Priority:** N` | No | Document order | Execution order (lower = higher priority) |
+| Blocked by | `**Blocked by:** ID, ID` | No | none | Story IDs that must be `done` before this story may start |
 | Description | `**Description:** text` | No | — | Story description (or use freeform prose) |
 
 ## Acceptance Criteria
@@ -132,6 +133,21 @@ Lower numbers = higher priority. Chief always picks the incomplete story with th
 
 **Range:** Any positive number (integers or decimals). A value that isn't a positive number is ignored, and the story falls back to document order.
 
+### blockedBy
+
+A comma-separated list of story IDs that must be `done` before this story may start. Omit the line entirely for stories with no dependencies. Internally the parsed field is `blockedBy`.
+
+**Format:** `**Blocked by:** US-001, US-002` — one or more story IDs separated by commas.
+
+**Effect on selection:** Chief selects the next story from the *frontier* — the stories that are not done, not needs-review, and whose every `Blocked by` ID is already `done`. A blocked story stays off the frontier (and is never picked) until all of its blockers complete, regardless of its priority. `Priority` only orders stories that are already on the frontier. See [Story Selection Logic](/concepts/prd-format#story-selection-logic) for the full algorithm.
+
+**Robustness rules:** parsing is lenient so an authoring mistake can't deadlock the loop.
+
+- An **unknown or misspelled blocker ID** (matching no story in the PRD) is treated as satisfied and ignored.
+- A **self-reference** (a story listing its own ID) is ignored.
+- **Duplicate IDs** are harmless.
+- If a **dependency cycle** (or a chain of stories all blocked by a parked `needs-review` story) leaves the frontier empty while unfinished, non-parked work still remains, Chief falls back to the lowest-priority unfinished, non-parked story so the loop always makes progress.
+
 ### status
 
 Tracked by Chief. Set to `in-progress` when work begins, `done` when the agent outputs `<chief-done/>` and a matching commit lands, and `needs-review` when a story is parked after repeated failed attempts.
@@ -147,5 +163,6 @@ Chief parses `prd.md` leniently rather than validating it against a strict schem
 - **Unknown status values fall back to `todo`** instead of erroring.
 - **Non-positive or non-numeric priorities are ignored**, leaving the story in document order.
 - **Duplicate IDs are not detected.** Chief keeps every parsed story as-is; it does not deduplicate or warn.
+- **`Blocked by` parsing is lenient.** Unknown or misspelled blocker IDs are ignored rather than raising an error, and a story can't block itself — so a typo in a `Blocked by` line can't deadlock the loop.
 
 Because of this, the most common "why isn't my story being picked up?" cause is a heading whose ID doesn't fit the `LETTERS-NUMBERS` pattern. See [Common Issues → Invalid PRD Format](/troubleshooting/common-issues) for how to spot it.

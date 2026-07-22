@@ -48,6 +48,7 @@ Below the freeform context, define your user stories using structured markdown h
 - `### US-001: Story Title` — story heading (ID + title)
 - `**Status:** done|in-progress|todo|needs-review` — tracked by Chief
 - `**Priority:** N` — execution order (optional; defaults to document order)
+- `**Blocked by:** US-001, US-002` — story IDs that must be `done` first (optional; omit for stories with no dependencies)
 - `**Description:** ...` — story description (or freeform prose after heading)
 - `- [ ] criterion` / `- [x] criterion` — acceptance criteria as checkboxes
 
@@ -121,27 +122,41 @@ The better your `prd.md`, the better the agent's output. Spend time on the freef
 
 ## Story Selection Logic
 
-Chief picks the next story to work on using a simple, deterministic algorithm:
+Chief picks the next story to work on by following the **dependency frontier** — a deterministic algorithm that respects `Blocked by` edges:
 
 ```
-1. If a story is **Status:** in-progress, resume it first
-2. Otherwise filter stories that are neither done nor needs-review
-3. Sort remaining stories by **Priority:** (ascending), or document order if unset
-4. Pick the first one and mark it **Status:** in-progress
-5. Start the iteration
+1. If a story is **Status:** in-progress (and not parked), resume it first
+2. Otherwise compute the frontier: every story that is
+   not done, not needs-review, and whose Blocked by IDs are all done
+3. From the frontier, pick the lowest **Priority:** (ties break by document order)
+4. Fallback: if the frontier is empty but unfinished, non-parked work remains
+   (a dependency cycle, or everything left is blocked by a parked story),
+   pick the lowest-priority unfinished, non-parked story anyway
+5. Mark the chosen story **Status:** in-progress and start the iteration
+6. Nothing left → the loop ends
 ```
 
 Stories parked as `needs-review` are skipped by selection just like `done` stories, so one stuck story never blocks the rest. The loop ends once no actionable stories remain (everything is either `done` or `needs-review`).
 
-### How Priority Works
+The fallback in step 4 is what makes the loop deadlock-proof: even if you write a dependency cycle, or every remaining story is blocked by a story that got parked, Chief still makes progress instead of stalling.
 
-Priority is a number where **lower = higher priority**. Chief always picks the lowest-numbered incomplete story:
+### How Priority and Blocking Interact
 
-| Story | Priority | Status | Selected? |
-|-------|----------|--------|-----------|
-| US-001 | 1 | `done` | No — already complete |
-| US-002 | 2 | `todo` | **Yes — lowest priority number that isn't done** |
-| US-003 | 3 | `todo` | No — US-002 goes first |
+`Blocked by` decides *whether* a story is eligible; `Priority` only orders the stories that are already eligible. A story is held back until all of its blockers are `done`, no matter how low its priority number is. Priority is a number where **lower = higher priority**.
+
+Consider three stories where US-003 depends on US-002:
+
+| Story | Priority | Status | Blocked by | On frontier? |
+|-------|----------|--------|------------|--------------|
+| US-001 | 1 | `done` | — | No — already complete |
+| US-002 | 2 | `todo` | — | **Yes — unblocked, lowest priority → selected** |
+| US-003 | 1 | `todo` | US-002 | No — blocked until US-002 is `done` |
+
+Even though US-003 has the lowest priority number (1), it is skipped because its blocker US-002 isn't `done` yet. Chief works US-002 first; once US-002 flips to `done`, US-003 joins the frontier and is picked on the next iteration.
+
+::: tip
+An unknown or misspelled blocker ID is treated as already satisfied (ignored), and a story can't block itself — so a typo in a `Blocked by` line can never deadlock the loop. See [`blockedBy`](/reference/prd-schema#blockedby) in the reference for the full robustness rules.
+:::
 
 ### What `in-progress` Does
 
@@ -261,7 +276,7 @@ A story should represent one logical piece of work. If a story has more than 5�
 
 ### Order Stories by Dependency
 
-Use priority to ensure foundational stories are completed before dependent ones. The agent works through stories sequentially, so earlier stories can set up what later stories need.
+Express real cross-story ordering with `**Blocked by:**`, not priority. A blocker keeps a story off the frontier until every ID it lists is `done`, so it's the right tool when one story genuinely needs another finished first. Reserve `Priority` for tie-breaking among stories that are all unblocked — deciding what to do first when nothing forces the order. Keep the dependency graph acyclic (no story transitively blocked by itself).
 
 ```markdown
 ### US-001: Database Schema
@@ -269,13 +284,18 @@ Use priority to ensure foundational stories are completed before dependent ones.
 
 ### US-002: API Endpoints
 **Priority:** 2
+**Blocked by:** US-001
 
 ### US-003: Frontend Forms
 **Priority:** 3
+**Blocked by:** US-002
 
 ### US-004: Integration Tests
 **Priority:** 4
+**Blocked by:** US-002, US-003
 ```
+
+Frame each story as a **vertical slice** (a "tracer bullet"): a narrow but *complete* path through the stack that is demoable or verifiable on its own, rather than a horizontal slice of a single layer. "Wire the login form end-to-end for one provider" is a vertical slice; "build all the database tables" is a horizontal one. Vertical slices keep the `Blocked by` graph shallow and give each iteration something you can actually try.
 
 ### Use Consistent ID Patterns
 
@@ -297,6 +317,14 @@ The freeform context section at the top of `prd.md` is where you set the agent u
 ### Use `chief new` to Get Started
 
 Running `chief new` scaffolds a `prd.md` with a template. You can also run `chief edit` to open an existing PRD for editing. This is the easiest way to create a well-structured PRD.
+
+### What `chief new` Grilling Adds
+
+The interactive `chief new` interview does two extra things worth knowing about.
+
+**Testing Decisions.** When the feature has testable logic, the generated PRD includes a **"Testing Decisions"** section that records the *seams* to test at — the public boundaries where behavior can be observed without reaching inside — along with what makes a good test here (observable behavior through the public interface, not implementation details) and prior art to mirror. During grilling the agent sketches the seams and confirms them with you; which test framework you use and how existing tests look are facts it looks up, not questions it asks. Trivial, no-logic features skip the section entirely.
+
+**Throwaway HTML prototypes (Claude only).** When a UI, layout, or interaction decision would be quicker to settle by *seeing* it than describing it, the agent proactively offers to build a small, self-contained throwaway HTML prototype — it says what the prototype would show and which decision it resolves, then waits for your go-ahead (it never builds one unprompted). On approval it produces a single static `*.html` file, inline CSS/JS with no build step, in the PRD directory under `.chief/` (never committed). You open it, your reaction settles the decision, and the decision itself is captured back in the PRD — that's the durable artifact. The HTML is disposable. This is Claude-only, since it relies on subagents.
 
 ## What's Next
 
