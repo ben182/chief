@@ -4,33 +4,21 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ben182/chief/internal/agent"
+	"github.com/ben182/chief/internal/cli"
 	"github.com/ben182/chief/internal/cmd"
 	"github.com/ben182/chief/internal/config"
 	"github.com/ben182/chief/internal/git"
 	"github.com/ben182/chief/internal/loop"
 	"github.com/ben182/chief/internal/prd"
 	"github.com/ben182/chief/internal/tui"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // Version is set at build time via ldflags
 var Version = "dev"
-
-// TUIOptions holds the parsed command-line options for the TUI
-type TUIOptions struct {
-	PRDPath       string
-	MaxIterations int
-	Verbose       bool
-	NoRetry       bool
-	Agent         string // --agent claude|codex|opencode|cursor
-	AgentPath     string // --agent-path
-	Model         string // --model
-	AutoStart     bool   // chief start: begin the loop automatically
-}
 
 func main() {
 	// Handle subcommands first
@@ -48,10 +36,7 @@ func main() {
 		case "list":
 			runList()
 			return
-		case "help":
-			printHelp()
-			return
-		case "--help", "-h":
+		case "help", "--help", "-h":
 			printHelp()
 			return
 		case "--version", "-v":
@@ -65,7 +50,7 @@ func main() {
 			// automatically. Drop "start" from args so the normal TUI parser
 			// handles the remaining name/flags.
 			os.Args = append(os.Args[:1], os.Args[2:]...)
-			opts := parseTUIFlags()
+			opts := parseTUIOptions()
 			if opts == nil {
 				return
 			}
@@ -76,9 +61,7 @@ func main() {
 	}
 
 	// Parse flags for TUI mode
-	opts := parseTUIFlags()
-
-	// Handle special flags that were parsed
+	opts := parseTUIOptions()
 	if opts == nil {
 		// Already handled (--help or --version)
 		return
@@ -88,178 +71,24 @@ func main() {
 	runTUIWithOptions(opts)
 }
 
-// findAvailablePRD looks for any available PRD in .chief/prds/
-// Returns the path to the first PRD found, or empty string if none exist.
-func findAvailablePRD() string {
-	prdsDir := ".chief/prds"
-	entries, err := os.ReadDir(prdsDir)
+// parseTUIOptions parses os.Args for TUI mode. It turns cli.ParseArgs' errors
+// and the --help/--version flags into program behavior (print + exit/stop),
+// returning nil when the program should stop without running the TUI.
+func parseTUIOptions() *cli.Options {
+	opts, err := cli.ParseArgs(os.Args[1:])
 	if err != nil {
-		return ""
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Run 'chief --help' for usage.\n")
+		os.Exit(1)
 	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			prdPath := filepath.Join(prdsDir, entry.Name(), "prd.md")
-			if _, err := os.Stat(prdPath); err == nil {
-				return prdPath
-			}
-		}
-	}
-	return ""
-}
-
-// listAvailablePRDs returns all PRD names in .chief/prds/
-func listAvailablePRDs() []string {
-	prdsDir := ".chief/prds"
-	entries, err := os.ReadDir(prdsDir)
-	if err != nil {
+	if opts.ShowHelp {
+		printHelp()
 		return nil
 	}
-
-	var names []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			prdPath := filepath.Join(prdsDir, entry.Name(), "prd.md")
-			if _, err := os.Stat(prdPath); err == nil {
-				names = append(names, entry.Name())
-			}
-		}
+	if opts.ShowVersion {
+		fmt.Printf("chief version %s\n", Version)
+		return nil
 	}
-	return names
-}
-
-// parseAgentFlags extracts --agent, --agent-path and --model from args[startIdx:],
-// returning the agent name, agent path, model, remaining args (with those flags
-// removed), and the updated index offsets. It exits on missing values.
-func parseAgentFlags(args []string, startIdx int) (agentName, agentPath, model string, remaining []string) {
-	for i := startIdx; i < len(args); i++ {
-		arg := args[i]
-		switch {
-		case arg == "--model":
-			if i+1 < len(args) {
-				i++
-				model = args[i]
-			} else {
-				fmt.Fprintf(os.Stderr, "Error: --model requires a value\n")
-				os.Exit(1)
-			}
-		case strings.HasPrefix(arg, "--model="):
-			model = strings.TrimPrefix(arg, "--model=")
-		case arg == "--agent":
-			if i+1 < len(args) {
-				i++
-				agentName = args[i]
-			} else {
-				fmt.Fprintf(os.Stderr, "Error: --agent requires a value (claude, codex, opencode, cursor or gemini)\n")
-				os.Exit(1)
-			}
-		case strings.HasPrefix(arg, "--agent="):
-			agentName = strings.TrimPrefix(arg, "--agent=")
-		case arg == "--agent-path":
-			if i+1 < len(args) {
-				i++
-				agentPath = args[i]
-			} else {
-				fmt.Fprintf(os.Stderr, "Error: --agent-path requires a value\n")
-				os.Exit(1)
-			}
-		case strings.HasPrefix(arg, "--agent-path="):
-			agentPath = strings.TrimPrefix(arg, "--agent-path=")
-		default:
-			remaining = append(remaining, arg)
-		}
-	}
-	return
-}
-
-// parseTUIFlags parses command-line flags for TUI mode
-func parseTUIFlags() *TUIOptions {
-	opts := &TUIOptions{
-		PRDPath:       "", // Will be resolved later
-		MaxIterations: 0,  // 0 signals dynamic calculation (remaining stories + 5)
-		Verbose:       false,
-		NoRetry:       false,
-	}
-
-	// Pre-extract agent flags so they don't interfere with positional arg parsing
-	opts.Agent, opts.AgentPath, opts.Model, _ = parseAgentFlags(os.Args, 1)
-
-	for i := 1; i < len(os.Args); i++ {
-		arg := os.Args[i]
-
-		switch {
-		case arg == "--help" || arg == "-h":
-			printHelp()
-			return nil
-		case arg == "--version" || arg == "-v":
-			fmt.Printf("chief version %s\n", Version)
-			return nil
-		case arg == "--verbose":
-			opts.Verbose = true
-		case arg == "--no-retry":
-			opts.NoRetry = true
-		case arg == "--agent" || arg == "--agent-path" || arg == "--model":
-			i++ // skip value (already parsed by parseAgentFlags)
-		case strings.HasPrefix(arg, "--agent=") || strings.HasPrefix(arg, "--agent-path=") || strings.HasPrefix(arg, "--model="):
-			// already parsed by parseAgentFlags
-		case arg == "--max-iterations" || arg == "-n":
-			// Next argument should be the number
-			if i+1 < len(os.Args) {
-				i++
-				n, err := strconv.Atoi(os.Args[i])
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error: invalid value for %s: %s\n", arg, os.Args[i])
-					os.Exit(1)
-				}
-				if n < 1 {
-					fmt.Fprintf(os.Stderr, "Error: --max-iterations must be at least 1\n")
-					os.Exit(1)
-				}
-				opts.MaxIterations = n
-			} else {
-				fmt.Fprintf(os.Stderr, "Error: %s requires a value\n", arg)
-				os.Exit(1)
-			}
-		case strings.HasPrefix(arg, "--max-iterations="):
-			val := strings.TrimPrefix(arg, "--max-iterations=")
-			n, err := strconv.Atoi(val)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: invalid value for --max-iterations: %s\n", val)
-				os.Exit(1)
-			}
-			if n < 1 {
-				fmt.Fprintf(os.Stderr, "Error: --max-iterations must be at least 1\n")
-				os.Exit(1)
-			}
-			opts.MaxIterations = n
-		case strings.HasPrefix(arg, "-n="):
-			val := strings.TrimPrefix(arg, "-n=")
-			n, err := strconv.Atoi(val)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: invalid value for -n: %s\n", val)
-				os.Exit(1)
-			}
-			if n < 1 {
-				fmt.Fprintf(os.Stderr, "Error: -n must be at least 1\n")
-				os.Exit(1)
-			}
-			opts.MaxIterations = n
-		case strings.HasPrefix(arg, "-"):
-			// Unknown flag
-			fmt.Fprintf(os.Stderr, "Error: unknown flag: %s\n", arg)
-			fmt.Fprintf(os.Stderr, "Run 'chief --help' for usage.\n")
-			os.Exit(1)
-		default:
-			// Positional argument: PRD name or path
-			if strings.HasSuffix(arg, ".md") || strings.HasSuffix(arg, ".json") || strings.HasSuffix(arg, "/") {
-				opts.PRDPath = arg
-			} else {
-				// Treat as PRD name
-				opts.PRDPath = fmt.Sprintf(".chief/prds/%s/prd.md", arg)
-			}
-		}
-	}
-
 	return opts
 }
 
@@ -267,7 +96,11 @@ func runNew() {
 	opts := cmd.NewOptions{}
 
 	// Parse arguments: chief new [name] [context...] [--agent X] [--agent-path X]
-	flagAgent, flagPath, flagModel, positional := parseAgentFlags(os.Args, 2)
+	flagAgent, flagPath, flagModel, positional, err := cli.AgentFlags(os.Args, 2)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 	// Filter out remaining flags, keep only positional args
 	var args []string
 	for _, a := range positional {
@@ -296,7 +129,11 @@ func runEdit() {
 	opts := cmd.EditOptions{}
 
 	// Parse arguments: chief edit [name] [--agent X] [--agent-path X]
-	flagAgent, flagPath, flagModel, remaining := parseAgentFlags(os.Args, 2)
+	flagAgent, flagPath, flagModel, remaining, err := cli.AgentFlags(os.Args, 2)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 	for _, arg := range remaining {
 		if opts.Name == "" && !strings.HasPrefix(arg, "-") {
 			opts.Name = arg
@@ -382,7 +219,7 @@ func selectModelForProvider(provider loop.Provider, title, flagModel string) boo
 	return true
 }
 
-func runTUIWithOptions(opts *TUIOptions) {
+func runTUIWithOptions(opts *cli.Options) {
 	provider := resolveProvider(opts.Agent, opts.AgentPath, opts.Model)
 
 	prdPath := opts.PRDPath
@@ -390,15 +227,15 @@ func runTUIWithOptions(opts *TUIOptions) {
 	// If no PRD specified, try to find one
 	if prdPath == "" {
 		// Try "default" first (falls back to "main" for older setups)
-		defaultPath := ".chief/prds/default/prd.md"
-		mainPath := ".chief/prds/main/prd.md"
+		defaultPath := prd.PRDPath("", "default")
+		mainPath := prd.PRDPath("", "main")
 		if _, err := os.Stat(defaultPath); err == nil {
 			prdPath = defaultPath
 		} else if _, err := os.Stat(mainPath); err == nil {
 			prdPath = mainPath
 		} else {
 			// Look for any available PRD
-			prdPath = findAvailablePRD()
+			prdPath = cli.FindAvailablePRD("")
 		}
 
 		// If still no PRD found, run first-time setup
@@ -436,7 +273,7 @@ func runTUIWithOptions(opts *TUIOptions) {
 			}
 
 			// Restart TUI with the new PRD
-			opts.PRDPath = fmt.Sprintf(".chief/prds/%s/prd.md", result.PRDName)
+			opts.PRDPath = prd.PRDPath("", result.PRDName)
 			runTUIWithOptions(opts)
 			return
 		}
@@ -462,7 +299,7 @@ func runTUIWithOptions(opts *TUIOptions) {
 			fmt.Printf("PRD not found: %s\n", prdPath)
 			fmt.Println()
 			// Show available PRDs if any exist
-			available := listAvailablePRDs()
+			available := cli.ListAvailablePRDs("")
 			if len(available) > 0 {
 				fmt.Println("Available PRDs:")
 				for _, name := range available {
@@ -515,7 +352,7 @@ func runTUIWithOptions(opts *TUIOptions) {
 				os.Exit(1)
 			}
 			// Restart TUI with the new PRD
-			opts.PRDPath = fmt.Sprintf(".chief/prds/%s/prd.md", finalApp.PostExitPRD)
+			opts.PRDPath = prd.PRDPath("", finalApp.PostExitPRD)
 			runTUIWithOptions(opts)
 
 		case tui.PostExitEdit:
@@ -529,139 +366,8 @@ func runTUIWithOptions(opts *TUIOptions) {
 				os.Exit(1)
 			}
 			// Restart TUI with the edited PRD
-			opts.PRDPath = fmt.Sprintf(".chief/prds/%s/prd.md", finalApp.PostExitPRD)
+			opts.PRDPath = prd.PRDPath("", finalApp.PostExitPRD)
 			runTUIWithOptions(opts)
 		}
 	}
-}
-
-func printHelp() {
-	fmt.Println(`Chief - Autonomous PRD Agent
-
-Usage:
-  chief [options] [<name>|<path/to/prd.md>]
-  chief <command> [arguments]
-
-Commands:
-  start [name]              Launch the TUI and begin the loop immediately
-  new [name] [context]      Create a new PRD interactively (prompts for the Claude model unless --model is set)
-  edit [name] [options]     Edit an existing PRD interactively (prompts for the Claude model unless --model is set)
-  status [name]             Show progress for a PRD (default: default)
-  list                      List all PRDs with progress
-  help                      Show this help message
-
-Global Options:
-  --agent <provider>        Agent CLI to use: claude (default), codex, opencode, cursor, or gemini
-  --agent-path <path>       Custom path to agent CLI binary
-  --model <model>           Model passed to the agent CLI via --model (Claude only)
-  --max-iterations N, -n N  Set maximum iterations (default: dynamic)
-  --no-retry                Disable auto-retry on agent crashes
-  --verbose                 Show raw agent output in log
-  --help, -h                Show this help message
-  --version, -v             Show version number
-
-Positional Arguments:
-  <name>                    PRD name (loads .chief/prds/<name>/prd.md)
-  <path/to/prd.md>        Direct path to a prd.md file
-
-Examples:
-  chief                     Launch TUI with default PRD (.chief/prds/default/)
-  chief auth                Launch TUI with named PRD (.chief/prds/auth/)
-  chief start               Launch default PRD and start the loop immediately
-  chief start auth          Launch auth PRD and start the loop immediately
-  chief ./my-prd.md       Launch TUI with specific PRD file
-  chief -n 20               Launch with 20 max iterations
-  chief --max-iterations=5 auth
-                            Launch auth PRD with 5 max iterations
-  chief --verbose           Launch with raw agent output visible
-  chief --agent codex       Use Codex CLI instead of Claude
-  chief --agent cursor      Use Cursor CLI as agent
-  chief --model my-local-model
-                            Pass --model to Claude (e.g. local models via LM Studio)
-  chief new                 Create PRD in .chief/prds/default/
-  chief new auth            Create PRD in .chief/prds/auth/
-  chief new auth "JWT authentication for REST API"
-                            Create PRD with context hint
-  chief edit                Edit PRD in .chief/prds/default/
-  chief edit auth           Edit PRD in .chief/prds/auth/
-  chief status              Show progress for default PRD
-  chief status auth         Show progress for auth PRD
-  chief list                List all PRDs with progress
-  chief --version           Show version number`)
-}
-
-func printWiggum() {
-	// ANSI color codes
-	blue := "\033[34m"
-	yellow := "\033[33m"
-	reset := "\033[0m"
-
-	art := blue + `
-                                                                 -=
-                                      +%#-   :=#%#**%-
-                                     ##+**************#%*-::::=*-
-                                   :##***********************+***#
-                                 :@#********%#%#******************#*
-                                 :##*****%+-:::-%%%%%##************#:
-                                   :#%###%%-:::+#*******##%%%*******#%*:
-                                      -+%**#%%@@%%%%%%%%%#****#%##*##%%=
-                                      -@@%%%%%%%%%%%%%%@*#%%#*##:::
-                                    +%%%%%%%%%%%%%%@#+--=#--=#@+:
-                                   -@@@@@%@@@@#%#=-=**--+*-----=#:
-` + yellow + `                                       :*     *-   - :#-:*=-----=#:
-                                       %::%@- *:  *@# +::=*--#=:-%:
-                                       #- =+**##-    =*:::#*#-++:*:
-                                        #+:-::+--%***-::::::::-*##
-                                      :+#:+=:-==-*:::::::::::::::-%
-                                     *=::::::::::::::-=*##*:::::::-+
-                                     *-::::::::-=+**+-+%%%%+:::::--+
-                                      :*%##**==++%%%######%:::::--%-
-                                        :-=#--%####%%%%@@+:::::--%=
-` + blue + `                     -#%%%%#-` + yellow + `          *:::+%%##%%#%%*:::::::-*#%-
-                   :##++++=+++%:` + yellow + `        :@%*:::::::::::::::-=##*%%*%=
-                  :%++++@%#+=++#` + yellow + `         %%%=--:::::---=+%%****%##@%#%%*:
-                -%=-:-%%%*=+++##` + yellow + `      :*@%***@%%%###*********%%#%********%-
-               *#+==**%++++++#*-` + yellow + `   :*%@*+*%*%%%%@*********%%**##****%=--#%*#
-             *%#%-:+*++++*%#=#-` + yellow + `  :%#%#*+***#@%%%@%#%%%@%#*****%****%::::::##%-
-            :*::::*-%@%@#=*%-` + yellow + `  :%*#%+*******%%%@#*************%****%-::::::**%=
-             +==%*+-----+%` + yellow + `    %#*%#********#@%%@********%*%***#%**+*%-:::::*#*%:
-              *=::----##**%:` + yellow + `+%#*@**********@%%%%*+***%-::::::#*%#****%#:::-%***%-
-               #-:+@#***+*@%` + yellow + `**#%**********%%%#%%*****%::::::-#**%***************%
-               =%*****+%%+**` + yellow + `@#%***********@%#%%#******%:::::%****@*********+****##
-` + blue + `                %*#%@#*+++**#%` + yellow + `************%%%%%#********###*******@**************%:
-                =#**++***+**@` + yellow + `************%%%%#%%*******************%*************##
-                 %*++******@#` + yellow + `************@%%#%%@*******************#@*************@:
-                  #***+***%#*` + yellow + `************@%%%%%@#*******************#%*************+
-                   +#***##%**` + yellow + `************@%%%%%%%********************%************%
-                     :######**` + yellow + `*+**********%%%%%%%%*********************%************%
-                       :+%@#**` + yellow + `*******+*****#%@@%#******+***************#@*****+*****%:
-` + blue + `                         @*********************************************##*+**+*****#+
-                        =%%%%%@@@%%#**************************##%%@@@%%%@**********##
-                        =%%#%%%%%%%%%%%%%----====%%%%%%%%%%%%%%%%#%%#%%%%%******#%#*%
-                        :@@%%#%%%%%%%%%%#::::::::*%%%%%%%%%%%%%%%%%%#%%%@@#%%%##***#%
-                          %*##%%@@@@%%%%%::::::::#%%%%%%%@@@@@@%%####****##****#%#==#
-                          :%*********************************************#%#*+=-----*-
-                           :%************************************+********@:::::----=+
-                             ##**********+******************+************##::-::=--#-%
-                              =%******************+*+*********************%:=-*:++:#-%
-                               *#*****************************************@*#:*:*=:*+=
-                                %*********#%#**************************+*%   -#+%**=:
-                                **************#%%%%###*******************#
-                                =#***************%      #****************#
-                                :@***+**********##      *****************#
-                                 %**************#=      =#+******+*******#
-                                 =#*************%:      :@***************#
-                                 :#****+********#        #***************#
-                                 :#**************        =#**************#
-                                 :%************%-        :%*************##
-                                  #***********##          %*************%=
-                                -%@@@%######%@@+          =%#***#*#%@@%#@:
-                              :%%%%%%%%%%%%%%%%#         +@%%%%%%%%%%%%%%*
-                             +@%%%%%%%%%%%%%%%%+       :%%%%%%%%%%%%%%##@+
-                             #%%%%%%%%%%%@%@%@*       :@%%%%%%%%%%%%@%%@*
-` + reset + `
-                         "Bake 'em away, toys!"
-                               - Chief Wiggum
-`
-	fmt.Print(art)
 }
