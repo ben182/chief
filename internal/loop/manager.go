@@ -213,9 +213,18 @@ func (m *Manager) Start(name string) error {
 		return fmt.Errorf("manager provider is not configured")
 	}
 
-	m.mu.Lock()
+	// Snapshot the manager fields this Start needs under m.mu, then release it
+	// before taking instance.mu. GetAllInstances/GetRunningPRDs lock in the order
+	// m.mu -> instance.mu; taking them the other way round here (holding
+	// instance.mu while grabbing m.mu) would be an AB-BA deadlock under load.
+	m.mu.RLock()
 	instance, exists := m.instances[name]
-	m.mu.Unlock()
+	baseDir := m.baseDir
+	cfg := m.config
+	retryConfig := m.retryConfig
+	maxIter := m.maxIter
+	provider := m.provider
+	m.mu.RUnlock()
 
 	if !exists {
 		return fmt.Errorf("PRD %s not found", name)
@@ -232,21 +241,17 @@ func (m *Manager) Start(name string) error {
 	// CLAUDE.md and other project-level files are visible to Claude.
 	workDir := instance.WorktreeDir
 	if workDir == "" {
-		m.mu.RLock()
-		workDir = m.baseDir
-		m.mu.RUnlock()
+		workDir = baseDir
 	}
-	instance.Loop = NewLoopWithWorkDir(instance.PRDPath, workDir, "", m.maxIter, m.provider)
-	m.mu.RLock()
+	instance.Loop = NewLoopWithWorkDir(instance.PRDPath, workDir, "", maxIter, provider)
 	instance.Loop.buildPrompt = promptBuilderForPRD(instance.PRDPath)
-	if m.config != nil {
-		instance.Loop.SetReview(m.config.Review.Skill, m.config.Review.Instructions)
+	if cfg != nil {
+		instance.Loop.SetReview(cfg.Review.Skill, cfg.Review.Instructions)
 	}
-	instance.Loop.SetRetryConfig(m.retryConfig)
-	if m.config != nil && m.config.Loop.WatchdogTimeoutSeconds > 0 {
-		instance.Loop.SetWatchdogTimeout(time.Duration(m.config.Loop.WatchdogTimeoutSeconds) * time.Second)
+	instance.Loop.SetRetryConfig(retryConfig)
+	if cfg != nil && cfg.Loop.WatchdogTimeoutSeconds > 0 {
+		instance.Loop.SetWatchdogTimeout(time.Duration(cfg.Loop.WatchdogTimeoutSeconds) * time.Second)
 	}
-	m.mu.RUnlock()
 	instance.ctx, instance.cancel = context.WithCancel(context.Background())
 	instance.State = LoopStateRunning
 	instance.StartTime = time.Now()

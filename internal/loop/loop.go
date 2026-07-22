@@ -76,6 +76,7 @@ type Loop struct {
 	agentCmd          *exec.Cmd
 	logFile           *os.File
 	logPath           string
+	logMu             sync.Mutex // serializes logFile writes across the stdout/stderr goroutines
 	mu                sync.Mutex
 	stopped           bool
 	paused            bool
@@ -159,7 +160,10 @@ func promptBuilderForPRD(prdPath string) func() (string, string, string, error) 
 			return "", "", "", fmt.Errorf("all stories are complete")
 		}
 
-		// Mark the story as in-progress in the markdown file
+		// Mark the story as in-progress in the markdown file. Best-effort: this is
+		// a purely cosmetic status shown in the UI (unlike done/needs-review, which
+		// are the source of truth for what's left to do), and there's no loop event
+		// channel here to surface a failure on.
 		_ = prd.SetStoryStatus(prdPath, story.ID, "in-progress")
 
 		storyCtx := p.NextStoryContext()
@@ -330,7 +334,17 @@ func (l *Loop) Run(ctx context.Context) error {
 			if l.reviewEnabled() {
 				l.runReview(ctx, currentIter, storyID, storyTitle)
 			}
-			_ = prd.SetStoryStatus(l.prdPath, storyID, "done")
+			// prd.md is the source of truth for what's done. If this write fails we
+			// must not carry on as if the story were marked complete — the next
+			// fresh-context iteration would pick the same story again and loop
+			// forever. Surface it and stop the run so the user can fix the cause
+			// (e.g. read-only FS) instead of burning iterations silently.
+			if err := prd.SetStoryStatus(l.prdPath, storyID, "done"); err != nil {
+				werr := fmt.Errorf("failed to mark story %s done in prd.md: %w", storyID, err)
+				l.logLine("[chief] " + werr.Error())
+				l.events <- Event{Type: EventError, Iteration: currentIter, StoryID: storyID, Err: werr}
+				return werr
+			}
 			l.commitStoryProgress(storyID, storyTitle)
 		} else if storyID != "" {
 			l.mu.Lock()
@@ -339,7 +353,15 @@ func (l *Loop) Run(ctx context.Context) error {
 			maxAttempts := l.maxAttempts
 			l.mu.Unlock()
 			if maxAttempts > 0 && attempts >= maxAttempts {
-				_ = prd.SetStoryStatus(l.prdPath, storyID, "needs-review")
+				// Parking a story is also a source-of-truth write: if it fails the
+				// story stays actionable and the loop keeps retrying it forever.
+				// Surface and stop rather than swallow.
+				if err := prd.SetStoryStatus(l.prdPath, storyID, "needs-review"); err != nil {
+					werr := fmt.Errorf("failed to park story %s for review in prd.md: %w", storyID, err)
+					l.logLine("[chief] " + werr.Error())
+					l.events <- Event{Type: EventError, Iteration: currentIter, StoryID: storyID, Err: werr}
+					return werr
+				}
 				l.events <- Event{
 					Type:      EventStoryNeedsReview,
 					Iteration: currentIter,
@@ -678,8 +700,12 @@ func (l *Loop) captureStderr(line string) {
 	l.mu.Unlock()
 }
 
-// logLine writes a line to the log file.
+// logLine writes a line to the log file. processOutput (stdout) and logStream
+// (stderr) call this from separate goroutines, so a mutex keeps their lines from
+// interleaving mid-line and corrupting the stream-json log.
 func (l *Loop) logLine(line string) {
+	l.logMu.Lock()
+	defer l.logMu.Unlock()
 	if l.logFile != nil {
 		l.logFile.WriteString(line + "\n")
 	}
