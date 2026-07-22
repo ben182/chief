@@ -14,20 +14,23 @@ Chief needs an agent CLI: **Claude Code** (default), **Codex**, **OpenCode**, **
 
 ::: code-group
 
-```bash [npm (recommended)]
-# Install Claude Code globally
-npm install -g @anthropic-ai/claude-code
-
-# Authenticate (opens browser)
-claude login
+```bash [Native install (recommended)]
+# macOS, Linux, WSL
+curl -fsSL https://claude.ai/install.sh | bash
 ```
 
-```bash [npx (no install)]
-# Run directly without installing
-npx @anthropic-ai/claude-code login
+```bash [Homebrew]
+brew install --cask claude-code
+```
+
+```bash [npm]
+# Requires Node.js 22+
+npm install -g @anthropic-ai/claude-code
 ```
 
 :::
+
+Then authenticate by running `claude` in a terminal and following the browser prompts (there is no `claude login` subcommand). Claude Code requires a Claude Pro/Max/Team/Enterprise or Console account — the free Claude.ai plan doesn't include access. See the [official setup guide](https://code.claude.com/docs/en/setup) for Windows and other install methods.
 
 ### Option B: Codex CLI
 

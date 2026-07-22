@@ -26,7 +26,7 @@ Error: OpenCode CLI not found in PATH. Install it or set agent.cliPath in .chief
 
 **Solution:**
 
-- **Claude (default):** Install [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/getting-started), then verify:
+- **Claude (default):** Install [Claude Code CLI](https://code.claude.com/docs/en/setup), then verify:
   ```bash
   claude --version
   ```

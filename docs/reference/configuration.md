@@ -131,14 +131,14 @@ Chief can use **Claude Code** (default), **Codex CLI**, **OpenCode CLI**, **Curs
 Each agent has its own configuration. For example, when using Claude Code:
 
 ```bash
-# Authentication
-claude login
+# Authenticate: run claude and follow the browser prompts
+claude
 
-# Model selection (if you have access)
-claude config set model claude-3-opus-20240229
+# Pick a model interactively with /model inside the session,
+# or let Chief pass one through with --model / agent.model
 ```
 
-See [Claude Code documentation](https://github.com/anthropics/claude-code) for details.
+See the [Claude Code documentation](https://code.claude.com/docs/en/setup) for details.
 
 When using Cursor CLI:
 
@@ -180,5 +180,5 @@ Some agents (like Claude Code) ask for permission before executing bash commands
 ::: warning
 Chief runs the agent with full permissions to modify your codebase. Only run Chief on PRDs you trust.
 
-For additional isolation, consider using [Claude Code's sandbox mode](https://docs.anthropic.com/en/docs/claude-code/sandboxing) or running Chief in a Docker container.
+For additional isolation, consider using [Claude Code's sandbox mode](https://code.claude.com/docs/en/sandboxing) or running Chief in a Docker container.
 :::

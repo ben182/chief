@@ -5,7 +5,7 @@ Thanks for your interest in contributing to Chief! Here's how to get started.
 ## Prerequisites
 
 - [Go 1.24+](https://go.dev/dl/)
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (for end-to-end testing)
+- [Claude Code CLI](https://code.claude.com/docs/en/setup) (for end-to-end testing)
 - [golangci-lint](https://golangci-lint.run/welcome/install-local/) (optional, for linting)
 
 ## Getting Started

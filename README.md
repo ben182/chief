@@ -47,7 +47,7 @@ See the [documentation](https://ben182.github.io/chief/concepts/how-it-works) fo
 
 ## Requirements
 
-- **[Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)**, **[Codex CLI](https://developers.openai.com/codex/cli/reference)**, **[OpenCode CLI](https://opencode.ai)**, or **[Gemini CLI](https://github.com/google-gemini/gemini-cli)** installed and authenticated
+- **[Claude Code CLI](https://code.claude.com/docs/en/setup)**, **[Codex CLI](https://developers.openai.com/codex/cli/reference)**, **[OpenCode CLI](https://opencode.ai)**, or **[Gemini CLI](https://github.com/google-gemini/gemini-cli)** installed and authenticated
 
 Use Claude by default, or configure another provider in `.chief/config.yaml`:
 
