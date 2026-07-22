@@ -203,6 +203,26 @@ func TestGetInitPromptExploreModel(t *testing.T) {
 	}
 }
 
+func TestGetInitPromptPrototype(t *testing.T) {
+	prdDir := "/path/to/.chief/prds/main"
+
+	native := GetInitPrompt(prdDir, "", true)
+	if !strings.Contains(native, "throwaway HTML prototype") {
+		t.Error("Expected Claude prompt to offer building a throwaway HTML prototype")
+	}
+	if strings.Contains(native, "{{PROTOTYPE}}") {
+		t.Error("Expected {{PROTOTYPE}} to be substituted")
+	}
+
+	nonNative := GetInitPrompt(prdDir, "", false)
+	if strings.Contains(nonNative, "throwaway HTML prototype") {
+		t.Error("Expected non-Claude prompt to omit the prototype instruction")
+	}
+	if strings.Contains(nonNative, "{{PROTOTYPE}}") {
+		t.Error("Expected {{PROTOTYPE}} to be substituted (empty) for non-Claude")
+	}
+}
+
 func TestGetEditPromptExploreModel(t *testing.T) {
 	prdDir := "/path/to/.chief/prds/main"
 

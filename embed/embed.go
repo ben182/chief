@@ -145,6 +145,49 @@ func exploreModel(nativeQuestions bool) string {
 	return ""
 }
 
+// prototypeBlockClaude lets the interactive grill build a small, throwaway HTML
+// prototype to settle a hard visual/interaction decision, delegating the build
+// to an Opus subagent (the same subagent capability used for exploration). It is
+// injected only for Claude; other providers (which may lack subagents) get
+// nothing. The prototype lands in the PRD directory, which sits under .chief/ and
+// is never committed, so it never pollutes the repo. The block leads with a
+// newline so it reads as its own paragraph after the frontend-grill bullets.
+const prototypeBlockClaude = `
+**Prototype a design question by showing it instead of describing it.** When a UI,
+layout, or interaction decision would be quicker to settle by seeing it than by
+talking it through, offer to build a small, self-contained
+**throwaway HTML prototype**. Suggest it yourself the moment you sense it would
+help — you do NOT
+need a deadlock first — and briefly say what the prototype would show and which
+decision it would resolve, then wait for the user to approve. Never build one
+unprompted; the user nods first. Use judgment so you propose it when it genuinely
+sharpens a decision rather than for every screen.
+
+Once approved, delegate the build to a subagent with its model set to Opus (the
+same way you delegate exploration), and have it write a single static ` + "`*.html`" + `
+file (inline CSS/JS, no build step, no dependencies) into the PRD directory — the
+same folder as ` + "`prd.md`" + `, which lives under ` + "`.chief/`" + ` and is never
+committed, so the prototype never pollutes the repo. Tell the user to open it, and
+use their reaction to resolve the decision.
+
+Once the decision is made, **capture the decision itself in the PRD** — in the
+Design & Frontend section and the relevant stories' acceptance criteria. That is
+the durable artifact, not the HTML. The prototype is then disposable: throw it
+away, or keep it and reference it from the PRD if it is worth showing an
+implementer later. Either way the PRD must stand on its own without it. And never
+start building the actual feature — a prototype answers a question, it is not the
+implementation.`
+
+// prototypeBlock returns the throwaway-prototype instruction for a provider,
+// gated on Claude (native questions) exactly like exploreModel, since it relies
+// on the Opus subagent capability.
+func prototypeBlock(nativeQuestions bool) string {
+	if nativeQuestions {
+		return prototypeBlockClaude
+	}
+	return ""
+}
+
 // GetInitPrompt returns the PRD generator prompt with the PRD directory, optional
 // context, and provider-appropriate question format substituted.
 func GetInitPrompt(prdDir, context string, nativeQuestions bool) string {
@@ -154,6 +197,7 @@ func GetInitPrompt(prdDir, context string, nativeQuestions bool) string {
 	result := strings.ReplaceAll(initPromptTemplate, "{{PRD_DIR}}", prdDir)
 	result = strings.ReplaceAll(result, "{{CONTEXT}}", context)
 	result = strings.ReplaceAll(result, "{{QUESTION_FORMAT}}", questionFormatBatch)
+	result = strings.ReplaceAll(result, "{{PROTOTYPE}}", prototypeBlock(nativeQuestions))
 	return strings.ReplaceAll(result, "{{EXPLORE_MODEL}}", exploreModel(nativeQuestions))
 }
 

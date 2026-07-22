@@ -119,7 +119,7 @@ questions into the rounds, and resolve each of these before you stop:
   enough of a constraint that two people would build something recognizably alike.
 - **Responsive & accessibility** — breakpoints and what reflows; focus order,
   labels, contrast.
-
+{{PROTOTYPE}}
 ---
 
 ## Phase 2: Write the PRD
