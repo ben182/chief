@@ -2,7 +2,6 @@ package prd
 
 import (
 	"errors"
-	"sync"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -13,43 +12,28 @@ type WatcherEvent struct {
 	Error error
 }
 
-// Watcher watches a prd.md file for changes and sends events.
+// Watcher watches a prd.md file for changes and sends events. It builds on
+// fileWatcher for the shared start/stop/event-loop lifecycle.
 type Watcher struct {
+	*fileWatcher[WatcherEvent]
 	path    string
-	watcher *fsnotify.Watcher
-	events  chan WatcherEvent
-	done    chan struct{}
-	mu      sync.Mutex
-	running bool
 	lastPRD *PRD
 }
 
 // NewWatcher creates a new Watcher for the given PRD file path.
 func NewWatcher(path string) (*Watcher, error) {
-	fsWatcher, err := fsnotify.NewWatcher()
+	base, err := newFileWatcher[WatcherEvent](10)
 	if err != nil {
 		return nil, err
 	}
-
-	w := &Watcher{
-		path:    path,
-		watcher: fsWatcher,
-		events:  make(chan WatcherEvent, 10),
-		done:    make(chan struct{}),
-	}
-
-	return w, nil
+	return &Watcher{fileWatcher: base, path: path}, nil
 }
 
 // Start begins watching the PRD file for changes.
 func (w *Watcher) Start() error {
-	w.mu.Lock()
-	if w.running {
-		w.mu.Unlock()
+	if !w.start() {
 		return errors.New("watcher already running")
 	}
-	w.running = true
-	w.mu.Unlock()
 
 	// Load the initial PRD
 	prd, err := LoadPRD(w.path)
@@ -66,66 +50,27 @@ func (w *Watcher) Start() error {
 	}
 
 	// Start the event processing goroutine
-	go w.processEvents()
+	go w.process(w.onEvent, func(err error) { w.events <- WatcherEvent{Error: err} })
 
 	return nil
 }
 
-// Stop stops watching the PRD file.
-func (w *Watcher) Stop() {
-	w.mu.Lock()
-	if !w.running {
-		w.mu.Unlock()
-		return
+// onEvent reloads the PRD on write/create and re-arms the watch on
+// remove/rename. Chief writes prd.md atomically (temp file + rename) and many
+// editors save the same way, so the watched inode is swapped out rather than
+// modified in place. Re-add the watch and reload; only report a genuine removal
+// if the file is actually gone.
+func (w *Watcher) onEvent(event fsnotify.Event) {
+	// Only react to write and create events
+	if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
+		w.handleFileChange()
 	}
-	w.running = false
-	w.mu.Unlock()
 
-	close(w.done)
-	w.watcher.Close()
-}
-
-// Events returns the channel for receiving PRD change events.
-func (w *Watcher) Events() <-chan WatcherEvent {
-	return w.events
-}
-
-// processEvents processes filesystem events and loads the PRD when it changes.
-func (w *Watcher) processEvents() {
-	for {
-		select {
-		case <-w.done:
-			close(w.events)
-			return
-
-		case event, ok := <-w.watcher.Events:
-			if !ok {
-				return
-			}
-
-			// Only react to write and create events
-			if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
-				w.handleFileChange()
-			}
-
-			// Handle atomic replacement or removal. Chief writes prd.md
-			// atomically (temp file + rename) and many editors save the same
-			// way, so the watched inode is swapped out rather than modified in
-			// place. Re-add the watch and reload; only report a genuine removal
-			// if the file is actually gone.
-			if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
-				if err := w.watcher.Add(w.path); err != nil {
-					w.events <- WatcherEvent{Error: errors.New("prd.md was removed")}
-				} else {
-					w.handleFileChange()
-				}
-			}
-
-		case err, ok := <-w.watcher.Errors:
-			if !ok {
-				return
-			}
-			w.events <- WatcherEvent{Error: err}
+	if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+		if err := w.watcher.Add(w.path); err != nil {
+			w.events <- WatcherEvent{Error: errors.New("prd.md was removed")}
+		} else {
+			w.handleFileChange()
 		}
 	}
 }

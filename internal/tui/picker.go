@@ -514,7 +514,7 @@ func (p *PRDPicker) Render() string {
 		Padding(0, 1)
 	content.WriteString(titleStyle.Render("Select PRD"))
 	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n")
 
 	if p.inputMode {
@@ -557,7 +557,7 @@ func (p *PRDPicker) Render() string {
 	}
 
 	// Footer with shortcuts
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n")
 
 	var shortcuts string
@@ -573,17 +573,12 @@ func (p *PRDPicker) Render() string {
 	content.WriteString(footerStyle.Render(shortcuts))
 
 	// Modal box style
-	modalStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(PrimaryColor).
-		Padding(1, 2).
-		Width(modalWidth).
-		Height(modalHeight)
+	modalStyle := modalBoxStyle(PrimaryColor).Width(modalWidth).Height(modalHeight)
 
 	modal := modalStyle.Render(content.String())
 
 	// Center the modal on screen
-	return p.centerModal(modal)
+	return centerModal(modal, p.width, p.height)
 }
 
 // renderEntry renders a single PRD entry line.
@@ -861,7 +856,7 @@ func (p *PRDPicker) renderMergeResult(modalWidth, modalHeight int) string {
 			Padding(0, 1)
 		content.WriteString(titleStyle.Render("Merge Successful"))
 		content.WriteString("\n")
-		content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+		content.WriteString(dividerLine(modalWidth))
 		content.WriteString("\n\n")
 
 		msgStyle := lipgloss.NewStyle().
@@ -877,7 +872,7 @@ func (p *PRDPicker) renderMergeResult(modalWidth, modalHeight int) string {
 			Padding(0, 1)
 		content.WriteString(titleStyle.Render("Merge Conflict"))
 		content.WriteString("\n")
-		content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+		content.WriteString(dividerLine(modalWidth))
 		content.WriteString("\n\n")
 
 		msgStyle := lipgloss.NewStyle().
@@ -927,7 +922,7 @@ func (p *PRDPicker) renderMergeResult(modalWidth, modalHeight int) string {
 	}
 
 	// Footer
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n")
 	footerStyle := lipgloss.NewStyle().
 		Foreground(MutedColor).
@@ -935,15 +930,10 @@ func (p *PRDPicker) renderMergeResult(modalWidth, modalHeight int) string {
 	content.WriteString(footerStyle.Render("Press any key to continue"))
 
 	// Modal box style
-	modalStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(PrimaryColor).
-		Padding(1, 2).
-		Width(modalWidth).
-		Height(modalHeight)
+	modalStyle := modalBoxStyle(PrimaryColor).Width(modalWidth).Height(modalHeight)
 
 	modal := modalStyle.Render(content.String())
-	return p.centerModal(modal)
+	return centerModal(modal, p.width, p.height)
 }
 
 // renderCleanConfirmation renders the clean confirmation dialog.
@@ -958,7 +948,7 @@ func (p *PRDPicker) renderCleanConfirmation(modalWidth, modalHeight int) string 
 		Padding(0, 1)
 	content.WriteString(titleStyle.Render("Clean Worktree"))
 	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n\n")
 
 	// Show what will be removed
@@ -1003,7 +993,7 @@ func (p *PRDPicker) renderCleanConfirmation(modalWidth, modalHeight int) string 
 
 	// Footer
 	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n")
 	footerStyle := lipgloss.NewStyle().
 		Foreground(MutedColor).
@@ -1011,15 +1001,10 @@ func (p *PRDPicker) renderCleanConfirmation(modalWidth, modalHeight int) string 
 	content.WriteString(footerStyle.Render("↑/k ↓/j: nav  │  Enter: confirm  │  Esc: cancel"))
 
 	// Modal box style
-	modalStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(WarningColor).
-		Padding(1, 2).
-		Width(modalWidth).
-		Height(modalHeight)
+	modalStyle := modalBoxStyle(WarningColor).Width(modalWidth).Height(modalHeight)
 
 	modal := modalStyle.Render(content.String())
-	return p.centerModal(modal)
+	return centerModal(modal, p.width, p.height)
 }
 
 // renderCleanResult renders the clean result dialog.
@@ -1040,7 +1025,7 @@ func (p *PRDPicker) renderCleanResult(modalWidth, modalHeight int) string {
 		content.WriteString(titleStyle.Render("Clean Failed"))
 	}
 	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n\n")
 
 	msgStyle := lipgloss.NewStyle().
@@ -1051,7 +1036,7 @@ func (p *PRDPicker) renderCleanResult(modalWidth, modalHeight int) string {
 
 	// Footer
 	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n")
 	footerStyle := lipgloss.NewStyle().
 		Foreground(MutedColor).
@@ -1063,54 +1048,10 @@ func (p *PRDPicker) renderCleanResult(modalWidth, modalHeight int) string {
 	if !p.cleanResult.Success {
 		borderColor = ErrorColor
 	}
-	modalStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
-		Padding(1, 2).
-		Width(modalWidth).
-		Height(modalHeight)
+	modalStyle := modalBoxStyle(borderColor).Width(modalWidth).Height(modalHeight)
 
 	modal := modalStyle.Render(content.String())
-	return p.centerModal(modal)
+	return centerModal(modal, p.width, p.height)
 }
 
 // centerModal centers the modal on the screen.
-func (p *PRDPicker) centerModal(modal string) string {
-	lines := strings.Split(modal, "\n")
-	modalHeight := len(lines)
-	modalWidth := 0
-	for _, line := range lines {
-		if lipgloss.Width(line) > modalWidth {
-			modalWidth = lipgloss.Width(line)
-		}
-	}
-
-	// Calculate padding
-	topPadding := (p.height - modalHeight) / 2
-	leftPadding := (p.width - modalWidth) / 2
-
-	if topPadding < 0 {
-		topPadding = 0
-	}
-	if leftPadding < 0 {
-		leftPadding = 0
-	}
-
-	// Build centered content
-	var result strings.Builder
-
-	// Top padding
-	for i := 0; i < topPadding; i++ {
-		result.WriteString("\n")
-	}
-
-	// Modal lines with left padding
-	leftPad := strings.Repeat(" ", leftPadding)
-	for _, line := range lines {
-		result.WriteString(leftPad)
-		result.WriteString(line)
-		result.WriteString("\n")
-	}
-
-	return result.String()
-}

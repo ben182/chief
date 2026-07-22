@@ -81,7 +81,7 @@ type Loop struct {
 	stopped           bool
 	paused            bool
 	retryConfig       RetryConfig
-	lastOutputTime    time.Time
+	lastOutputTime    atomic.Int64 // last stdout activity as Unix nanos; read/written lock-free by the watchdog and per-line hot path
 	watchdogTimeout   time.Duration
 	sawStoryDone      bool
 	currentStoryID    string
@@ -91,15 +91,13 @@ type Loop struct {
 	maxAttempts       int            // attempts allowed per story before parking it for review
 	warnedNoGit       bool           // whether the "not a git repo" warning was already emitted
 
-	// Review agent: when reviewSkill or reviewInstructions is set, a separate
-	// agent reviews (and fixes) each story's committed changes before it is marked
-	// done. reviewMode is true only while that review agent is running, so
-	// processOutput/runIteration know a <chief-done/> came from the reviewer, not
-	// the build agent.
-	reviewSkill        string
-	reviewInstructions string
-	reviewMode         bool
-	sawReviewDone      bool
+	// review configures the optional post-commit review agent. When enabled, a
+	// separate agent reviews (and fixes) each story's committed changes before the
+	// story is marked done. Which agent an iteration is running is carried by the
+	// explicit iterationMode parameter rather than a shared flag; sawReviewDone
+	// records that the reviewer signalled <chief-done/> for the current iteration.
+	review        reviewer
+	sawReviewDone bool
 }
 
 // maxStderrTail is how many trailing stderr lines are kept to surface on a crash.
@@ -180,15 +178,14 @@ func promptBuilderForPRD(prdPath string) func() (string, string, string, error) 
 func (l *Loop) SetReview(skill, instructions string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.reviewSkill = skill
-	l.reviewInstructions = instructions
+	l.review = reviewer{skill: skill, instructions: instructions}
 }
 
 // reviewEnabled reports whether a review agent should run after a story commits.
 func (l *Loop) reviewEnabled() bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return strings.TrimSpace(l.reviewSkill) != "" || strings.TrimSpace(l.reviewInstructions) != ""
+	return l.review.enabled()
 }
 
 // Events returns the channel for receiving events from the loop.
@@ -217,21 +214,9 @@ func (l *Loop) Run(ctx context.Context) error {
 		return fmt.Errorf("loop provider is not configured")
 	}
 
-	// Open a per-run log file in the PRD directory. The name carries a timestamp
-	// (e.g. claude-2006-01-02-150405.log) so each run keeps its own log next to
-	// its own summary-<time>.md, instead of every run appending to one file that
-	// grows without bound and mixes runs together.
-	prdDir := filepath.Dir(l.prdPath)
-	git.IgnoreLogsIn(prdDir)
-	logPath := filepath.Join(prdDir, timestampedLogName(l.provider.LogFileName(), time.Now()))
-	var err error
-	l.logFile, err = os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open log file: %w", err)
+	if err := l.openRunLog(); err != nil {
+		return err
 	}
-	l.mu.Lock()
-	l.logPath = logPath
-	l.mu.Unlock()
 	defer l.logFile.Close()
 	defer close(l.events)
 
@@ -287,7 +272,7 @@ func (l *Loop) Run(ctx context.Context) error {
 		}
 
 		// Run a single iteration with retry logic
-		if err := l.runIterationWithRetry(ctx); err != nil {
+		if err := l.runIterationWithRetry(ctx, modeBuild); err != nil {
 			l.events <- Event{
 				Type: EventError,
 				Err:  err,
@@ -302,76 +287,14 @@ func (l *Loop) Run(ctx context.Context) error {
 		default:
 		}
 
-		// If the agent emitted <chief-done/>, mark the story as done in prd.md.
-		// Otherwise the story did not complete this iteration: count the attempt
-		// and, once the per-story limit is hit, park it for human review so the
-		// loop can move on to other unblocked stories instead of retrying forever.
-		l.mu.Lock()
-		saw := l.sawStoryDone
-		storyID := l.currentStoryID
-		storyTitle := l.currentStoryTitle
-		l.sawStoryDone = false
-		l.mu.Unlock()
-		// A <chief-done/> signal is only trusted if a matching commit actually
-		// landed. Otherwise the agent claimed done but produced no committed work
-		// (forgot to commit, hook rejected, crash before commit): the next
-		// fresh-context iteration would move on and the change could be lost. Treat
-		// that as a failed attempt so the story is retried or eventually parked.
-		if saw && storyID != "" && !l.storyHasCommit(storyID, storyTitle) {
-			saw = false
-			l.events <- Event{
-				Type:      EventStoryNoCommit,
-				Iteration: currentIter,
-				StoryID:   storyID,
-				Text:      fmt.Sprintf("Story %s signalled done but no commit was found; treating as incomplete", storyID),
-			}
+		// Resolve the story outcome for this iteration: mark it done (gated on a
+		// real commit and an optional review pass) or count a failed attempt and
+		// eventually park it. A source-of-truth write failure returns an error that
+		// stops the run. buildPrompt on the next iteration will return error when no
+		// actionable stories remain, which causes EventComplete to be emitted above.
+		if err := l.finalizeStory(ctx, currentIter); err != nil {
+			return err
 		}
-		if saw && storyID != "" {
-			// The build agent finished and committed. Before marking the story
-			// done, run a separate review agent (fresh context) that reviews and
-			// fixes the committed changes. It is a best-effort quality gate: a
-			// review crash is logged but does not un-complete the story.
-			if l.reviewEnabled() {
-				l.runReview(ctx, currentIter, storyID, storyTitle)
-			}
-			// prd.md is the source of truth for what's done. If this write fails we
-			// must not carry on as if the story were marked complete — the next
-			// fresh-context iteration would pick the same story again and loop
-			// forever. Surface it and stop the run so the user can fix the cause
-			// (e.g. read-only FS) instead of burning iterations silently.
-			if err := prd.SetStoryStatus(l.prdPath, storyID, "done"); err != nil {
-				werr := fmt.Errorf("failed to mark story %s done in prd.md: %w", storyID, err)
-				l.logLine("[chief] " + werr.Error())
-				l.events <- Event{Type: EventError, Iteration: currentIter, StoryID: storyID, Err: werr}
-				return werr
-			}
-			l.commitStoryProgress(storyID, storyTitle)
-		} else if storyID != "" {
-			l.mu.Lock()
-			l.attempts[storyID]++
-			attempts := l.attempts[storyID]
-			maxAttempts := l.maxAttempts
-			l.mu.Unlock()
-			if maxAttempts > 0 && attempts >= maxAttempts {
-				// Parking a story is also a source-of-truth write: if it fails the
-				// story stays actionable and the loop keeps retrying it forever.
-				// Surface and stop rather than swallow.
-				if err := prd.SetStoryStatus(l.prdPath, storyID, "needs-review"); err != nil {
-					werr := fmt.Errorf("failed to park story %s for review in prd.md: %w", storyID, err)
-					l.logLine("[chief] " + werr.Error())
-					l.events <- Event{Type: EventError, Iteration: currentIter, StoryID: storyID, Err: werr}
-					return werr
-				}
-				l.events <- Event{
-					Type:      EventStoryNeedsReview,
-					Iteration: currentIter,
-					StoryID:   storyID,
-					Text:      fmt.Sprintf("Story %s failed %d times, parked for human review", storyID, attempts),
-				}
-			}
-		}
-		// buildPrompt on the next iteration will return error when no actionable
-		// stories remain, which causes EventComplete to be emitted above.
 
 		// Check pause flag after iteration (loop stops after current iteration completes)
 		l.mu.Lock()
@@ -384,7 +307,8 @@ func (l *Loop) Run(ctx context.Context) error {
 }
 
 // runIterationWithRetry wraps runIteration with retry logic for crash recovery.
-func (l *Loop) runIterationWithRetry(ctx context.Context) error {
+// mode selects which agent (build or review) the iteration runs.
+func (l *Loop) runIterationWithRetry(ctx context.Context, mode iterationMode) error {
 	l.mu.Lock()
 	config := l.retryConfig
 	l.mu.Unlock()
@@ -437,7 +361,7 @@ func (l *Loop) runIterationWithRetry(ctx context.Context) error {
 		l.mu.Unlock()
 
 		// Run the iteration
-		err := l.runIteration(ctx)
+		err := l.runIteration(ctx, mode)
 		if err == nil {
 			return nil // Success
 		}
@@ -461,8 +385,9 @@ func (l *Loop) runIterationWithRetry(ctx context.Context) error {
 	return fmt.Errorf("max retries (%d) exceeded: %w", config.MaxRetries, lastErr)
 }
 
-// runIteration spawns the agent and processes its output.
-func (l *Loop) runIteration(ctx context.Context) error {
+// runIteration spawns the agent and processes its output. mode selects which
+// agent is running so a <chief-done/> is attributed to the build or review agent.
+func (l *Loop) runIteration(ctx context.Context, mode iterationMode) error {
 	workDir := l.effectiveWorkDir()
 	cmd := l.provider.LoopCommand(ctx, l.prompt, workDir)
 	setProcessGroup(cmd) // kill the whole subprocess tree, not just the direct child
@@ -477,7 +402,7 @@ func (l *Loop) runIteration(ctx context.Context) error {
 	}()
 	l.stderrTail = nil // reset crash diagnostics for this iteration
 	// Initialize watchdog state
-	l.lastOutputTime = time.Now()
+	l.lastOutputTime.Store(time.Now().UnixNano())
 	watchdogTimeout := l.watchdogTimeout
 	l.mu.Unlock()
 
@@ -520,7 +445,7 @@ func (l *Loop) runIteration(ctx context.Context) error {
 
 	go func() {
 		defer wg.Done()
-		l.processOutput(stdout)
+		l.processOutput(stdout, mode)
 	}()
 
 	// Log stderr to the log file
@@ -560,14 +485,22 @@ func (l *Loop) runIteration(ctx context.Context) error {
 		if saw {
 			return nil
 		}
-		// Check if the watchdog killed the process
-		if watchdogFired.Load() {
-			return fmt.Errorf("watchdog timeout: no output for %s", watchdogTimeout)
-		}
-		return fmt.Errorf("%s exited with error: %w", l.provider.Name(), err)
+		// A real crash (or watchdog kill): map it to the loop-level error to surface.
+		return classifyExit(err, watchdogFired.Load(), watchdogTimeout, l.provider.Name())
 	}
 
 	return nil
+}
+
+// classifyExit turns a non-graceful agent Wait() error into the loop-level error
+// to surface. A watchdog kill is reported as a timeout; anything else is a crash
+// attributed to the provider. It is pure so the mapping can be unit-tested
+// without spawning a process.
+func classifyExit(err error, watchdogFired bool, watchdogTimeout time.Duration, providerName string) error {
+	if watchdogFired {
+		return fmt.Errorf("watchdog timeout: no output for %s", watchdogTimeout)
+	}
+	return fmt.Errorf("%s exited with error: %w", providerName, err)
 }
 
 // runWatchdog monitors lastOutputTime and kills the process if no output is received
@@ -587,8 +520,8 @@ func (l *Loop) runWatchdog(timeout time.Duration, done <-chan struct{}, fired *a
 	for {
 		select {
 		case <-ticker.C:
+			lastOutput := time.Unix(0, l.lastOutputTime.Load())
 			l.mu.Lock()
-			lastOutput := l.lastOutputTime
 			stopped := l.stopped
 			l.mu.Unlock()
 
@@ -623,8 +556,10 @@ func (l *Loop) runWatchdog(timeout time.Duration, done <-chan struct{}, fired *a
 	}
 }
 
-// processOutput reads stdout line by line, logs it, and parses events.
-func (l *Loop) processOutput(r io.Reader) {
+// processOutput reads stdout line by line, logs it, and parses events. mode
+// tells it whether the build or review agent produced the output, so a
+// <chief-done/> sets the matching done flag and the reviewer's done is swallowed.
+func (l *Loop) processOutput(r io.Reader, mode iterationMode) {
 	scanner := bufio.NewScanner(r)
 	// Increase buffer size for long lines (Claude can output large JSON)
 	buf := make([]byte, 0, 64*1024)
@@ -633,10 +568,9 @@ func (l *Loop) processOutput(r io.Reader) {
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		// Update last output time for watchdog
-		l.mu.Lock()
-		l.lastOutputTime = time.Now()
-		l.mu.Unlock()
+		// Update last output time for watchdog. This is on the per-line hot path,
+		// so it uses an atomic store instead of taking l.mu for every line.
+		l.lastOutputTime.Store(time.Now().UnixNano())
 
 		// Log raw output
 		l.logLine(line)
@@ -651,8 +585,7 @@ func (l *Loop) processOutput(r io.Reader) {
 				// now so the iteration ends immediately. runIteration treats a Wait
 				// error as success when the corresponding done flag is set, so this
 				// is not a crash.
-				reviewMode := l.reviewMode
-				if reviewMode {
+				if mode == modeReview {
 					l.sawReviewDone = true
 				} else {
 					l.sawStoryDone = true
@@ -664,7 +597,7 @@ func (l *Loop) processOutput(r io.Reader) {
 				// Swallow the reviewer's <chief-done/> so the TUI doesn't render a
 				// second "story done" for the same story; the build agent's done
 				// was already forwarded.
-				if reviewMode {
+				if mode == modeReview {
 					continue
 				}
 				l.events <- *event
@@ -820,8 +753,8 @@ func (l *Loop) commitStoryProgress(storyID, storyTitle string) {
 
 // runReview spawns a separate agent that reviews (and fixes) the changes the
 // build agent just committed for the story. It reuses runIteration for the
-// process plumbing (watchdog, output parsing, <chief-done/> handling) via the
-// reviewMode flag, but swaps in the review prompt. It is best-effort: a review
+// process plumbing (watchdog, output parsing, <chief-done/> handling) by running
+// it in modeReview, but swaps in the review prompt. It is best-effort: a review
 // crash is surfaced as an event but never un-completes the story, so a flaky
 // reviewer can't block progress. The reviewer commits its own fixes; chief does
 // not gate the story on a pass/fail signal.
@@ -857,21 +790,20 @@ func (l *Loop) runReview(ctx context.Context, iteration int, storyID, storyTitle
 		Text:      fmt.Sprintf("Reviewing story %s", storyID),
 	}
 
-	// Swap in the review prompt and enter review mode for the duration of this
-	// process. buildPrompt rebuilds l.prompt on the next iteration, so restoring
-	// the old prompt is unnecessary; but reviewMode/sawReviewDone must be reset.
+	// Swap in the review prompt. buildPrompt rebuilds l.prompt on the next
+	// iteration, so restoring the old prompt is unnecessary; but sawReviewDone
+	// must be reset around the review run. The review agent is selected by passing
+	// modeReview to runIterationWithRetry rather than by a shared flag.
 	l.mu.Lock()
 	l.prompt = prompt
-	l.reviewMode = true
 	l.sawReviewDone = false
 	l.mu.Unlock()
 
 	// A crashed reviewer is retried like any other iteration, but a persistent
 	// failure must not stall the loop, so errors are only logged.
-	runErr := l.runIterationWithRetry(ctx)
+	runErr := l.runIterationWithRetry(ctx, modeReview)
 
 	l.mu.Lock()
-	l.reviewMode = false
 	l.sawReviewDone = false
 	l.mu.Unlock()
 
@@ -893,8 +825,8 @@ func (l *Loop) buildReviewPrompt() (string, error) {
 	l.mu.Lock()
 	storyID := l.currentStoryID
 	storyTitle := l.currentStoryTitle
-	skill := l.reviewSkill
-	instructions := l.reviewInstructions
+	skill := l.review.skill
+	instructions := l.review.instructions
 	l.mu.Unlock()
 
 	p, err := prd.LoadPRD(l.prdPath)

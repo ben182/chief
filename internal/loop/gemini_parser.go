@@ -1,10 +1,5 @@
 package loop
 
-import (
-	"encoding/json"
-	"strings"
-)
-
 // geminiStreamEvent is the top-level structure for a Gemini stream-json line.
 type geminiStreamEvent struct {
 	Type string `json:"type"`
@@ -37,14 +32,9 @@ type geminiToolResultEvent struct {
 // ParseLineGemini parses a single line of Gemini's stream-json output and
 // returns an Event. Returns nil for lines that are not relevant to Chief.
 func ParseLineGemini(line string) *Event {
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return nil
-	}
-
 	// Peek at the type field first.
-	var base geminiStreamEvent
-	if err := json.Unmarshal([]byte(line), &base); err != nil {
+	base, ok := decodeLine[geminiStreamEvent](line)
+	if !ok {
 		return nil
 	}
 
@@ -54,21 +44,18 @@ func ParseLineGemini(line string) *Event {
 		return &Event{Type: EventIterationStart}
 
 	case "message":
-		var msg geminiMessageEvent
-		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+		msg, ok := decodeLine[geminiMessageEvent](line)
+		if !ok {
 			return nil
 		}
 		if msg.Role != "assistant" || msg.Content == "" {
 			return nil
 		}
-		if strings.Contains(msg.Content, "<chief-done/>") {
-			return &Event{Type: EventStoryDone, Text: msg.Content}
-		}
-		return &Event{Type: EventAssistantText, Text: msg.Content}
+		return classifyAssistantText(msg.Content)
 
 	case "tool_use":
-		var tu geminiToolUseEvent
-		if err := json.Unmarshal([]byte(line), &tu); err != nil {
+		tu, ok := decodeLine[geminiToolUseEvent](line)
+		if !ok {
 			return nil
 		}
 		return &Event{
@@ -78,8 +65,8 @@ func ParseLineGemini(line string) *Event {
 		}
 
 	case "tool_result":
-		var tr geminiToolResultEvent
-		if err := json.Unmarshal([]byte(line), &tr); err != nil {
+		tr, ok := decodeLine[geminiToolResultEvent](line)
+		if !ok {
 			return nil
 		}
 		return &Event{Type: EventToolResult, Text: tr.Output}

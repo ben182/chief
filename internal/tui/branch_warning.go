@@ -240,7 +240,7 @@ func (b *BranchWarning) Render() string {
 
 	// Footer
 	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n")
 
 	footerStyle := lipgloss.NewStyle().Foreground(MutedColor)
@@ -256,17 +256,12 @@ func (b *BranchWarning) Render() string {
 		borderColor = WarningColor
 	}
 
-	modalStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
-		Padding(1, 2).
-		Width(modalWidth).
-		Height(modalHeight)
+	modalStyle := modalBoxStyle(borderColor).Width(modalWidth).Height(modalHeight)
 
 	modal := modalStyle.Render(content.String())
 
 	// Center the modal on screen
-	return b.centerModal(modal)
+	return centerModal(modal, b.width, b.height)
 }
 
 // renderHeader renders the dialog title and message.
@@ -277,7 +272,7 @@ func (b *BranchWarning) renderHeader(content *strings.Builder, modalWidth int) {
 	case DialogProtectedBranch:
 		content.WriteString(titleStyle.Foreground(WarningColor).Render("⚠️  Protected Branch Warning"))
 		content.WriteString("\n")
-		content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+		content.WriteString(dividerLine(modalWidth))
 		content.WriteString("\n\n")
 
 		messageStyle := lipgloss.NewStyle().Foreground(TextColor)
@@ -289,7 +284,7 @@ func (b *BranchWarning) renderHeader(content *strings.Builder, modalWidth int) {
 	case DialogAnotherPRDRunning:
 		content.WriteString(titleStyle.Foreground(PrimaryColor).Render("Directory In Use"))
 		content.WriteString("\n")
-		content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+		content.WriteString(dividerLine(modalWidth))
 		content.WriteString("\n\n")
 
 		messageStyle := lipgloss.NewStyle().Foreground(TextColor)
@@ -301,7 +296,7 @@ func (b *BranchWarning) renderHeader(content *strings.Builder, modalWidth int) {
 	case DialogNoConflicts:
 		content.WriteString(titleStyle.Foreground(PrimaryColor).Render("Start PRD"))
 		content.WriteString("\n")
-		content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+		content.WriteString(dividerLine(modalWidth))
 		content.WriteString("\n\n")
 
 		messageStyle := lipgloss.NewStyle().Foreground(TextColor)
@@ -363,42 +358,3 @@ func (b *BranchWarning) renderOptions(content *strings.Builder) {
 }
 
 // centerModal centers the modal on the screen.
-func (b *BranchWarning) centerModal(modal string) string {
-	lines := strings.Split(modal, "\n")
-	modalHeight := len(lines)
-	modalWidth := 0
-	for _, line := range lines {
-		if lipgloss.Width(line) > modalWidth {
-			modalWidth = lipgloss.Width(line)
-		}
-	}
-
-	// Calculate padding
-	topPadding := (b.height - modalHeight) / 2
-	leftPadding := (b.width - modalWidth) / 2
-
-	if topPadding < 0 {
-		topPadding = 0
-	}
-	if leftPadding < 0 {
-		leftPadding = 0
-	}
-
-	// Build centered content
-	var result strings.Builder
-
-	// Top padding
-	for i := 0; i < topPadding; i++ {
-		result.WriteString("\n")
-	}
-
-	// Modal lines with left padding
-	leftPad := strings.Repeat(" ", leftPadding)
-	for _, line := range lines {
-		result.WriteString(leftPad)
-		result.WriteString(line)
-		result.WriteString("\n")
-	}
-
-	return result.String()
-}

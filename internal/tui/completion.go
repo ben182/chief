@@ -215,6 +215,16 @@ func (c *CompletionScreen) IsAutoActionRunning() bool {
 	return c.summaryState == AutoActionInProgress || c.pushState == AutoActionInProgress || c.prState == AutoActionInProgress
 }
 
+// Static styles for the completion screen. Hoisted to package level because
+// Render runs on every confetti tick (~50ms) while particles are alive.
+var (
+	completionHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(SuccessColor)
+	completionModalStyle  = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(SuccessColor).
+				Padding(1, 2)
+)
+
 // Render renders the completion screen with confetti background.
 func (c *CompletionScreen) Render() string {
 	modalWidth := min(70, c.width-6)
@@ -228,16 +238,12 @@ func (c *CompletionScreen) Render() string {
 	var content strings.Builder
 
 	// Header
-	headerStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(SuccessColor)
-	content.WriteString(headerStyle.Render(glyph("🎉", "*") + " PRD Complete!"))
+	content.WriteString(completionHeaderStyle.Render(glyph("🎉", "*") + " PRD Complete!"))
 	content.WriteString("\n")
 
 	// Subtitle
-	subtitleStyle := lipgloss.NewStyle().Foreground(TextColor)
 	prdTitle := formatPRDTitle(c.prdName)
-	content.WriteString(subtitleStyle.Render(fmt.Sprintf("%s — %d/%d stories", prdTitle, c.completed, c.total)))
+	content.WriteString(fgText.Render(fmt.Sprintf("%s — %d/%d stories", prdTitle, c.completed, c.total)))
 	content.WriteString("\n")
 	content.WriteString(DividerStyle.Render(strings.Repeat("─", innerWidth)))
 	content.WriteString("\n")
@@ -245,12 +251,11 @@ func (c *CompletionScreen) Render() string {
 	// Total duration
 	if c.totalDuration > 0 {
 		content.WriteString("\n")
-		durationStyle := lipgloss.NewStyle().Foreground(SuccessColor)
 		line := fmt.Sprintf("Completed in %s", formatDuration(c.totalDuration))
 		if c.totalCost > 0 {
 			line += fmt.Sprintf("  •  %s", formatCost(c.totalCost))
 		}
-		content.WriteString(durationStyle.Render(line))
+		content.WriteString(fgSuccess.Render(line))
 		content.WriteString("\n")
 	}
 
@@ -263,12 +268,11 @@ func (c *CompletionScreen) Render() string {
 	// Branch and commit info (combined to single line)
 	content.WriteString("\n")
 	if c.branch != "" {
-		infoStyle := lipgloss.NewStyle().Foreground(TextColor)
 		commitLabel := "commit"
 		if c.commitCount != 1 {
 			commitLabel = "commits"
 		}
-		content.WriteString(infoStyle.Render(fmt.Sprintf("Branch: %s  •  %d %s", c.branch, c.commitCount, commitLabel)))
+		content.WriteString(fgText.Render(fmt.Sprintf("Branch: %s  •  %d %s", c.branch, c.commitCount, commitLabel)))
 		content.WriteString("\n")
 	}
 
@@ -276,8 +280,7 @@ func (c *CompletionScreen) Render() string {
 	if c.pushState != AutoActionIdle || c.prState != AutoActionIdle {
 		content.WriteString(c.renderAutoActions(innerWidth))
 	} else if !c.hasAutoActions {
-		hintStyle := lipgloss.NewStyle().Foreground(MutedColor)
-		content.WriteString(hintStyle.Render("Configure auto-push and PR in settings (,)"))
+		content.WriteString(fgMuted.Render("Configure auto-push and PR in settings (,)"))
 		content.WriteString("\n")
 	}
 
@@ -285,7 +288,6 @@ func (c *CompletionScreen) Render() string {
 	content.WriteString(DividerStyle.Render(strings.Repeat("─", innerWidth)))
 	content.WriteString("\n")
 
-	fStyle := lipgloss.NewStyle().Foreground(MutedColor)
 	var shortcuts []string
 	if c.branch != "" {
 		shortcuts = append(shortcuts, "m: merge")
@@ -293,20 +295,13 @@ func (c *CompletionScreen) Render() string {
 	}
 	shortcuts = append(shortcuts, "l: switch PRD")
 	shortcuts = append(shortcuts, "q: quit")
-	content.WriteString(fStyle.Render(strings.Join(shortcuts, "  │  ")))
+	content.WriteString(fgMuted.Render(strings.Join(shortcuts, "  │  ")))
 
 	// Calculate dynamic height
 	modalHeight := c.calculateModalHeight()
 
-	// Modal box style
-	modalStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(SuccessColor).
-		Padding(1, 2).
-		Width(modalWidth).
-		Height(modalHeight)
-
-	modal := modalStyle.Render(content.String())
+	// Modal box style (width/height are the only per-render varying parts)
+	modal := completionModalStyle.Width(modalWidth).Height(modalHeight).Render(content.String())
 
 	// Render confetti background and overlay modal
 	if c.confetti != nil && c.confetti.HasParticles() {
@@ -377,14 +372,6 @@ func (c *CompletionScreen) calculateModalHeight() int {
 // renderStoryTimings renders the per-story timing list with mini bar charts.
 func (c *CompletionScreen) renderStoryTimings(innerWidth int) string {
 	var b strings.Builder
-
-	checkStyle := lipgloss.NewStyle().Foreground(SuccessColor)
-	titleStyle := lipgloss.NewStyle().Foreground(TextColor)
-	dotStyle := lipgloss.NewStyle().Foreground(MutedColor)
-	durStyle := lipgloss.NewStyle().Foreground(TextColor)
-	barStyle := lipgloss.NewStyle().Foreground(SuccessColor)
-
-	costStyle := lipgloss.NewStyle().Foreground(MutedColor)
 
 	// Find max duration for proportional bars; detect whether cost data exists.
 	var maxDur time.Duration
@@ -457,29 +444,28 @@ func (c *CompletionScreen) renderStoryTimings(innerWidth int) string {
 		}
 		bar := strings.Repeat("█", barWidth)
 
-		b.WriteString(checkStyle.Render("✓"))
+		b.WriteString(fgSuccess.Render("✓"))
 		b.WriteString(" ")
-		b.WriteString(titleStyle.Render(title))
+		b.WriteString(fgText.Render(title))
 		b.WriteString(" ")
-		b.WriteString(dotStyle.Render(dots))
+		b.WriteString(fgMuted.Render(dots))
 		b.WriteString(" ")
-		b.WriteString(durStyle.Render(durStr))
+		b.WriteString(fgText.Render(durStr))
 		if costW > 0 {
 			costStr := ""
 			if st.Cost > 0 {
 				costStr = formatCost(st.Cost)
 			}
 			// Right-align cost within the reserved column.
-			b.WriteString(costStyle.Render(fmt.Sprintf("%*s", costW, costStr)))
+			b.WriteString(fgMuted.Render(fmt.Sprintf("%*s", costW, costStr)))
 		}
 		b.WriteString("  ")
-		b.WriteString(barStyle.Render(bar))
+		b.WriteString(fgSuccess.Render(bar))
 		b.WriteString("\n")
 	}
 
 	if truncated > 0 {
-		moreStyle := lipgloss.NewStyle().Foreground(MutedColor)
-		b.WriteString(moreStyle.Render(fmt.Sprintf("  ... and %d more", truncated)))
+		b.WriteString(fgMuted.Render(fmt.Sprintf("  ... and %d more", truncated)))
 		b.WriteString("\n")
 	}
 
@@ -493,25 +479,20 @@ var spinnerChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 func (c *CompletionScreen) renderAutoActions(innerWidth int) string {
 	var lines strings.Builder
 
-	infoStyle := lipgloss.NewStyle().Foreground(TextColor)
-	successStyle := lipgloss.NewStyle().Foreground(SuccessColor)
-	errorStyle := lipgloss.NewStyle().Foreground(ErrorColor)
-	spinnerStyle := lipgloss.NewStyle().Foreground(PrimaryColor)
-
 	// Summary status
 	if c.summaryState != AutoActionIdle {
 		switch c.summaryState {
 		case AutoActionInProgress:
 			frame := spinnerChars[c.spinnerFrame%len(spinnerChars)]
-			lines.WriteString(spinnerStyle.Render(fmt.Sprintf("%s Writing run summary...", frame)))
+			lines.WriteString(fgPrimary.Render(fmt.Sprintf("%s Writing run summary...", frame)))
 		case AutoActionSuccess:
 			label := "✓ Wrote run summary"
 			if c.summaryFile != "" {
 				label += fmt.Sprintf(" (%s)", c.summaryFile)
 			}
-			lines.WriteString(successStyle.Render(label))
+			lines.WriteString(fgSuccess.Render(label))
 		case AutoActionError:
-			lines.WriteString(errorStyle.Render(fmt.Sprintf("✗ Summary failed: %s", c.summaryError)))
+			lines.WriteString(fgError.Render(fmt.Sprintf("✗ Summary failed: %s", c.summaryError)))
 		}
 		lines.WriteString("\n")
 	}
@@ -521,11 +502,11 @@ func (c *CompletionScreen) renderAutoActions(innerWidth int) string {
 		switch c.pushState {
 		case AutoActionInProgress:
 			frame := spinnerChars[c.spinnerFrame%len(spinnerChars)]
-			lines.WriteString(spinnerStyle.Render(fmt.Sprintf("%s Pushing branch to remote...", frame)))
+			lines.WriteString(fgPrimary.Render(fmt.Sprintf("%s Pushing branch to remote...", frame)))
 		case AutoActionSuccess:
-			lines.WriteString(successStyle.Render("✓ Pushed branch to remote"))
+			lines.WriteString(fgSuccess.Render("✓ Pushed branch to remote"))
 		case AutoActionError:
-			lines.WriteString(errorStyle.Render(fmt.Sprintf("✗ Push failed: %s", c.pushError)))
+			lines.WriteString(fgError.Render(fmt.Sprintf("✗ Push failed: %s", c.pushError)))
 		}
 		lines.WriteString("\n")
 	}
@@ -535,84 +516,19 @@ func (c *CompletionScreen) renderAutoActions(innerWidth int) string {
 		switch c.prState {
 		case AutoActionInProgress:
 			frame := spinnerChars[c.spinnerFrame%len(spinnerChars)]
-			lines.WriteString(spinnerStyle.Render(fmt.Sprintf("%s Creating pull request...", frame)))
+			lines.WriteString(fgPrimary.Render(fmt.Sprintf("%s Creating pull request...", frame)))
 		case AutoActionSuccess:
-			lines.WriteString(successStyle.Render(fmt.Sprintf("✓ Created PR: %s", c.prTitle)))
+			lines.WriteString(fgSuccess.Render(fmt.Sprintf("✓ Created PR: %s", c.prTitle)))
 			lines.WriteString("\n")
-			lines.WriteString(infoStyle.Render(fmt.Sprintf("  %s", c.prURL)))
+			lines.WriteString(fgText.Render(fmt.Sprintf("  %s", c.prURL)))
 		case AutoActionError:
-			lines.WriteString(errorStyle.Render(fmt.Sprintf("✗ PR creation failed: %s", c.prError)))
+			lines.WriteString(fgError.Render(fmt.Sprintf("✗ PR creation failed: %s", c.prError)))
 		}
 		lines.WriteString("\n")
 	}
 
 	_ = innerWidth
 	return lines.String()
-}
-
-// formatPRDTitle converts a kebab-case PRD name to title case.
-func formatPRDTitle(name string) string {
-	words := strings.Split(name, "-")
-	for i, w := range words {
-		if len(w) > 0 {
-			words[i] = strings.ToUpper(w[:1]) + w[1:]
-		}
-	}
-	return strings.Join(words, " ")
-}
-
-// ansiTruncate returns the first maxWidth visual columns of an ANSI-styled string,
-// properly passing through escape sequences without counting them as visible width.
-func ansiTruncate(s string, maxWidth int) string {
-	var result strings.Builder
-	width := 0
-	inEscape := false
-	for _, r := range s {
-		if r == '\033' {
-			inEscape = true
-			result.WriteRune(r)
-			continue
-		}
-		if inEscape {
-			result.WriteRune(r)
-			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
-				inEscape = false
-			}
-			continue
-		}
-		if width >= maxWidth {
-			break
-		}
-		result.WriteRune(r)
-		width++
-	}
-	// Reset any open ANSI styling
-	result.WriteString("\033[0m")
-	return result.String()
-}
-
-// ansiSkip skips the first skipWidth visual columns of an ANSI-styled string
-// and returns the remainder.
-func ansiSkip(s string, skipWidth int) string {
-	width := 0
-	inEscape := false
-	for i, r := range s {
-		if r == '\033' {
-			inEscape = true
-			continue
-		}
-		if inEscape {
-			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
-				inEscape = false
-			}
-			continue
-		}
-		if width >= skipWidth {
-			return s[i:]
-		}
-		width++
-	}
-	return ""
 }
 
 // overlayModal composites a modal on top of a background, centering the modal.
@@ -667,41 +583,4 @@ func overlayModal(background, modal string, screenWidth, screenHeight int) strin
 	}
 
 	return strings.Join(bgLines[:screenHeight], "\n")
-}
-
-// centerModal centers a modal string on the screen.
-func centerModal(modal string, screenWidth, screenHeight int) string {
-	lines := strings.Split(modal, "\n")
-	modalHeight := len(lines)
-	modalWidth := 0
-	for _, line := range lines {
-		if lipgloss.Width(line) > modalWidth {
-			modalWidth = lipgloss.Width(line)
-		}
-	}
-
-	topPadding := (screenHeight - modalHeight) / 2
-	leftPadding := (screenWidth - modalWidth) / 2
-
-	if topPadding < 0 {
-		topPadding = 0
-	}
-	if leftPadding < 0 {
-		leftPadding = 0
-	}
-
-	var result strings.Builder
-
-	for i := 0; i < topPadding; i++ {
-		result.WriteString("\n")
-	}
-
-	leftPad := strings.Repeat(" ", leftPadding)
-	for _, line := range lines {
-		result.WriteString(leftPad)
-		result.WriteString(line)
-		result.WriteString("\n")
-	}
-
-	return result.String()
 }

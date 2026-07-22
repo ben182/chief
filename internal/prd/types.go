@@ -53,6 +53,39 @@ func (p *PRD) AllComplete() bool {
 	return true
 }
 
+// CompletedCount returns the number of stories that have passed.
+func (p *PRD) CompletedCount() int {
+	n := 0
+	for _, story := range p.UserStories {
+		if story.Passes {
+			n++
+		}
+	}
+	return n
+}
+
+// Completed returns the stories that have passed, in PRD order.
+func (p *PRD) Completed() []UserStory {
+	var out []UserStory
+	for _, story := range p.UserStories {
+		if story.Passes {
+			out = append(out, story)
+		}
+	}
+	return out
+}
+
+// Incomplete returns the stories that have not yet passed, in PRD order.
+func (p *PRD) Incomplete() []UserStory {
+	var out []UserStory
+	for _, story := range p.UserStories {
+		if !story.Passes {
+			out = append(out, story)
+		}
+	}
+	return out
+}
+
 // NextStory returns the next story to work on.
 // It returns:
 //   - First story with inProgress: true (interrupted story), or

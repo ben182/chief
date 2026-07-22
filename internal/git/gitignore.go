@@ -20,56 +20,57 @@ func IsChiefIgnored(dir string) bool {
 	return err == nil
 }
 
-// AddChiefToGitignore adds .chief to the local .gitignore file.
-// Creates the file if it doesn't exist.
-func AddChiefToGitignore(dir string) error {
-	gitignorePath := filepath.Join(dir, ".gitignore")
-
-	// Check if .gitignore exists and if .chief is already in it
-	if _, err := os.Stat(gitignorePath); err == nil {
-		// File exists, check if .chief is already there
-		content, err := os.ReadFile(gitignorePath)
-		if err != nil {
-			return fmt.Errorf("failed to read .gitignore: %w", err)
+// ensureLineInFile makes sure line appears on its own line in the file at path.
+// If the file is missing it is created, prefixed with header (when non-empty)
+// followed by line. If it exists, line is appended (with a separating newline
+// when needed) unless line — or any of aliases — is already present as a
+// trimmed line. It is idempotent and safe to call repeatedly.
+func ensureLineInFile(path, line, header string, aliases ...string) error {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			body := line + "\n"
+			if header != "" {
+				body = header + "\n" + body
+			}
+			return os.WriteFile(path, []byte(body), 0o644)
 		}
+		return err
+	}
 
-		// Check each line for .chief entry
-		lines := strings.Split(string(content), "\n")
-		for _, line := range lines {
-			trimmed := strings.TrimSpace(line)
-			if trimmed == ".chief" || trimmed == ".chief/" {
-				// Already present
+	for _, existing := range strings.Split(string(content), "\n") {
+		trimmed := strings.TrimSpace(existing)
+		if trimmed == line {
+			return nil
+		}
+		for _, a := range aliases {
+			if trimmed == a {
 				return nil
 			}
 		}
-
-		// Append to existing file
-		f, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_WRONLY, 0644)
-		if err != nil {
-			return fmt.Errorf("failed to open .gitignore: %w", err)
-		}
-		defer f.Close()
-
-		// Add newline before if file doesn't end with one
-		if len(content) > 0 && content[len(content)-1] != '\n' {
-			if _, err := f.WriteString("\n"); err != nil {
-				return fmt.Errorf("failed to write to .gitignore: %w", err)
-			}
-		}
-
-		if _, err := f.WriteString(".chief/\n"); err != nil {
-			return fmt.Errorf("failed to write to .gitignore: %w", err)
-		}
-	} else if os.IsNotExist(err) {
-		// Create new .gitignore file
-		if err := os.WriteFile(gitignorePath, []byte(".chief/\n"), 0644); err != nil {
-			return fmt.Errorf("failed to create .gitignore: %w", err)
-		}
-	} else {
-		return fmt.Errorf("failed to check .gitignore: %w", err)
 	}
 
-	return nil
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	// Add a newline before ours if the file doesn't end with one.
+	if len(content) > 0 && content[len(content)-1] != '\n' {
+		if _, err := f.WriteString("\n"); err != nil {
+			return err
+		}
+	}
+	_, err = f.WriteString(line + "\n")
+	return err
+}
+
+// AddChiefToGitignore adds .chief to the local .gitignore file.
+// Creates the file if it doesn't exist. A pre-existing bare ".chief" entry
+// (without trailing slash) counts as already present.
+func AddChiefToGitignore(dir string) error {
+	return ensureLineInFile(filepath.Join(dir, ".gitignore"), ".chief/", "", ".chief")
 }
 
 // IgnoreLogsIn ensures dir's .gitignore carries the `*.log` pattern so chief's
@@ -80,31 +81,7 @@ func AddChiefToGitignore(dir string) error {
 // never matched the timestamped names). Best-effort and idempotent: it writes
 // only when the pattern is missing, and returns silently on any I/O error.
 func IgnoreLogsIn(dir string) {
-	const pattern = "*.log"
-	path := filepath.Join(dir, ".gitignore")
-	content, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			_ = os.WriteFile(path, []byte("# chief run logs — regenerated each run\n"+pattern+"\n"), 0o644)
-		}
-		return
-	}
-	for _, line := range strings.Split(string(content), "\n") {
-		if strings.TrimSpace(line) == pattern {
-			return // already ignored
-		}
-	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	if len(content) > 0 && content[len(content)-1] != '\n' {
-		if _, err := f.WriteString("\n"); err != nil {
-			return
-		}
-	}
-	_, _ = f.WriteString(pattern + "\n")
+	_ = ensureLineInFile(filepath.Join(dir, ".gitignore"), "*.log", "# chief run logs — regenerated each run")
 }
 
 // PromptAddChiefToGitignore asks the user if they want to add .chief to .gitignore.

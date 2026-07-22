@@ -157,13 +157,8 @@ type cursorFunctionCall struct {
 // ParseLineCursor parses a single line of Cursor CLI stream-json NDJSON and returns an Event.
 // If the line cannot be parsed or is not relevant, it returns nil.
 func ParseLineCursor(line string) *Event {
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return nil
-	}
-
-	var ev cursorEvent
-	if err := json.Unmarshal([]byte(line), &ev); err != nil {
+	ev, ok := decodeLine[cursorEvent](line)
+	if !ok {
 		return nil
 	}
 
@@ -200,14 +195,12 @@ func parseCursorAssistantMessage(raw json.RawMessage) *Event {
 		if block.Type != "text" {
 			continue
 		}
-		text := block.Text
-		if strings.Contains(text, "<chief-complete/>") {
-			return &Event{Type: EventComplete, Text: text}
+		// Cursor is the only provider that signals whole-PRD completion in text;
+		// the shared <chief-done/> classification handles the per-story case.
+		if strings.Contains(block.Text, chiefCompleteTag) {
+			return &Event{Type: EventComplete, Text: block.Text}
 		}
-		if strings.Contains(text, "<chief-done/>") {
-			return &Event{Type: EventStoryDone, Text: text}
-		}
-		return &Event{Type: EventAssistantText, Text: text}
+		return classifyAssistantText(block.Text)
 	}
 	return nil
 }
@@ -231,83 +224,46 @@ func parseCursorToolCall(subtype string, raw json.RawMessage) *Event {
 	return nil
 }
 
+// argMapping copies a source arg key from a Cursor tool call into the input key
+// the TUI expects (e.g. Cursor's "path" -> the TUI's "file_path").
+type argMapping struct{ src, dst string }
+
+// cursorInput builds a ToolInput map by copying the named string args from a
+// Cursor tool call's Args (skipping any that are absent or non-string). It always
+// returns a non-nil map, matching the previous per-tool behavior.
+func cursorInput(args map[string]interface{}, mappings ...argMapping) map[string]interface{} {
+	input := make(map[string]interface{})
+	for _, m := range mappings {
+		if v, ok := args[m.src].(string); ok {
+			input[m.dst] = v
+		}
+	}
+	return input
+}
+
 // cursorToolCallNameAndInput returns display name (PascalCase for TUI icons) and optional ToolInput for the log.
 func cursorToolCallNameAndInput(tc *cursorToolCall) (name string, input map[string]interface{}) {
-	if tc.ReadToolCall != nil {
-		input = make(map[string]interface{})
-		if path, ok := tc.ReadToolCall.Args["path"].(string); ok {
-			input["file_path"] = path
-		}
-		return "Read", input
-	}
-	if tc.WriteToolCall != nil {
-		input = make(map[string]interface{})
-		if path, ok := tc.WriteToolCall.Args["path"].(string); ok {
-			input["file_path"] = path
-		}
-		return "Write", input
-	}
-	if tc.EditToolCall != nil {
-		input = make(map[string]interface{})
-		if path, ok := tc.EditToolCall.Args["path"].(string); ok {
-			input["file_path"] = path
-		}
-		return "Edit", input
-	}
-	if tc.ShellToolCall != nil {
-		input = make(map[string]interface{})
-		if cmd, ok := tc.ShellToolCall.Args["command"].(string); ok {
-			input["command"] = cmd
-		}
-		return "Bash", input
-	}
-	if tc.GrepToolCall != nil {
-		input = make(map[string]interface{})
-		if pattern, ok := tc.GrepToolCall.Args["pattern"].(string); ok {
-			input["pattern"] = pattern
-		}
-		if path, ok := tc.GrepToolCall.Args["path"].(string); ok {
-			input["path"] = path
-		}
-		return "Grep", input
-	}
-	if tc.GlobToolCall != nil {
-		input = make(map[string]interface{})
-		if pattern, ok := tc.GlobToolCall.Args["globPattern"].(string); ok {
-			input["pattern"] = pattern
-		}
-		if dir, ok := tc.GlobToolCall.Args["targetDirectory"].(string); ok {
-			input["path"] = dir
-		}
-		return "Glob", input
-	}
-	if tc.LsToolCall != nil {
-		input = make(map[string]interface{})
-		if path, ok := tc.LsToolCall.Args["path"].(string); ok {
-			input["path"] = path
-		}
-		return "List", input
-	}
-	if tc.DeleteToolCall != nil {
-		input = make(map[string]interface{})
-		if path, ok := tc.DeleteToolCall.Args["path"].(string); ok {
-			input["file_path"] = path
-		}
-		return "Delete", input
-	}
-	if tc.WebFetchToolCall != nil {
-		input = make(map[string]interface{})
-		if url, ok := tc.WebFetchToolCall.Args["url"].(string); ok {
-			input["url"] = url
-		}
-		return "WebFetch", input
-	}
-	if tc.WebSearchToolCall != nil {
-		input = make(map[string]interface{})
-		if term, ok := tc.WebSearchToolCall.Args["searchTerm"].(string); ok {
-			input["query"] = term
-		}
-		return "WebSearch", input
+	switch {
+	case tc.ReadToolCall != nil:
+		return "Read", cursorInput(tc.ReadToolCall.Args, argMapping{"path", "file_path"})
+	case tc.WriteToolCall != nil:
+		return "Write", cursorInput(tc.WriteToolCall.Args, argMapping{"path", "file_path"})
+	case tc.EditToolCall != nil:
+		return "Edit", cursorInput(tc.EditToolCall.Args, argMapping{"path", "file_path"})
+	case tc.ShellToolCall != nil:
+		return "Bash", cursorInput(tc.ShellToolCall.Args, argMapping{"command", "command"})
+	case tc.GrepToolCall != nil:
+		return "Grep", cursorInput(tc.GrepToolCall.Args, argMapping{"pattern", "pattern"}, argMapping{"path", "path"})
+	case tc.GlobToolCall != nil:
+		return "Glob", cursorInput(tc.GlobToolCall.Args, argMapping{"globPattern", "pattern"}, argMapping{"targetDirectory", "path"})
+	case tc.LsToolCall != nil:
+		return "List", cursorInput(tc.LsToolCall.Args, argMapping{"path", "path"})
+	case tc.DeleteToolCall != nil:
+		return "Delete", cursorInput(tc.DeleteToolCall.Args, argMapping{"path", "file_path"})
+	case tc.WebFetchToolCall != nil:
+		return "WebFetch", cursorInput(tc.WebFetchToolCall.Args, argMapping{"url", "url"})
+	case tc.WebSearchToolCall != nil:
+		return "WebSearch", cursorInput(tc.WebSearchToolCall.Args, argMapping{"searchTerm", "query"})
 	}
 	if tc.Function != nil && tc.Function.Name != "" {
 		// TUI knows "Bash" for command execution; Cursor may use different names

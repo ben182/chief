@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -48,38 +47,53 @@ var timingCommentRegex = regexp.MustCompile(`^\s*<!-- chief-timing (.+?) -->\s*$
 // string (the story ID) or a bare number.
 var timingFieldRegex = regexp.MustCompile(`(\w+)=("(?:[^"\\]|\\.)*"|\S+)`)
 
-// ParseProgress reads and parses a progress.md file.
-// Returns a map of story ID -> list of progress entries (one per session/date).
-func ParseProgress(path string) (map[string][]ProgressEntry, error) {
+// ParseProgressFile reads progress.md once and returns both the human-readable
+// progress entries (story ID -> sessions) and the chief-owned timing records.
+// ParseProgress and ParseTimings are thin wrappers around it; prefer this when a
+// caller needs both, to avoid opening and scanning the file twice.
+//
+// A missing file is not an error: it yields (nil, nil, nil).
+func ParseProgressFile(path string) (map[string][]ProgressEntry, []Timing, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, nil, nil
 		}
-		return nil, err
+		return nil, nil, err
 	}
 	defer f.Close()
 
-	result := make(map[string][]ProgressEntry)
+	entries := make(map[string][]ProgressEntry)
 	var current *ProgressEntry
 	var lines []string
 
 	flush := func() {
 		if current != nil && len(lines) > 0 {
 			current.Content = strings.Join(lines, "\n")
-			result[current.StoryID] = append(result[current.StoryID], *current)
+			entries[current.StoryID] = append(entries[current.StoryID], *current)
 		}
 		current = nil
 		lines = nil
 	}
 
+	var timings []Timing
+	index := make(map[string]int) // story ID -> position in timings
+
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		// chief-owned timing metadata is machine-readable only and must never
-		// surface in the human-readable progress content.
-		if timingCommentRegex.MatchString(line) {
+		// chief-owned timing metadata is machine-readable only: record it as a
+		// timing and never let it surface in the human-readable progress content.
+		if matches := timingCommentRegex.FindStringSubmatch(line); matches != nil {
+			if t, ok := parseTimingFields(matches[1]); ok {
+				if i, seen := index[t.StoryID]; seen {
+					timings[i] = t
+				} else {
+					index[t.StoryID] = len(timings)
+					timings = append(timings, t)
+				}
+			}
 			continue
 		}
 
@@ -109,48 +123,24 @@ func ParseProgress(path string) (map[string][]ProgressEntry, error) {
 	flush()
 
 	if err := scanner.Err(); err != nil {
-		return result, err
+		return entries, timings, err
 	}
-	return result, nil
+	return entries, timings, nil
+}
+
+// ParseProgress reads and parses a progress.md file.
+// Returns a map of story ID -> list of progress entries (one per session/date).
+func ParseProgress(path string) (map[string][]ProgressEntry, error) {
+	entries, _, err := ParseProgressFile(path)
+	return entries, err
 }
 
 // ParseTimings reads the chief-owned timing records from progress.md. When a
 // story has been timed more than once (e.g. re-run after needs-review, or
 // re-recorded across runs) the most recent record wins, keeping its position.
 func ParseTimings(path string) ([]Timing, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	defer f.Close()
-
-	var timings []Timing
-	index := make(map[string]int) // story ID -> position in timings
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		matches := timingCommentRegex.FindStringSubmatch(scanner.Text())
-		if matches == nil {
-			continue
-		}
-		t, ok := parseTimingFields(matches[1])
-		if !ok {
-			continue
-		}
-		if i, seen := index[t.StoryID]; seen {
-			timings[i] = t
-		} else {
-			index[t.StoryID] = len(timings)
-			timings = append(timings, t)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return timings, err
-	}
-	return timings, nil
+	_, timings, err := ParseProgressFile(path)
+	return timings, err
 }
 
 // parseTimingFields turns the attribute string of a timing comment into a
@@ -215,96 +205,48 @@ func AppendTiming(path string, t Timing) error {
 	return err
 }
 
-// ProgressWatcher watches progress.md for changes and sends parsed entries.
+// ProgressWatcher watches progress.md for changes and sends parsed entries. It
+// builds on fileWatcher for the shared start/stop/event-loop lifecycle.
 type ProgressWatcher struct {
-	dir     string
-	watcher *fsnotify.Watcher
-	events  chan map[string][]ProgressEntry
-	done    chan struct{}
-	mu      sync.Mutex
-	running bool
+	*fileWatcher[map[string][]ProgressEntry]
+	dir string
 }
 
 // NewProgressWatcher creates a new watcher for progress.md in the same
 // directory as the given prd.md path.
 func NewProgressWatcher(prdPath string) (*ProgressWatcher, error) {
-	dir := filepath.Dir(prdPath)
-	fsWatcher, err := fsnotify.NewWatcher()
+	base, err := newFileWatcher[map[string][]ProgressEntry](10)
 	if err != nil {
 		return nil, err
 	}
-	return &ProgressWatcher{
-		dir:     dir,
-		watcher: fsWatcher,
-		events:  make(chan map[string][]ProgressEntry, 10),
-		done:    make(chan struct{}),
-	}, nil
+	return &ProgressWatcher{fileWatcher: base, dir: filepath.Dir(prdPath)}, nil
 }
 
 // Start begins watching for progress.md changes.
 func (w *ProgressWatcher) Start() error {
-	w.mu.Lock()
-	if w.running {
-		w.mu.Unlock()
+	if !w.start() {
 		return nil
 	}
-	w.running = true
-	w.mu.Unlock()
 
 	// Watch the directory so we catch creates and writes
 	if err := w.watcher.Add(w.dir); err != nil {
 		return err
 	}
 
-	go w.processEvents()
+	go w.process(w.onEvent, nil)
 	return nil
 }
 
-// Stop stops watching.
-func (w *ProgressWatcher) Stop() {
-	w.mu.Lock()
-	if !w.running {
-		w.mu.Unlock()
+// onEvent re-parses progress.md whenever it is written or created.
+func (w *ProgressWatcher) onEvent(event fsnotify.Event) {
+	if event.Op&(fsnotify.Write|fsnotify.Create) == 0 {
 		return
 	}
-	w.running = false
-	w.mu.Unlock()
-
-	close(w.done)
-	w.watcher.Close()
-}
-
-// Events returns the channel for receiving parsed progress data.
-func (w *ProgressWatcher) Events() <-chan map[string][]ProgressEntry {
-	return w.events
-}
-
-// processEvents listens for filesystem events and re-parses progress.md on change.
-func (w *ProgressWatcher) processEvents() {
-	progressPath := filepath.Join(w.dir, "progress.md")
-	for {
-		select {
-		case <-w.done:
-			close(w.events)
-			return
-
-		case event, ok := <-w.watcher.Events:
-			if !ok {
-				return
-			}
-			if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
-				if filepath.Base(event.Name) == "progress.md" {
-					entries, err := ParseProgress(progressPath)
-					if err == nil && entries != nil {
-						w.events <- entries
-					}
-				}
-			}
-
-		case _, ok := <-w.watcher.Errors:
-			if !ok {
-				return
-			}
-		}
+	if filepath.Base(event.Name) != "progress.md" {
+		return
+	}
+	entries, err := ParseProgress(filepath.Join(w.dir, "progress.md"))
+	if err == nil && entries != nil {
+		w.events <- entries
 	}
 }

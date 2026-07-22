@@ -176,7 +176,7 @@ func (m ModelSelect) View() string {
 	}
 	content.WriteString(titleStyle.Render(heading))
 	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n\n")
 
 	if m.customMode {
@@ -185,13 +185,9 @@ func (m ModelSelect) View() string {
 		m.renderList(&content, modalWidth)
 	}
 
-	modalStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(PrimaryColor).
-		Padding(1, 2).
-		Width(modalWidth)
+	modalStyle := modalBoxStyle(PrimaryColor).Width(modalWidth)
 
-	return m.centerModal(modalStyle.Render(content.String()))
+	return centerModal(modalStyle.Render(content.String()), m.width, m.height)
 }
 
 func (m ModelSelect) renderList(content *strings.Builder, modalWidth int) {
@@ -216,7 +212,7 @@ func (m ModelSelect) renderList(content *strings.Builder, modalWidth int) {
 	}
 
 	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n")
 	footerStyle := lipgloss.NewStyle().Foreground(MutedColor)
 	content.WriteString(footerStyle.Render("↑/↓: Navigate  Enter: Select  Esc: Cancel"))
@@ -239,42 +235,10 @@ func (m ModelSelect) renderCustom(content *strings.Builder, modalWidth int) {
 	content.WriteString(hintStyle.Render("e.g. claude-opus-4-8, or an alias like sonnet"))
 
 	content.WriteString("\n\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n")
 	footerStyle := lipgloss.NewStyle().Foreground(MutedColor)
 	content.WriteString(footerStyle.Render("Enter: Confirm  Esc: Back  Ctrl+C: Cancel"))
-}
-
-func (m ModelSelect) centerModal(modal string) string {
-	lines := strings.Split(modal, "\n")
-	modalHeight := len(lines)
-	modalWidth := 0
-	for _, line := range lines {
-		if lipgloss.Width(line) > modalWidth {
-			modalWidth = lipgloss.Width(line)
-		}
-	}
-
-	topPadding := (m.height - modalHeight) / 2
-	leftPadding := (m.width - modalWidth) / 2
-	if topPadding < 0 {
-		topPadding = 0
-	}
-	if leftPadding < 0 {
-		leftPadding = 0
-	}
-
-	var result strings.Builder
-	for i := 0; i < topPadding; i++ {
-		result.WriteString("\n")
-	}
-	leftPad := strings.Repeat(" ", leftPadding)
-	for _, line := range lines {
-		result.WriteString(leftPad)
-		result.WriteString(line)
-		result.WriteString("\n")
-	}
-	return result.String()
 }
 
 // RunModelSelect runs the picker and returns the chosen model ("" = use the

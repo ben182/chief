@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/ben182/chief/embed"
 	"github.com/ben182/chief/internal/loop"
@@ -19,26 +18,11 @@ type EditOptions struct {
 
 // RunEdit edits an existing PRD by launching an interactive Claude session.
 func RunEdit(opts EditOptions) error {
-	// Set defaults
-	if opts.Name == "" {
-		opts.Name = "default"
+	name, baseDir, prdDir, prdMdPath, err := preparePRDPaths(opts.Name, opts.BaseDir)
+	if err != nil {
+		return err
 	}
-	if opts.BaseDir == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("failed to get current directory: %w", err)
-		}
-		opts.BaseDir = cwd
-	}
-
-	// Validate name
-	if !isValidPRDName(opts.Name) {
-		return fmt.Errorf("invalid PRD name %q: must contain only letters, numbers, hyphens, and underscores", opts.Name)
-	}
-
-	// Build the PRD directory path
-	prdDir := prd.PRDDir(opts.BaseDir, opts.Name)
-	prdMdPath := filepath.Join(prdDir, "prd.md")
+	opts.Name, opts.BaseDir = name, baseDir
 
 	// Check if prd.md exists
 	if _, err := os.Stat(prdMdPath); os.IsNotExist(err) {

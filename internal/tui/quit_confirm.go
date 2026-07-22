@@ -74,7 +74,7 @@ func (q *QuitConfirmation) Render() string {
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(WarningColor)
 	content.WriteString(titleStyle.Render("Quit Chief?"))
 	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n\n")
 
 	// Message
@@ -100,57 +100,18 @@ func (q *QuitConfirmation) Render() string {
 
 	// Footer
 	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n")
 	footerStyle := lipgloss.NewStyle().Foreground(MutedColor)
 	content.WriteString(footerStyle.Render("↑/↓: Navigate  Enter: Select  Esc: Cancel"))
 
 	// Modal box
-	modalStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(WarningColor).
-		Padding(1, 2).
-		Width(modalWidth)
+	modalStyle := modalBoxStyle(WarningColor).Width(modalWidth)
 
 	modal := modalStyle.Render(content.String())
 
 	// Center on screen
-	return q.centerModal(modal)
+	return centerModal(modal, q.width, q.height)
 }
 
 // centerModal centers the modal on the screen.
-func (q *QuitConfirmation) centerModal(modal string) string {
-	lines := strings.Split(modal, "\n")
-	modalHeight := len(lines)
-	modalWidth := 0
-	for _, line := range lines {
-		if lipgloss.Width(line) > modalWidth {
-			modalWidth = lipgloss.Width(line)
-		}
-	}
-
-	topPadding := (q.height - modalHeight) / 2
-	leftPadding := (q.width - modalWidth) / 2
-
-	if topPadding < 0 {
-		topPadding = 0
-	}
-	if leftPadding < 0 {
-		leftPadding = 0
-	}
-
-	var result strings.Builder
-
-	for i := 0; i < topPadding; i++ {
-		result.WriteString("\n")
-	}
-
-	leftPad := strings.Repeat(" ", leftPadding)
-	for _, line := range lines {
-		result.WriteString(leftPad)
-		result.WriteString(line)
-		result.WriteString("\n")
-	}
-
-	return result.String()
-}

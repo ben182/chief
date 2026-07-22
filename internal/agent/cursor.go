@@ -83,17 +83,11 @@ func (p *CursorProvider) CleanOutput(output string) string {
 	if json.Unmarshal([]byte(output), &single) == nil && single.Type == "result" && single.Subtype == "success" && single.Result != "" {
 		return single.Result
 	}
-	// NDJSON: find last result/success line
-	lines := strings.Split(output, "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := strings.TrimSpace(lines[i])
-		if line == "" {
-			continue
-		}
-		var ev cursorResultLine
-		if json.Unmarshal([]byte(line), &ev) == nil && ev.Type == "result" && ev.Subtype == "success" && ev.Result != "" {
-			return ev.Result
-		}
+	// NDJSON: return the last result/success line's result.
+	if result := lastMatchingLine(output, func(ev cursorResultLine) (string, bool) {
+		return ev.Result, ev.Type == "result" && ev.Subtype == "success" && ev.Result != ""
+	}); result != "" {
+		return result
 	}
 	return output
 }

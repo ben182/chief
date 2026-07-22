@@ -43,6 +43,11 @@ var (
 	// Header border/divider
 	HeaderBorderStyle = lipgloss.NewStyle().
 				Foreground(BorderColor)
+
+	// View indicator (e.g. "[Log View]", "[Diff]") shown in view headers
+	viewIndicatorStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(PrimaryColor)
 )
 
 // Footer styles
@@ -109,6 +114,22 @@ var (
 	StateErrorStyle    = lipgloss.NewStyle().Bold(true).Foreground(ErrorColor)
 )
 
+// Shared single-color foreground styles.
+//
+// These are reused across per-frame render paths (dashboard header/indicators,
+// completion screen confetti loop, picker modals) so hot render loops don't
+// reallocate an identical lipgloss.Style on every frame. lipgloss.Style values
+// are immutable: Render never mutates the receiver and chained setters return
+// copies, so sharing a package-level base is safe.
+var (
+	fgText    = lipgloss.NewStyle().Foreground(TextColor)
+	fgMuted   = lipgloss.NewStyle().Foreground(MutedColor)
+	fgSuccess = lipgloss.NewStyle().Foreground(SuccessColor)
+	fgError   = lipgloss.NewStyle().Foreground(ErrorColor)
+	fgPrimary = lipgloss.NewStyle().Foreground(PrimaryColor)
+	fgWarning = lipgloss.NewStyle().Foreground(WarningColor)
+)
+
 // Title and label styles
 var (
 	titleStyle = lipgloss.NewStyle().
@@ -145,6 +166,12 @@ var (
 	ActivityCompleteStyle = lipgloss.NewStyle().Foreground(SuccessColor).Padding(0, 1)
 	ActivityMutedStyle    = lipgloss.NewStyle().Foreground(MutedColor).Padding(0, 1)
 )
+
+// interruptedWarningStyle is the banner shown when a story was interrupted.
+var interruptedWarningStyle = lipgloss.NewStyle().
+	Background(lipgloss.AdaptiveColor{Dark: "#3D3000", Light: "#FFF8C5"}).
+	Foreground(WarningColor).
+	Padding(0, 1)
 
 // Divider styles
 var (

@@ -22,33 +22,52 @@ type NewOptions struct {
 	Provider loop.Provider // Agent CLI provider (Claude or Codex)
 }
 
+// resolveBaseDir returns base when non-empty, otherwise the current working
+// directory. It is the shared default for the CLI commands' BaseDir option.
+func resolveBaseDir(base string) (string, error) {
+	if base != "" {
+		return base, nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current directory: %w", err)
+	}
+	return cwd, nil
+}
+
+// preparePRDPaths applies the default PRD name, resolves the base directory, and
+// validates the name, returning the resolved name/base and the PRD directory and
+// prd.md path. It is the shared front matter of RunNew and RunEdit.
+func preparePRDPaths(name, baseDir string) (resolvedName, resolvedBase, prdDir, prdMdPath string, err error) {
+	if name == "" {
+		name = "default"
+	}
+	baseDir, err = resolveBaseDir(baseDir)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	// Validate name (alphanumeric, -, _)
+	if !isValidPRDName(name) {
+		return "", "", "", "", fmt.Errorf("invalid PRD name %q: must contain only letters, numbers, hyphens, and underscores", name)
+	}
+	prdDir = prd.PRDDir(baseDir, name)
+	return name, baseDir, prdDir, filepath.Join(prdDir, "prd.md"), nil
+}
+
 // RunNew creates a new PRD by launching an interactive agent session.
 func RunNew(opts NewOptions) error {
-	// Set defaults
-	if opts.Name == "" {
-		opts.Name = "default"
+	name, baseDir, prdDir, prdMdPath, err := preparePRDPaths(opts.Name, opts.BaseDir)
+	if err != nil {
+		return err
 	}
-	if opts.BaseDir == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("failed to get current directory: %w", err)
-		}
-		opts.BaseDir = cwd
-	}
-
-	// Validate name (alphanumeric, -, _)
-	if !isValidPRDName(opts.Name) {
-		return fmt.Errorf("invalid PRD name %q: must contain only letters, numbers, hyphens, and underscores", opts.Name)
-	}
+	opts.Name, opts.BaseDir = name, baseDir
 
 	// Create directory structure: .chief/prds/<name>/
-	prdDir := prd.PRDDir(opts.BaseDir, opts.Name)
 	if err := os.MkdirAll(prdDir, 0755); err != nil {
 		return fmt.Errorf("failed to create PRD directory: %w", err)
 	}
 
 	// Check if prd.md already exists
-	prdMdPath := filepath.Join(prdDir, "prd.md")
 	if _, err := os.Stat(prdMdPath); err == nil {
 		return fmt.Errorf("PRD already exists at %s. Use 'chief edit %s' to modify it", prdMdPath, opts.Name)
 	}

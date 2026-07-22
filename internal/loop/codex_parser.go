@@ -1,9 +1,7 @@
 package loop
 
 import (
-	"encoding/json"
 	"errors"
-	"strings"
 )
 
 // codexEvent represents the top-level structure of a Codex exec --json JSONL line.
@@ -32,13 +30,8 @@ type codexItem struct {
 // ParseLineCodex parses a single line of Codex exec --json JSONL output and returns an Event.
 // If the line cannot be parsed or is not relevant, it returns nil.
 func ParseLineCodex(line string) *Event {
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return nil
-	}
-
-	var ev codexEvent
-	if err := json.Unmarshal([]byte(line), &ev); err != nil {
+	ev, ok := decodeLine[codexEvent](line)
+	if !ok {
 		return nil
 	}
 
@@ -101,11 +94,7 @@ func ParseLineCodex(line string) *Event {
 				Text: ev.Item.AggregatedOutput,
 			}
 		case "agent_message":
-			text := ev.Item.Text
-			if strings.Contains(text, "<chief-done/>") {
-				return &Event{Type: EventStoryDone, Text: text}
-			}
-			return &Event{Type: EventAssistantText, Text: text}
+			return classifyAssistantText(ev.Item.Text)
 		case "file_change":
 			return &Event{
 				Type: EventToolResult,

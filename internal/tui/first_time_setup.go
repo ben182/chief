@@ -213,10 +213,13 @@ func (f FirstTimeSetup) handlePRDNameKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// prdNameRegex matches valid PRD names (letters, digits, hyphens, underscores).
+// Compiled once at package init because isValidPRDName runs on every keystroke.
+var prdNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
 // isValidPRDName checks if a name is valid for a PRD.
 func isValidPRDName(name string) bool {
-	validName := regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
-	return validName.MatchString(name)
+	return prdNameRegex.MatchString(name)
 }
 
 func (f FirstTimeSetup) handlePostCompletionKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -400,7 +403,7 @@ func (f FirstTimeSetup) renderGitignoreStep() string {
 		Foreground(PrimaryColor)
 	content.WriteString(titleStyle.Render("Welcome to Chief!"))
 	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n\n")
 
 	// Message
@@ -447,22 +450,18 @@ func (f FirstTimeSetup) renderGitignoreStep() string {
 
 	// Footer
 	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n")
 
 	footerStyle := lipgloss.NewStyle().Foreground(MutedColor)
 	content.WriteString(footerStyle.Render("↑/↓: Navigate  Enter: Select  y/n: Quick select  Esc: Cancel"))
 
 	// Modal box
-	modalStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(PrimaryColor).
-		Padding(1, 2).
-		Width(modalWidth)
+	modalStyle := modalBoxStyle(PrimaryColor).Width(modalWidth)
 
 	modal := modalStyle.Render(content.String())
 
-	return f.centerModal(modal)
+	return centerModal(modal, f.width, f.height)
 }
 
 func (f FirstTimeSetup) renderPRDNameStep() string {
@@ -485,7 +484,7 @@ func (f FirstTimeSetup) renderPRDNameStep() string {
 
 	content.WriteString(titleStyle.Render("Create Your First PRD"))
 	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n\n")
 
 	// Message
@@ -521,7 +520,7 @@ func (f FirstTimeSetup) renderPRDNameStep() string {
 
 	// Footer
 	content.WriteString("\n\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n")
 
 	footerStyle := lipgloss.NewStyle().Foreground(MutedColor)
@@ -532,15 +531,11 @@ func (f FirstTimeSetup) renderPRDNameStep() string {
 	}
 
 	// Modal box
-	modalStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(PrimaryColor).
-		Padding(1, 2).
-		Width(modalWidth)
+	modalStyle := modalBoxStyle(PrimaryColor).Width(modalWidth)
 
 	modal := modalStyle.Render(content.String())
 
-	return f.centerModal(modal)
+	return centerModal(modal, f.width, f.height)
 }
 
 func (f FirstTimeSetup) renderPostCompletionStep() string {
@@ -566,7 +561,7 @@ func (f FirstTimeSetup) renderPostCompletionStep() string {
 		Foreground(PrimaryColor)
 	content.WriteString(titleStyle.Render("Post-Completion Settings"))
 	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n\n")
 
 	// Description
@@ -631,22 +626,18 @@ func (f FirstTimeSetup) renderPostCompletionStep() string {
 
 	// Footer
 	content.WriteString("\n\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n")
 
 	footerStyle := lipgloss.NewStyle().Foreground(MutedColor)
 	content.WriteString(footerStyle.Render("↑/↓: Navigate  ←/→/Space: Toggle  y/n: Quick set  Enter: Continue  Esc: Back"))
 
 	// Modal box
-	modalStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(PrimaryColor).
-		Padding(1, 2).
-		Width(modalWidth)
+	modalStyle := modalBoxStyle(PrimaryColor).Width(modalWidth)
 
 	modal := modalStyle.Render(content.String())
 
-	return f.centerModal(modal)
+	return centerModal(modal, f.width, f.height)
 }
 
 func (f FirstTimeSetup) renderGHErrorStep() string {
@@ -663,7 +654,7 @@ func (f FirstTimeSetup) renderGHErrorStep() string {
 		Foreground(ErrorColor)
 	content.WriteString(titleStyle.Render("GitHub CLI Issue"))
 	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n\n")
 
 	// Error message
@@ -696,58 +687,18 @@ func (f FirstTimeSetup) renderGHErrorStep() string {
 
 	// Footer
 	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n")
 
 	footerStyle := lipgloss.NewStyle().Foreground(MutedColor)
 	content.WriteString(footerStyle.Render("↑/↓: Navigate  Enter: Select  Esc: Back"))
 
 	// Modal box
-	modalStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ErrorColor).
-		Padding(1, 2).
-		Width(modalWidth)
+	modalStyle := modalBoxStyle(ErrorColor).Width(modalWidth)
 
 	modal := modalStyle.Render(content.String())
 
-	return f.centerModal(modal)
-}
-
-func (f FirstTimeSetup) centerModal(modal string) string {
-	lines := strings.Split(modal, "\n")
-	modalHeight := len(lines)
-	modalWidth := 0
-	for _, line := range lines {
-		if lipgloss.Width(line) > modalWidth {
-			modalWidth = lipgloss.Width(line)
-		}
-	}
-
-	topPadding := (f.height - modalHeight) / 2
-	leftPadding := (f.width - modalWidth) / 2
-
-	if topPadding < 0 {
-		topPadding = 0
-	}
-	if leftPadding < 0 {
-		leftPadding = 0
-	}
-
-	var result strings.Builder
-
-	for i := 0; i < topPadding; i++ {
-		result.WriteString("\n")
-	}
-
-	leftPad := strings.Repeat(" ", leftPadding)
-	for _, line := range lines {
-		result.WriteString(leftPad)
-		result.WriteString(line)
-		result.WriteString("\n")
-	}
-
-	return result.String()
+	return centerModal(modal, f.width, f.height)
 }
 
 // GetResult returns the setup result.

@@ -145,23 +145,22 @@ func (m *Manager) Events() <-chan ManagerEvent {
 	return m.events
 }
 
+// lookup returns the instance registered under name, or an error if none is.
+// It holds m.mu only for the map read and returns before the caller takes
+// instance.mu, preserving the m.mu -> instance.mu lock order used throughout.
+func (m *Manager) lookup(name string) (*LoopInstance, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	instance, exists := m.instances[name]
+	if !exists {
+		return nil, fmt.Errorf("PRD %s not found", name)
+	}
+	return instance, nil
+}
+
 // Register registers a PRD with the manager (does not start it).
 func (m *Manager) Register(name, prdPath string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Check if already registered
-	if _, exists := m.instances[name]; exists {
-		return fmt.Errorf("PRD %s is already registered", name)
-	}
-
-	m.instances[name] = &LoopInstance{
-		Name:    name,
-		PRDPath: prdPath,
-		State:   LoopStateReady,
-	}
-
-	return nil
+	return m.RegisterWithWorktree(name, prdPath, "", "")
 }
 
 // RegisterWithWorktree registers a PRD with worktree metadata (does not start it).
@@ -187,12 +186,9 @@ func (m *Manager) RegisterWithWorktree(name, prdPath, worktreeDir, branch string
 
 // Unregister removes a PRD from the manager (stops it first if running).
 func (m *Manager) Unregister(name string) error {
-	m.mu.Lock()
-	instance, exists := m.instances[name]
-	m.mu.Unlock()
-
-	if !exists {
-		return fmt.Errorf("PRD %s not found", name)
+	instance, err := m.lookup(name)
+	if err != nil {
+		return err
 	}
 
 	// Stop if running
@@ -349,12 +345,9 @@ func (m *Manager) runLoop(instance *LoopInstance) {
 
 // Pause pauses the loop for a specific PRD (stops after current iteration).
 func (m *Manager) Pause(name string) error {
-	m.mu.RLock()
-	instance, exists := m.instances[name]
-	m.mu.RUnlock()
-
-	if !exists {
-		return fmt.Errorf("PRD %s not found", name)
+	instance, err := m.lookup(name)
+	if err != nil {
+		return err
 	}
 
 	instance.mu.Lock()
@@ -373,12 +366,9 @@ func (m *Manager) Pause(name string) error {
 
 // Stop stops the loop for a specific PRD immediately.
 func (m *Manager) Stop(name string) error {
-	m.mu.RLock()
-	instance, exists := m.instances[name]
-	m.mu.RUnlock()
-
-	if !exists {
-		return fmt.Errorf("PRD %s not found", name)
+	instance, err := m.lookup(name)
+	if err != nil {
+		return err
 	}
 
 	instance.mu.Lock()
@@ -402,12 +392,9 @@ func (m *Manager) Stop(name string) error {
 
 // UpdateWorktreeInfo updates the worktree directory and branch for an existing PRD instance.
 func (m *Manager) UpdateWorktreeInfo(name, worktreeDir, branch string) error {
-	m.mu.RLock()
-	instance, exists := m.instances[name]
-	m.mu.RUnlock()
-
-	if !exists {
-		return fmt.Errorf("PRD %s not found", name)
+	instance, err := m.lookup(name)
+	if err != nil {
+		return err
 	}
 
 	instance.mu.Lock()
@@ -421,12 +408,9 @@ func (m *Manager) UpdateWorktreeInfo(name, worktreeDir, branch string) error {
 
 // ClearWorktreeInfo clears the worktree directory and optionally the branch for a PRD instance.
 func (m *Manager) ClearWorktreeInfo(name string, clearBranch bool) error {
-	m.mu.RLock()
-	instance, exists := m.instances[name]
-	m.mu.RUnlock()
-
-	if !exists {
-		return fmt.Errorf("PRD %s not found", name)
+	instance, err := m.lookup(name)
+	if err != nil {
+		return err
 	}
 
 	instance.mu.Lock()
@@ -442,12 +426,9 @@ func (m *Manager) ClearWorktreeInfo(name string, clearBranch bool) error {
 
 // GetState returns the state of a specific PRD loop.
 func (m *Manager) GetState(name string) (LoopState, int, error) {
-	m.mu.RLock()
-	instance, exists := m.instances[name]
-	m.mu.RUnlock()
-
-	if !exists {
-		return LoopStateReady, 0, fmt.Errorf("PRD %s not found", name)
+	instance, err := m.lookup(name)
+	if err != nil {
+		return LoopStateReady, 0, err
 	}
 
 	instance.mu.Lock()
@@ -456,30 +437,32 @@ func (m *Manager) GetState(name string) (LoopState, int, error) {
 	return instance.State, instance.Iteration, instance.Error
 }
 
+// snapshot returns a copy of the instance's metadata taken under instance.mu, so
+// callers get a consistent, race-free view without holding a reference to the
+// live struct. Only the plain data fields are copied; the Loop, context and mutex
+// are intentionally left zero.
+func (i *LoopInstance) snapshot() *LoopInstance {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return &LoopInstance{
+		Name:        i.Name,
+		PRDPath:     i.PRDPath,
+		WorktreeDir: i.WorktreeDir,
+		Branch:      i.Branch,
+		State:       i.State,
+		Iteration:   i.Iteration,
+		StartTime:   i.StartTime,
+		Error:       i.Error,
+	}
+}
+
 // GetInstance returns a copy of the loop instance data for a specific PRD.
 func (m *Manager) GetInstance(name string) *LoopInstance {
-	m.mu.RLock()
-	instance, exists := m.instances[name]
-	m.mu.RUnlock()
-
-	if !exists {
+	instance, err := m.lookup(name)
+	if err != nil {
 		return nil
 	}
-
-	instance.mu.Lock()
-	defer instance.mu.Unlock()
-
-	// Return a copy to avoid race conditions
-	return &LoopInstance{
-		Name:        instance.Name,
-		PRDPath:     instance.PRDPath,
-		WorktreeDir: instance.WorktreeDir,
-		Branch:      instance.Branch,
-		State:       instance.State,
-		Iteration:   instance.Iteration,
-		StartTime:   instance.StartTime,
-		Error:       instance.Error,
-	}
+	return instance.snapshot()
 }
 
 // GetAllInstances returns a snapshot of all loop instances.
@@ -489,19 +472,7 @@ func (m *Manager) GetAllInstances() []*LoopInstance {
 
 	result := make([]*LoopInstance, 0, len(m.instances))
 	for _, instance := range m.instances {
-		instance.mu.Lock()
-		copy := &LoopInstance{
-			Name:        instance.Name,
-			PRDPath:     instance.PRDPath,
-			WorktreeDir: instance.WorktreeDir,
-			Branch:      instance.Branch,
-			State:       instance.State,
-			Iteration:   instance.Iteration,
-			StartTime:   instance.StartTime,
-			Error:       instance.Error,
-		}
-		instance.mu.Unlock()
-		result = append(result, copy)
+		result = append(result, instance.snapshot())
 	}
 
 	return result
@@ -567,12 +538,9 @@ func (m *Manager) MaxIterations() int {
 
 // SetMaxIterationsForInstance updates max iterations for a specific running loop.
 func (m *Manager) SetMaxIterationsForInstance(name string, maxIter int) error {
-	m.mu.RLock()
-	instance, exists := m.instances[name]
-	m.mu.RUnlock()
-
-	if !exists {
-		return fmt.Errorf("PRD %s not found", name)
+	instance, err := m.lookup(name)
+	if err != nil {
+		return err
 	}
 
 	instance.mu.Lock()

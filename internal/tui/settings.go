@@ -219,7 +219,7 @@ func (s *SettingsOverlay) Render() string {
 	content.WriteString(strings.Repeat(" ", titlePadding))
 	content.WriteString(path)
 	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n\n")
 
 	// GH error dialog overlay
@@ -232,7 +232,7 @@ func (s *SettingsOverlay) Render() string {
 
 	// Footer
 	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString(dividerLine(modalWidth))
 	content.WriteString("\n")
 
 	footerStyle := lipgloss.NewStyle().
@@ -248,12 +248,7 @@ func (s *SettingsOverlay) Render() string {
 	}
 
 	// Modal box style
-	modalStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(PrimaryColor).
-		Padding(1, 2).
-		Width(modalWidth).
-		Height(modalHeight)
+	modalStyle := modalBoxStyle(PrimaryColor).Width(modalWidth).Height(modalHeight)
 
 	modal := modalStyle.Render(content.String())
 

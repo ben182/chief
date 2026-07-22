@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/ben182/chief/internal/prd"
 )
 
 // Worktree represents a git worktree entry.
@@ -129,7 +131,9 @@ func ListWorktrees(repoDir string) ([]Worktree, error) {
 	return worktrees, nil
 }
 
-// IsWorktree checks if a path is a valid git worktree.
+// IsWorktree checks if a path is inside a git working tree (a worktree or the
+// main repo). It reports true when `git rev-parse --is-inside-work-tree` prints
+// "true" for the path.
 func IsWorktree(path string) bool {
 	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
 	cmd.Dir = path
@@ -137,35 +141,12 @@ func IsWorktree(path string) bool {
 	if err != nil {
 		return false
 	}
-	if strings.TrimSpace(string(output)) != "true" {
-		return false
-	}
-
-	// Verify it's actually a worktree (not the main repo) by checking for .git file
-	cmd = exec.Command("git", "rev-parse", "--git-common-dir")
-	cmd.Dir = path
-	commonDir, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-
-	cmd = exec.Command("git", "rev-parse", "--git-dir")
-	cmd.Dir = path
-	gitDir, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-
-	// In a worktree, --git-dir differs from --git-common-dir
-	// But we also consider the main worktree valid
-	_ = commonDir
-	_ = gitDir
-	return true
+	return strings.TrimSpace(string(output)) == "true"
 }
 
 // WorktreePathForPRD returns the worktree path for a given PRD name.
 func WorktreePathForPRD(baseDir, prdName string) string {
-	return filepath.Join(baseDir, ".chief", "worktrees", prdName)
+	return filepath.Join(prd.WorktreesDir(baseDir), prdName)
 }
 
 // PruneWorktrees runs `git worktree prune` to clean up stale worktree tracking.
@@ -177,7 +158,7 @@ func PruneWorktrees(repoDir string) error {
 // for worktrees that exist on disk. The caller is responsible for determining which are orphaned
 // (i.e., have no corresponding registered/running PRD).
 func DetectOrphanedWorktrees(baseDir string) map[string]string {
-	worktreesDir := filepath.Join(baseDir, ".chief", "worktrees")
+	worktreesDir := prd.WorktreesDir(baseDir)
 	entries, err := os.ReadDir(worktreesDir)
 	if err != nil {
 		return nil

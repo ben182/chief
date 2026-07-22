@@ -21,13 +21,11 @@ func RunStatus(opts StatusOptions) error {
 	if opts.Name == "" {
 		opts.Name = "default"
 	}
-	if opts.BaseDir == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("failed to get current directory: %w", err)
-		}
-		opts.BaseDir = cwd
+	baseDir, err := resolveBaseDir(opts.BaseDir)
+	if err != nil {
+		return err
 	}
+	opts.BaseDir = baseDir
 
 	// Build PRD path
 	prdPath := prd.PRDPath(opts.BaseDir, opts.Name)
@@ -40,15 +38,8 @@ func RunStatus(opts StatusOptions) error {
 
 	// Count completed stories
 	total := len(p.UserStories)
-	completed := 0
-	var incomplete []prd.UserStory
-	for _, story := range p.UserStories {
-		if story.Passes {
-			completed++
-		} else {
-			incomplete = append(incomplete, story)
-		}
-	}
+	completed := p.CompletedCount()
+	incomplete := p.Incomplete()
 
 	// Print project name
 	fmt.Println(p.Project)
@@ -96,13 +87,11 @@ type PRDInfo struct {
 // Returns nil on success, error otherwise. Exit code should be 0 on success.
 func RunList(opts ListOptions) error {
 	// Set defaults
-	if opts.BaseDir == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("failed to get current directory: %w", err)
-		}
-		opts.BaseDir = cwd
+	baseDir, err := resolveBaseDir(opts.BaseDir)
+	if err != nil {
+		return err
 	}
+	opts.BaseDir = baseDir
 
 	// Find all PRDs in .chief/prds/
 	prdsDir := prd.PrdsDir(opts.BaseDir)
@@ -134,12 +123,7 @@ func RunList(opts ListOptions) error {
 
 		// Count completed stories
 		total := len(p.UserStories)
-		completed := 0
-		for _, story := range p.UserStories {
-			if story.Passes {
-				completed++
-			}
-		}
+		completed := p.CompletedCount()
 
 		percentage := 0
 		if total > 0 {

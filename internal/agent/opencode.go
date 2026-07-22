@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"os/exec"
 	"strings"
 
@@ -46,6 +45,15 @@ func (p *OpenCodeProvider) ParseLine(line string) *loop.Event {
 
 func (p *OpenCodeProvider) LogFileName() string { return "opencode.log" }
 
+// openCodeTextEvent is one NDJSON line of opencode's output; CleanOutput reads
+// the text parts from these.
+type openCodeTextEvent struct {
+	Type string `json:"type"`
+	Part struct {
+		Text string `json:"text"`
+	} `json:"part"`
+}
+
 // CleanOutput extracts JSON from opencode's NDJSON output format.
 // It looks for the last "text" event line and returns its part.text content.
 func (p *OpenCodeProvider) CleanOutput(output string) string {
@@ -54,24 +62,10 @@ func (p *OpenCodeProvider) CleanOutput(output string) string {
 		return output
 	}
 
-	var lastText string
-	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		var ev struct {
-			Type string `json:"type"`
-			Part struct {
-				Text string `json:"text"`
-			} `json:"part"`
-		}
-		if json.Unmarshal([]byte(line), &ev) == nil && ev.Type == "text" && ev.Part.Text != "" {
-			lastText = ev.Part.Text
-		}
-	}
-	if lastText != "" {
-		return lastText
+	if text := lastMatchingLine(output, func(ev openCodeTextEvent) (string, bool) {
+		return ev.Part.Text, ev.Type == "text" && ev.Part.Text != ""
+	}); text != "" {
+		return text
 	}
 	return output
 }

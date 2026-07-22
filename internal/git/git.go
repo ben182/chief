@@ -15,7 +15,7 @@ func runGit(dir string, args ...string) (string, error) {
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("git %s: %w", args[0], err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -27,7 +27,7 @@ func runGitRaw(dir string, args ...string) (string, error) {
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("git %s: %w", args[0], err)
 	}
 	return string(out), nil
 }
@@ -40,10 +40,16 @@ func runGitChecked(dir, what string, args ...string) error {
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		msg := strings.TrimSpace(string(out))
-		if what != "" {
-			return fmt.Errorf("%s: %s", what, msg)
+		if what == "" {
+			what = "git " + args[0]
 		}
-		return fmt.Errorf("%s", msg)
+		// Wrap the underlying exec error with %w so errors.Is/As work across the
+		// package boundary, while still surfacing git's own message (msg) when it
+		// produced one.
+		if msg != "" {
+			return fmt.Errorf("%s: %s: %w", what, msg, err)
+		}
+		return fmt.Errorf("%s: %w", what, err)
 	}
 	return nil
 }
@@ -109,48 +115,48 @@ func CommitCount(repoDir, branch string) int {
 	return count
 }
 
+// diffRange returns the [base, head] revision range chief shows as "the work on
+// this branch". On a feature branch that's merge-base(defaultBranch, HEAD)..HEAD;
+// on a protected branch, or when the merge base can't be determined, it falls
+// back to the last 10 commits (HEAD~10..HEAD). GetDiff and GetDiffStats share it
+// so both always describe the same range.
+func diffRange(dir string) (base, head string, err error) {
+	branch, err := GetCurrentBranch(dir)
+	if err != nil {
+		return "", "", err
+	}
+
+	// If on a feature branch, diff against merge-base with main/master.
+	if !IsProtectedBranch(branch) {
+		if baseBranch, err := GetDefaultBranch(dir); err == nil && baseBranch != "" {
+			if mergeBase, err := getMergeBase(dir, baseBranch, "HEAD"); err == nil && mergeBase != "" {
+				return mergeBase, "HEAD", nil
+			}
+		}
+	}
+
+	// Fallback: recent commits (last 10).
+	return "HEAD~10", "HEAD", nil
+}
+
 // GetDiff returns the git diff output for the working directory.
 // It shows the diff between the current branch and its merge base with the default branch.
 // If on main/master or if merge-base fails, it shows the last few commits' diff.
 func GetDiff(dir string) (string, error) {
-	branch, err := GetCurrentBranch(dir)
+	base, head, err := diffRange(dir)
 	if err != nil {
 		return "", err
 	}
-
-	// If on a feature branch, diff against merge-base with main/master
-	if !IsProtectedBranch(branch) {
-		baseBranch, err := GetDefaultBranch(dir)
-		if err == nil && baseBranch != "" {
-			mergeBase, err := getMergeBase(dir, baseBranch, "HEAD")
-			if err == nil && mergeBase != "" {
-				return runGitRaw(dir, "diff", mergeBase, "HEAD")
-			}
-		}
-	}
-
-	// Fallback: show diff of recent commits (last 10)
-	return runGitRaw(dir, "diff", "HEAD~10", "HEAD")
+	return runGitRaw(dir, "diff", base, head)
 }
 
 // GetDiffStats returns a short diffstat summary.
 func GetDiffStats(dir string) (string, error) {
-	branch, err := GetCurrentBranch(dir)
+	base, head, err := diffRange(dir)
 	if err != nil {
 		return "", err
 	}
-
-	if !IsProtectedBranch(branch) {
-		baseBranch, err := GetDefaultBranch(dir)
-		if err == nil && baseBranch != "" {
-			mergeBase, err := getMergeBase(dir, baseBranch, "HEAD")
-			if err == nil && mergeBase != "" {
-				return runGit(dir, "diff", "--stat", mergeBase, "HEAD")
-			}
-		}
-	}
-
-	return runGit(dir, "diff", "--stat", "HEAD~10", "HEAD")
+	return runGit(dir, "diff", "--stat", base, head)
 }
 
 // GetDiffForCommit returns the diff for a single commit using git show.

@@ -2,7 +2,6 @@ package loop
 
 import (
 	"encoding/json"
-	"strings"
 )
 
 // EventType represents the type of event parsed from Claude's stream-json output.
@@ -165,13 +164,8 @@ type toolResultBlock struct {
 // ParseLine parses a single line of stream-json output and returns an Event.
 // If the line cannot be parsed or is not relevant, it returns nil.
 func ParseLine(line string) *Event {
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return nil
-	}
-
-	var msg streamMessage
-	if err := json.Unmarshal([]byte(line), &msg); err != nil {
+	msg, ok := decodeLine[streamMessage](line)
+	if !ok {
 		return nil
 	}
 
@@ -235,18 +229,7 @@ func eventForContent(content []contentBlock) *Event {
 	for _, block := range content {
 		switch block.Type {
 		case "text":
-			text := block.Text
-			// Check for <chief-done/> tag
-			if strings.Contains(text, "<chief-done/>") {
-				return &Event{
-					Type: EventStoryDone,
-					Text: text,
-				}
-			}
-			return &Event{
-				Type: EventAssistantText,
-				Text: text,
-			}
+			return classifyAssistantText(block.Text)
 
 		case "tool_use":
 			return &Event{

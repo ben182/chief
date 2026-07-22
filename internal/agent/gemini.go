@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"os/exec"
 	"strings"
 
@@ -78,16 +77,11 @@ func (p *GeminiProvider) CleanOutput(output string) string {
 	}
 
 	var sb strings.Builder
-	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		var msg geminiAssistantMessage
-		if json.Unmarshal([]byte(line), &msg) == nil && msg.Type == "message" && msg.Role == "assistant" && msg.Content != "" {
+	eachJSONLine(output, func(msg geminiAssistantMessage) {
+		if msg.Type == "message" && msg.Role == "assistant" && msg.Content != "" {
 			sb.WriteString(msg.Content)
 		}
-	}
+	})
 	if sb.Len() > 0 {
 		return sb.String()
 	}

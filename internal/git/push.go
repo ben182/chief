@@ -60,10 +60,8 @@ func PRBodyFromPRD(p *prd.PRD) string {
 	b.WriteString("\n\n")
 
 	b.WriteString("## Changes\n\n")
-	for _, story := range p.UserStories {
-		if story.Passes {
-			b.WriteString(fmt.Sprintf("- %s: %s\n", story.ID, story.Title))
-		}
+	for _, story := range p.Completed() {
+		b.WriteString(fmt.Sprintf("- %s: %s\n", story.ID, story.Title))
 	}
 
 	return b.String()

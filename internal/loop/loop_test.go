@@ -2,6 +2,7 @@ package loop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -213,7 +214,7 @@ func TestLoop_RunWithMockClaude(t *testing.T) {
 	}()
 
 	l.iteration = 1
-	l.processOutput(r)
+	l.processOutput(r, modeBuild)
 
 	// Close events channel and wait for collection
 	close(l.events)
@@ -356,7 +357,7 @@ func TestLoop_ChiefDoneEvent(t *testing.T) {
 		w.Close()
 	}()
 
-	l.processOutput(r)
+	l.processOutput(r, modeBuild)
 	close(l.events)
 	<-done
 
@@ -411,7 +412,7 @@ func TestLoop_StoryDoneEndsIterationWithoutWatchdog(t *testing.T) {
 	}()
 
 	start := time.Now()
-	err := l.runIteration(context.Background())
+	err := l.runIteration(context.Background(), modeBuild)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -602,9 +603,7 @@ func TestLoop_WatchdogKillsHungProcess(t *testing.T) {
 	r, w, _ := os.Pipe()
 
 	// Initialize lastOutputTime
-	l.mu.Lock()
-	l.lastOutputTime = time.Now()
-	l.mu.Unlock()
+	l.lastOutputTime.Store(time.Now().UnixNano())
 
 	// Start watchdog with a short check interval
 	watchdogDone := make(chan struct{})
@@ -623,7 +622,7 @@ func TestLoop_WatchdogKillsHungProcess(t *testing.T) {
 		w.Close()
 	}()
 
-	l.processOutput(r)
+	l.processOutput(r, modeBuild)
 	close(watchdogDone)
 	<-watchdogStopped
 	close(l.events)
@@ -669,9 +668,7 @@ func TestLoop_WatchdogDoesNotFireForActiveProcess(t *testing.T) {
 	// Create a pipe that produces output regularly
 	r, w, _ := os.Pipe()
 
-	l.mu.Lock()
-	l.lastOutputTime = time.Now()
-	l.mu.Unlock()
+	l.lastOutputTime.Store(time.Now().UnixNano())
 
 	watchdogDone := make(chan struct{})
 	watchdogStopped := make(chan struct{})
@@ -690,7 +687,7 @@ func TestLoop_WatchdogDoesNotFireForActiveProcess(t *testing.T) {
 		w.Close()
 	}()
 
-	l.processOutput(r)
+	l.processOutput(r, modeBuild)
 	close(watchdogDone)
 	<-watchdogStopped
 	close(l.events)
@@ -744,10 +741,8 @@ func TestLoop_LastOutputTimeUpdated(t *testing.T) {
 	}()
 
 	// Record initial time
-	l.mu.Lock()
-	l.lastOutputTime = time.Now().Add(-1 * time.Hour) // Set to an old time
-	initialTime := l.lastOutputTime
-	l.mu.Unlock()
+	l.lastOutputTime.Store(time.Now().Add(-1 * time.Hour).UnixNano()) // Set to an old time
+	initialTime := l.lastOutputTime.Load()
 
 	// Send output through processOutput
 	r, w, _ := os.Pipe()
@@ -758,15 +753,13 @@ func TestLoop_LastOutputTimeUpdated(t *testing.T) {
 		w.Close()
 	}()
 
-	l.processOutput(r)
+	l.processOutput(r, modeBuild)
 	close(l.events)
 
 	// Verify lastOutputTime was updated
-	l.mu.Lock()
-	finalTime := l.lastOutputTime
-	l.mu.Unlock()
+	finalTime := l.lastOutputTime.Load()
 
-	if !finalTime.After(initialTime) {
+	if finalTime <= initialTime {
 		t.Errorf("Expected lastOutputTime to be updated after output, initial=%v, final=%v", initialTime, finalTime)
 	}
 }
@@ -784,6 +777,26 @@ func TestLoop_WatchdogReturnsError(t *testing.T) {
 	errMsg := fmt.Sprintf("watchdog timeout: no output for %s", 100*time.Millisecond)
 	if !strings.HasPrefix(errMsg, expectedPrefix) {
 		t.Errorf("Expected error to start with %q, got %q", expectedPrefix, errMsg)
+	}
+}
+
+// TestClassifyExit verifies the pure exit-classification helper: a watchdog kill
+// maps to a "watchdog timeout" error, any other Wait error to a provider crash.
+func TestClassifyExit(t *testing.T) {
+	base := errors.New("boom")
+
+	got := classifyExit(base, true, 3*time.Second, "Claude")
+	if want := "watchdog timeout: no output for 3s"; got.Error() != want {
+		t.Errorf("watchdog case: got %q, want %q", got.Error(), want)
+	}
+
+	got = classifyExit(base, false, 3*time.Second, "Claude")
+	if want := "Claude exited with error: boom"; got.Error() != want {
+		t.Errorf("crash case: got %q, want %q", got.Error(), want)
+	}
+	// The crash error must wrap the original so callers can errors.Is/As it.
+	if !errors.Is(got, base) {
+		t.Error("crash case: expected wrapped underlying error")
 	}
 }
 

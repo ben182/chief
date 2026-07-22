@@ -92,14 +92,26 @@ func parseTUIOptions() *cli.Options {
 	return opts
 }
 
+// fatal prints "Error: <err>" to stderr and exits with status 1. It bundles the
+// fmt.Fprintf(os.Stderr, ...) + os.Exit(1) idiom used throughout the CLI.
+func fatal(err error) {
+	fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	os.Exit(1)
+}
+
+// fatalf is fatal with a formatted message (no wrapped error value).
+func fatalf(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "Error: "+format+"\n", args...)
+	os.Exit(1)
+}
+
 func runNew() {
 	opts := cmd.NewOptions{}
 
 	// Parse arguments: chief new [name] [context...] [--agent X] [--agent-path X]
 	flagAgent, flagPath, flagModel, positional, err := cli.AgentFlags(os.Args, 2)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		fatal(err)
 	}
 	// Filter out remaining flags, keep only positional args
 	var args []string
@@ -120,8 +132,7 @@ func runNew() {
 		return // user cancelled the model select
 	}
 	if err := cmd.RunNew(opts); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		fatal(err)
 	}
 }
 
@@ -131,8 +142,7 @@ func runEdit() {
 	// Parse arguments: chief edit [name] [--agent X] [--agent-path X]
 	flagAgent, flagPath, flagModel, remaining, err := cli.AgentFlags(os.Args, 2)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		fatal(err)
 	}
 	for _, arg := range remaining {
 		if opts.Name == "" && !strings.HasPrefix(arg, "-") {
@@ -145,8 +155,7 @@ func runEdit() {
 		return // user cancelled the model select
 	}
 	if err := cmd.RunEdit(opts); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		fatal(err)
 	}
 }
 
@@ -159,8 +168,7 @@ func runStatus() {
 	}
 
 	if err := cmd.RunStatus(opts); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		fatal(err)
 	}
 }
 
@@ -168,8 +176,7 @@ func runList() {
 	opts := cmd.ListOptions{}
 
 	if err := cmd.RunList(opts); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		fatal(err)
 	}
 }
 
@@ -177,22 +184,18 @@ func runList() {
 func resolveProvider(flagAgent, flagPath, flagModel string) loop.Provider {
 	cwd, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		fatal(err)
 	}
 	cfg, err := config.Load(cwd)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to load .chief/config.yaml: %v\n", err)
-		os.Exit(1)
+		fatalf("failed to load .chief/config.yaml: %v", err)
 	}
 	provider, err := agent.Resolve(flagAgent, flagPath, cfg, flagModel)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		fatal(err)
 	}
 	if err := agent.CheckInstalled(provider); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		fatal(err)
 	}
 	return provider
 }
@@ -209,8 +212,7 @@ func selectModelForProvider(provider loop.Provider, title, flagModel string) boo
 	}
 	model, cancelled, err := tui.RunModelSelect(title, claude.Model())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		fatal(err)
 	}
 	if cancelled {
 		return false
@@ -219,155 +221,166 @@ func selectModelForProvider(provider loop.Provider, title, flagModel string) boo
 	return true
 }
 
+// runTUIWithOptions resolves the PRD, launches the TUI, and restarts it when the
+// user asked to create/edit a PRD on exit. The restart is an explicit loop
+// rather than a recursive self-call, so a session that repeatedly re-inits/edits
+// can no longer grow the stack without bound.
 func runTUIWithOptions(opts *cli.Options) {
-	provider := resolveProvider(opts.Agent, opts.AgentPath, opts.Model)
+	for {
+		provider := resolveProvider(opts.Agent, opts.AgentPath, opts.Model)
 
-	prdPath := opts.PRDPath
-
-	// If no PRD specified, try to find one
-	if prdPath == "" {
-		// Try "default" first (falls back to "main" for older setups)
-		defaultPath := prd.PRDPath("", "default")
-		mainPath := prd.PRDPath("", "main")
-		if _, err := os.Stat(defaultPath); err == nil {
-			prdPath = defaultPath
-		} else if _, err := os.Stat(mainPath); err == nil {
-			prdPath = mainPath
-		} else {
-			// Look for any available PRD
-			prdPath = cli.FindAvailablePRD("")
+		prdPath, ok := resolvePRDPath(opts, provider)
+		if !ok {
+			return // first-time setup was cancelled
 		}
 
-		// If still no PRD found, run first-time setup
-		if prdPath == "" {
-			cwd, _ := os.Getwd()
-			showGitignore := git.IsGitRepo(cwd) && !git.IsChiefIgnored(cwd)
+		maybeMigrate(filepath.Dir(prdPath))
 
-			// Run the first-time setup TUI
-			result, err := tui.RunFirstTimeSetup(cwd, showGitignore)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
+		app, err := tui.NewAppWithOptions(prdPath, opts.MaxIterations, provider)
+		if err != nil {
+			reportAppInitError(prdPath, err)
+		}
 
-			if result.Cancelled {
-				return
-			}
+		// Apply per-run flags.
+		if opts.Verbose {
+			app.SetVerbose(true)
+		}
+		if opts.NoRetry {
+			app.DisableRetry()
+		}
+		if opts.AutoStart {
+			app.SetAutoStart(true)
+		}
 
-			// Save config from setup
-			cfg := config.Default()
-			cfg.OnComplete.Push = result.PushOnComplete
-			cfg.OnComplete.CreatePR = result.CreatePROnComplete
-			if err := config.Save(cwd, cfg); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to save config: %v\n", err)
-			}
+		p := tea.NewProgram(app, tea.WithAltScreen())
+		model, err := p.Run()
+		if err != nil {
+			fmt.Printf("Error running program: %v\n", err)
+			os.Exit(1)
+		}
 
-			// Create the PRD
-			newOpts := cmd.NewOptions{
-				Name:     result.PRDName,
-				Provider: provider,
-			}
-			if err := cmd.RunNew(newOpts); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-
-			// Restart TUI with the new PRD
-			opts.PRDPath = prd.PRDPath("", result.PRDName)
-			runTUIWithOptions(opts)
+		// A post-exit init/edit sets opts.PRDPath and loops back to relaunch the
+		// TUI on the (new) PRD; anything else ends the session.
+		if !handlePostExit(model, opts, provider) {
 			return
 		}
 	}
+}
 
-	prdDir := filepath.Dir(prdPath)
+// resolvePRDPath determines which prd.md to open. It honours an explicit
+// --prd path, otherwise prefers "default" (falling back to "main" for older
+// setups) or any other existing PRD, and finally runs first-time setup when no
+// PRD exists. The bool is false only when the user cancelled first-time setup,
+// in which case the caller should stop.
+func resolvePRDPath(opts *cli.Options, provider loop.Provider) (string, bool) {
+	if opts.PRDPath != "" {
+		return opts.PRDPath, true
+	}
+	if defaultPath := prd.PRDPath("", "default"); fileExists(defaultPath) {
+		return defaultPath, true
+	}
+	if mainPath := prd.PRDPath("", "main"); fileExists(mainPath) {
+		return mainPath, true
+	}
+	if available := cli.FindAvailablePRD(""); available != "" {
+		return available, true
+	}
+	return runFirstTimeSetup(provider)
+}
 
-	// Auto-migrate: if prd.json exists alongside prd.md, migrate status
+// fileExists reports whether path exists (as any kind of file).
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// runFirstTimeSetup drives the first-run TUI (config choices + PRD name),
+// persists the chosen config, and creates the initial PRD. It returns the new
+// PRD's path, or ok=false when the user cancelled setup.
+func runFirstTimeSetup(provider loop.Provider) (string, bool) {
+	cwd, _ := os.Getwd()
+	showGitignore := git.IsGitRepo(cwd) && !git.IsChiefIgnored(cwd)
+
+	result, err := tui.RunFirstTimeSetup(cwd, showGitignore)
+	if err != nil {
+		fatal(err)
+	}
+	if result.Cancelled {
+		return "", false
+	}
+
+	// Save config from setup.
+	cfg := config.Default()
+	cfg.OnComplete.Push = result.PushOnComplete
+	cfg.OnComplete.CreatePR = result.CreatePROnComplete
+	if err := config.Save(cwd, cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to save config: %v\n", err)
+	}
+
+	if err := cmd.RunNew(cmd.NewOptions{Name: result.PRDName, Provider: provider}); err != nil {
+		fatal(err)
+	}
+	return prd.PRDPath("", result.PRDName), true
+}
+
+// maybeMigrate migrates a legacy prd.json into prd.md when one sits alongside the
+// PRD, printing progress. It is a no-op when there is nothing to migrate.
+func maybeMigrate(prdDir string) {
 	jsonPath := filepath.Join(prdDir, "prd.json")
-	if _, err := os.Stat(jsonPath); err == nil {
-		fmt.Println("Migrating status from prd.json to prd.md...")
-		if err := prd.MigrateFromJSON(prdDir); err != nil {
-			fmt.Printf("Warning: migration failed: %v\n", err)
-		} else {
-			fmt.Println("Migration complete (prd.json renamed to prd.json.bak).")
-		}
+	if !fileExists(jsonPath) {
+		return
 	}
+	fmt.Println("Migrating status from prd.json to prd.md...")
+	if err := prd.MigrateFromJSON(prdDir); err != nil {
+		fmt.Printf("Warning: migration failed: %v\n", err)
+	} else {
+		fmt.Println("Migration complete (prd.json renamed to prd.json.bak).")
+	}
+}
 
-	app, err := tui.NewAppWithOptions(prdPath, opts.MaxIterations, provider)
-	if err != nil {
-		// Check if this is a missing PRD file error
-		if os.IsNotExist(err) || strings.Contains(err.Error(), "no such file") {
-			fmt.Printf("PRD not found: %s\n", prdPath)
+// reportAppInitError prints a helpful message for a failed TUI init and exits.
+// A missing PRD file gets a "not found" hint listing available PRDs; any other
+// error is printed verbatim.
+func reportAppInitError(prdPath string, err error) {
+	if os.IsNotExist(err) || strings.Contains(err.Error(), "no such file") {
+		fmt.Printf("PRD not found: %s\n", prdPath)
+		fmt.Println()
+		if available := cli.ListAvailablePRDs(""); len(available) > 0 {
+			fmt.Println("Available PRDs:")
+			for _, name := range available {
+				fmt.Printf("  chief %s\n", name)
+			}
 			fmt.Println()
-			// Show available PRDs if any exist
-			available := cli.ListAvailablePRDs("")
-			if len(available) > 0 {
-				fmt.Println("Available PRDs:")
-				for _, name := range available {
-					fmt.Printf("  chief %s\n", name)
-				}
-				fmt.Println()
-			}
-			fmt.Println("Or create a new one:")
-			fmt.Println("  chief new               # Create default PRD")
-			fmt.Println("  chief new <name>        # Create named PRD")
-		} else {
-			fmt.Printf("Error: %v\n", err)
 		}
-		os.Exit(1)
+		fmt.Println("Or create a new one:")
+		fmt.Println("  chief new               # Create default PRD")
+		fmt.Println("  chief new <name>        # Create named PRD")
+	} else {
+		fmt.Printf("Error: %v\n", err)
 	}
+	os.Exit(1)
+}
 
-	// Set verbose mode if requested
-	if opts.Verbose {
-		app.SetVerbose(true)
+// handlePostExit runs a PRD init/edit requested from within the TUI and points
+// opts at the resulting PRD so the caller can relaunch on it. It returns true
+// when such a restart is pending, false when the session should end.
+func handlePostExit(model tea.Model, opts *cli.Options, provider loop.Provider) bool {
+	finalApp, ok := model.(tui.App)
+	if !ok {
+		return false
 	}
-
-	// Disable retry if requested
-	if opts.NoRetry {
-		app.DisableRetry()
-	}
-
-	// Auto-start the loop if requested (chief start)
-	if opts.AutoStart {
-		app.SetAutoStart(true)
-	}
-
-	p := tea.NewProgram(app, tea.WithAltScreen())
-	model, err := p.Run()
-	if err != nil {
-		fmt.Printf("Error running program: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Check for post-exit actions
-	if finalApp, ok := model.(tui.App); ok {
-		switch finalApp.PostExitAction {
-		case tui.PostExitInit:
-			// Run new command then restart TUI
-			newOpts := cmd.NewOptions{
-				Name:     finalApp.PostExitPRD,
-				Provider: provider,
-			}
-			if err := cmd.RunNew(newOpts); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-			// Restart TUI with the new PRD
-			opts.PRDPath = prd.PRDPath("", finalApp.PostExitPRD)
-			runTUIWithOptions(opts)
-
-		case tui.PostExitEdit:
-			// Run edit command then restart TUI
-			editOpts := cmd.EditOptions{
-				Name:     finalApp.PostExitPRD,
-				Provider: provider,
-			}
-			if err := cmd.RunEdit(editOpts); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-			// Restart TUI with the edited PRD
-			opts.PRDPath = prd.PRDPath("", finalApp.PostExitPRD)
-			runTUIWithOptions(opts)
+	switch finalApp.PostExitAction {
+	case tui.PostExitInit:
+		if err := cmd.RunNew(cmd.NewOptions{Name: finalApp.PostExitPRD, Provider: provider}); err != nil {
+			fatal(err)
 		}
+	case tui.PostExitEdit:
+		if err := cmd.RunEdit(cmd.EditOptions{Name: finalApp.PostExitPRD, Provider: provider}); err != nil {
+			fatal(err)
+		}
+	default:
+		return false
 	}
+	opts.PRDPath = prd.PRDPath("", finalApp.PostExitPRD)
+	return true
 }

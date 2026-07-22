@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
@@ -62,12 +61,13 @@ func setStoryStatusInString(content, storyID, status string) (string, error) {
 	storyStart := -1
 	storyEnd := len(lines) // default to end of file
 
-	headingPattern := regexp.MustCompile(`^#{3,4}\s+` + regexp.QuoteMeta(storyID) + `:\s+`)
-
 	for i, line := range lines {
 		if storyStart == -1 {
-			// Looking for the story heading
-			if headingPattern.MatchString(strings.TrimSpace(line)) {
+			// Looking for the story heading. Reuse the package-level parser regex
+			// (compiled once) and compare its captured ID to the target, instead
+			// of compiling a QuoteMeta'd regex on every call. Matching the exact
+			// same heading pattern the parser uses keeps the two in lockstep.
+			if m := storyHeadingRegex.FindStringSubmatch(strings.TrimSpace(line)); m != nil && m[1] == storyID {
 				storyStart = i
 			}
 		} else {

@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/ben182/chief/internal/prd"
-	"github.com/muesli/reflow/truncate"
 )
 
 const (
@@ -149,11 +147,25 @@ func (a *App) renderWorktreeInfoLine() string {
 	}
 
 	branchLabel := SubtitleStyle.Render("branch:")
-	branchValue := lipgloss.NewStyle().Foreground(PrimaryColor).Render(" " + branch)
+	branchValue := fgPrimary.Render(" " + branch)
 	dirLabel := SubtitleStyle.Render("  dir:")
-	dirValue := lipgloss.NewStyle().Foreground(TextColor).Render(" " + dir)
+	dirValue := fgText.Render(" " + dir)
 
 	return lipgloss.JoinHorizontal(lipgloss.Center, "  ", branchLabel, branchValue, dirLabel, dirValue)
+}
+
+// headerBar joins a left and right segment into a full-width bar, padding the
+// gap between them so the right segment sits flush against the right edge.
+// Shared by every header and footer variant.
+func (a *App) headerBar(left, right string) string {
+	spacing := strings.Repeat(" ", max(0, a.width-lipgloss.Width(left)-lipgloss.Width(right)-2))
+	return lipgloss.JoinHorizontal(lipgloss.Center, left, spacing, right)
+}
+
+// fullWidthDivider renders a horizontal rule spanning the full terminal width,
+// used as the header/footer separator.
+func (a *App) fullWidthDivider() string {
+	return DividerStyle.Render(strings.Repeat("─", a.width))
 }
 
 // renderHeader renders the header with branding, state, iteration, and elapsed time.
@@ -195,8 +207,7 @@ func (a *App) renderHeader() string {
 	}
 
 	// Create the full header line with proper spacing
-	spacing := strings.Repeat(" ", max(0, a.width-lipgloss.Width(leftPart)-lipgloss.Width(rightPart)-2))
-	headerLine := lipgloss.JoinHorizontal(lipgloss.Center, leftPart, spacing, rightPart)
+	headerLine := a.headerBar(leftPart, rightPart)
 
 	// Tab bar
 	tabBarLine := a.renderTabBar()
@@ -205,7 +216,7 @@ func (a *App) renderHeader() string {
 	worktreeInfoLine := a.renderWorktreeInfoLine()
 
 	// Add a border below
-	border := DividerStyle.Render(strings.Repeat("─", a.width))
+	border := a.fullWidthDivider()
 
 	if worktreeInfoLine != "" {
 		return lipgloss.JoinVertical(lipgloss.Left, headerLine, tabBarLine, worktreeInfoLine, border)
@@ -246,8 +257,7 @@ func (a *App) renderNarrowHeader() string {
 	rightPart := iterTime
 
 	// Create the full header line with proper spacing
-	spacing := strings.Repeat(" ", max(0, a.width-lipgloss.Width(leftPart)-lipgloss.Width(rightPart)-2))
-	headerLine := lipgloss.JoinHorizontal(lipgloss.Center, leftPart, spacing, rightPart)
+	headerLine := a.headerBar(leftPart, rightPart)
 
 	// Tab bar (compact)
 	tabBarLine := a.renderTabBar()
@@ -256,7 +266,7 @@ func (a *App) renderNarrowHeader() string {
 	worktreeInfoLine := a.renderWorktreeInfoLine()
 
 	// Add a border below
-	border := DividerStyle.Render(strings.Repeat("─", a.width))
+	border := a.fullWidthDivider()
 
 	if worktreeInfoLine != "" {
 		return lipgloss.JoinVertical(lipgloss.Left, headerLine, tabBarLine, worktreeInfoLine, border)
@@ -294,14 +304,13 @@ func (a *App) renderFooter() string {
 	prdInfo := footerStyle.Render(fmt.Sprintf("PRD: %s", a.prdName))
 
 	// Create footer line with proper spacing
-	spacing := strings.Repeat(" ", max(0, a.width-lipgloss.Width(shortcutsStr)-lipgloss.Width(prdInfo)-2))
-	footerLine := lipgloss.JoinHorizontal(lipgloss.Center, shortcutsStr, spacing, prdInfo)
+	footerLine := a.headerBar(shortcutsStr, prdInfo)
 
 	// Activity line
 	activityLine := a.renderActivityLine()
 
 	// Add border above
-	border := DividerStyle.Render(strings.Repeat("─", a.width))
+	border := a.fullWidthDivider()
 
 	return lipgloss.JoinVertical(lipgloss.Left, border, activityLine, footerLine)
 }
@@ -338,14 +347,13 @@ func (a *App) renderNarrowFooter() string {
 	prdInfo := footerStyle.Render(prdName)
 
 	// Create footer line with proper spacing
-	spacing := strings.Repeat(" ", max(0, a.width-lipgloss.Width(shortcutsStr)-lipgloss.Width(prdInfo)-2))
-	footerLine := lipgloss.JoinHorizontal(lipgloss.Center, shortcutsStr, spacing, prdInfo)
+	footerLine := a.headerBar(shortcutsStr, prdInfo)
 
 	// Activity line - use narrower truncation
 	activityLine := a.renderNarrowActivityLine()
 
 	// Add border above
-	border := DividerStyle.Render(strings.Repeat("─", a.width))
+	border := a.fullWidthDivider()
 
 	return lipgloss.JoinVertical(lipgloss.Left, border, activityLine, footerLine)
 }
@@ -515,7 +523,7 @@ func (a *App) renderDetailsPanel(width, height int) string {
 		content.WriteString("\n")
 	}
 
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", width-4)))
+	content.WriteString(dividerLine(width))
 	content.WriteString("\n\n")
 
 	// Description
@@ -566,7 +574,7 @@ func (a *App) renderErrorPanel(width, height int) string {
 	errorIcon := statusFailedStyle.Render(glyph(IconFailed, "x"))
 	errorTitle := StateErrorStyle.Render("ERROR")
 	content.WriteString(fmt.Sprintf("%s %s\n", errorIcon, errorTitle))
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", width-4)))
+	content.WriteString(dividerLine(width))
 	content.WriteString("\n\n")
 
 	// Error message
@@ -576,14 +584,13 @@ func (a *App) renderErrorPanel(width, height int) string {
 		errorMsg := a.err.Error()
 		content.WriteString(wrapText(errorMsg, width-4))
 	} else {
-		content.WriteString(lipgloss.NewStyle().Foreground(MutedColor).Render("Unknown error occurred"))
+		content.WriteString(fgMuted.Render("Unknown error occurred"))
 	}
 	content.WriteString("\n\n")
 
 	// Log file hint
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", width-4)))
+	content.WriteString(dividerLine(width))
 	content.WriteString("\n\n")
-	hintStyle := lipgloss.NewStyle().Foreground(WarningColor)
 	logName := "claude.log"
 	if a.provider != nil {
 		logName = a.provider.LogFileName()
@@ -595,7 +602,7 @@ func (a *App) renderErrorPanel(width, height int) string {
 			logName = filepath.Base(p)
 		}
 	}
-	content.WriteString(hintStyle.Render(fmt.Sprintf("%s Tip: Check %s in the PRD directory for full error details.", glyph("💡", ">"), logName)))
+	content.WriteString(fgWarning.Render(fmt.Sprintf("%s Tip: Check %s in the PRD directory for full error details.", glyph("💡", ">"), logName)))
 	content.WriteString("\n\n")
 
 	// Retry instructions
@@ -619,14 +626,14 @@ func (a *App) renderEmptyPRDPanel(width, height int) string {
 	var content strings.Builder
 
 	// Centered empty state message
-	emptyIcon := lipgloss.NewStyle().Foreground(MutedColor).Render(glyph("📋", "="))
+	emptyIcon := fgMuted.Render(glyph("📋", "="))
 	emptyTitle := titleStyle.Render("No User Stories")
 	content.WriteString(fmt.Sprintf("%s %s\n", emptyIcon, emptyTitle))
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", width-4)))
+	content.WriteString(dividerLine(width))
 	content.WriteString("\n\n")
 
 	// Instructions
-	content.WriteString(lipgloss.NewStyle().Foreground(TextColor).Render("This PRD has no user stories defined."))
+	content.WriteString(fgText.Render("This PRD has no user stories defined."))
 	content.WriteString("\n\n")
 
 	content.WriteString(labelStyle.Render("To add stories:"))
@@ -639,12 +646,12 @@ func (a *App) renderEmptyPRDPanel(width, height int) string {
 	content.WriteString(" to create a new PRD with Claude\n")
 	content.WriteString("\n")
 
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", width-4)))
+	content.WriteString(dividerLine(width))
 	content.WriteString("\n\n")
 
 	content.WriteString(SubtitleStyle.Render("PRD Location:"))
 	content.WriteString("\n")
-	content.WriteString(lipgloss.NewStyle().Foreground(PrimaryColor).Render(a.prdPath))
+	content.WriteString(fgPrimary.Render(a.prdPath))
 
 	return panelStyle.Width(width).Height(height).Render(content.String())
 }
@@ -678,17 +685,11 @@ func (a *App) renderInterruptedWarning(width int) string {
 
 	var content strings.Builder
 
-	// Warning box
-	warningStyle := lipgloss.NewStyle().
-		Background(lipgloss.AdaptiveColor{Dark: "#3D3000", Light: "#FFF8C5"}).
-		Foreground(WarningColor).
-		Padding(0, 1)
-
 	warningIcon := "⚠"
 	warningText := fmt.Sprintf("%s Interrupted Story: %s (%s)", warningIcon, story.ID, truncateWithEllipsis(story.Title, width-30))
-	content.WriteString(warningStyle.Width(width).Render(warningText))
+	content.WriteString(interruptedWarningStyle.Width(width).Render(warningText))
 	content.WriteString("\n")
-	content.WriteString(lipgloss.NewStyle().Foreground(MutedColor).Render("A previous session was interrupted. Press 's' to resume."))
+	content.WriteString(fgMuted.Render("A previous session was interrupted. Press 's' to resume."))
 
 	return content.String()
 }
@@ -719,49 +720,6 @@ func (a *App) renderProgressBar(width int) string {
 	return fmt.Sprintf("%s %3.0f%% %d/%d", bar, percentage, completedStories, totalStories)
 }
 
-// formatDuration formats a duration in a human-readable way.
-func formatDuration(d time.Duration) string {
-	if d == 0 {
-		return "0s"
-	}
-
-	h := int(d.Hours())
-	m := int(d.Minutes()) % 60
-	s := int(d.Seconds()) % 60
-
-	if h > 0 {
-		return fmt.Sprintf("%dh%02dm%02ds", h, m, s)
-	}
-	if m > 0 {
-		return fmt.Sprintf("%dm%02ds", m, s)
-	}
-	return fmt.Sprintf("%ds", s)
-}
-
-// formatCost formats a USD cost. Small amounts get an extra decimal so
-// sub-10-cent stories don't round away to "$0.00".
-func formatCost(c float64) string {
-	if c >= 0.10 {
-		return fmt.Sprintf("$%.2f", c)
-	}
-	return fmt.Sprintf("$%.3f", c)
-}
-
-// formatTokenCount formats a token count compactly (e.g. 1234 -> "1.2K",
-// 2_500_000 -> "2.5M").
-func formatTokenCount(n int) string {
-	switch {
-	case n >= 1_000_000_000:
-		return fmt.Sprintf("%.1fB", float64(n)/1e9)
-	case n >= 1_000_000:
-		return fmt.Sprintf("%.1fM", float64(n)/1e6)
-	case n >= 1_000:
-		return fmt.Sprintf("%.1fK", float64(n)/1e3)
-	default:
-		return fmt.Sprintf("%d", n)
-	}
-}
-
 // storyUsage returns the accumulated cost and token usage for a story in the
 // active PRD: live counters while it's the in-progress story, otherwise the
 // finalized totals. ok is false when nothing has been recorded yet.
@@ -781,91 +739,32 @@ func (a *App) storyUsage(storyID string) (cost float64, tokens TokenUsage, ok bo
 
 // renderStoryUsageLine formats a one-line cost + token summary for a story.
 func renderStoryUsageLine(cost float64, tokens TokenUsage) string {
-	labelStyle := lipgloss.NewStyle().Foreground(MutedColor)
-	valueStyle := lipgloss.NewStyle().Foreground(TextColor)
-
 	label := "Tokens: "
 	var parts []string
 	if cost > 0 {
 		label = "Cost: "
-		parts = append(parts, valueStyle.Render("~"+formatCost(cost)))
+		parts = append(parts, fgText.Render("~"+formatCost(cost)))
 	}
 	if !tokens.IsZero() {
 		tok := fmt.Sprintf("%s out · %s in · %s cache",
 			formatTokenCount(tokens.Output),
 			formatTokenCount(tokens.Input),
 			formatTokenCount(tokens.CacheCreation+tokens.CacheRead))
-		parts = append(parts, labelStyle.Render(tok))
+		parts = append(parts, fgMuted.Render(tok))
 	}
-	return labelStyle.Render(label) + strings.Join(parts, labelStyle.Render("  ·  "))
+	return fgMuted.Render(label) + strings.Join(parts, fgMuted.Render("  ·  "))
 }
 
-// wrapText wraps text to fit within a given width.
-func wrapText(text string, width int) string {
-	if width <= 0 {
-		return text
-	}
-
-	var result strings.Builder
-	words := strings.Fields(text)
-	lineLen := 0
-
-	for i, word := range words {
-		wordLen := len(word)
-
-		if lineLen+wordLen+1 > width && lineLen > 0 {
-			result.WriteString("\n")
-			lineLen = 0
-		}
-
-		if lineLen > 0 {
-			result.WriteString(" ")
-			lineLen++
-		}
-
-		result.WriteString(word)
-		lineLen += wordLen
-
-		// Handle very long words
-		if wordLen > width && i < len(words)-1 {
-			result.WriteString("\n")
-			lineLen = 0
-		}
-	}
-
-	return result.String()
+// renderScrollableView wraps pre-rendered viewer content in a bordered panel
+// sized to the available area and stacks it between the given header and footer.
+// Shared by the full-screen diff and log views, which differ only in the viewer.
+func (a *App) scrollableContentHeight() int {
+	return a.height - headerHeight - footerHeight - 2
 }
 
-// max returns the maximum of two integers.
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-// min returns the minimum of two integers.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-// truncateWithEllipsis truncates text to maxLen display columns, adding "..."
-// if truncated. Width- and rune-aware (and ANSI-aware): never cuts a multi-byte
-// rune in half — byte slicing did, which garbled umlauts/emoji in the display.
-func truncateWithEllipsis(text string, maxLen int) string {
-	if maxLen <= 0 {
-		return ""
-	}
-	if lipgloss.Width(text) <= maxLen {
-		return text
-	}
-	if maxLen <= 3 {
-		return truncate.String(text, uint(maxLen))
-	}
-	return truncate.StringWithTail(text, uint(maxLen), "...")
+func (a *App) renderScrollableView(header, footer, content string) string {
+	panel := panelStyle.Width(a.width - 2).Height(a.scrollableContentHeight()).Render(content)
+	return lipgloss.JoinVertical(lipgloss.Left, header, panel, footer)
 }
 
 // renderDiffView renders the full-screen diff view.
@@ -883,18 +782,8 @@ func (a *App) renderDiffView() string {
 		footer = a.renderFooter()
 	}
 
-	// Calculate content area height (same approach as log view)
-	contentHeight := a.height - headerHeight - footerHeight - 2
-
-	// Render diff content
-	a.diffViewer.SetSize(a.width-4, contentHeight)
-	diffContent := a.diffViewer.Render()
-
-	// Wrap in a panel
-	diffPanel := panelStyle.Width(a.width - 2).Height(contentHeight).Render(diffContent)
-
-	// Stack header, content, and footer
-	return lipgloss.JoinVertical(lipgloss.Left, header, diffPanel, footer)
+	a.diffViewer.SetSize(a.width-4, a.scrollableContentHeight())
+	return a.renderScrollableView(header, footer, a.diffViewer.Render())
 }
 
 // renderDiffHeader renders the header for the diff view.
@@ -907,10 +796,7 @@ func (a *App) renderDiffHeader() string {
 	if a.diffViewer.storyID != "" {
 		viewLabel = fmt.Sprintf("[Diff: %s]", a.diffViewer.storyID)
 	}
-	viewIndicator := lipgloss.NewStyle().
-		Foreground(PrimaryColor).
-		Bold(true).
-		Render(viewLabel)
+	viewIndicator := viewIndicatorStyle.Render(viewLabel)
 
 	// State indicator
 	stateStyle := GetStateStyle(a.state)
@@ -931,8 +817,7 @@ func (a *App) renderDiffHeader() string {
 	rightPart := scrollInfo
 
 	// Create the full header line with proper spacing
-	spacing := strings.Repeat(" ", max(0, a.width-lipgloss.Width(leftPart)-lipgloss.Width(rightPart)-2))
-	headerLine := lipgloss.JoinHorizontal(lipgloss.Center, leftPart, spacing, rightPart)
+	headerLine := a.headerBar(leftPart, rightPart)
 
 	// Stats line (show diffstat summary if available)
 	var statsLine string
@@ -945,7 +830,7 @@ func (a *App) renderDiffHeader() string {
 	}
 
 	// Add a border below
-	border := DividerStyle.Render(strings.Repeat("─", a.width))
+	border := a.fullWidthDivider()
 
 	if statsLine != "" {
 		return lipgloss.JoinVertical(lipgloss.Left, headerLine, statsLine, border)
@@ -961,10 +846,7 @@ func (a *App) renderNarrowDiffHeader() string {
 	if a.diffViewer.storyID != "" {
 		viewLabel = fmt.Sprintf("[%s]", a.diffViewer.storyID)
 	}
-	viewIndicator := lipgloss.NewStyle().
-		Foreground(PrimaryColor).
-		Bold(true).
-		Render(viewLabel)
+	viewIndicator := viewIndicatorStyle.Render(viewLabel)
 
 	stateStyle := GetStateStyle(a.state)
 	state := stateStyle.Render(fmt.Sprintf("[%s]", a.state.String()))
@@ -976,10 +858,9 @@ func (a *App) renderNarrowDiffHeader() string {
 		rightPart = SubtitleStyle.Render(fmt.Sprintf("%d lines", len(a.diffViewer.lines)))
 	}
 
-	spacing := strings.Repeat(" ", max(0, a.width-lipgloss.Width(leftPart)-lipgloss.Width(rightPart)-2))
-	headerLine := lipgloss.JoinHorizontal(lipgloss.Center, leftPart, spacing, rightPart)
+	headerLine := a.headerBar(leftPart, rightPart)
 
-	border := DividerStyle.Render(strings.Repeat("─", a.width))
+	border := a.fullWidthDivider()
 
 	return lipgloss.JoinVertical(lipgloss.Left, headerLine, border)
 }
@@ -999,18 +880,8 @@ func (a *App) renderLogView() string {
 		footer = a.renderFooter()
 	}
 
-	// Calculate content area height
-	contentHeight := a.height - headerHeight - footerHeight - 2
-
-	// Render log content
-	a.logViewer.SetSize(a.width-4, contentHeight)
-	logContent := a.logViewer.Render()
-
-	// Wrap in a panel
-	logPanel := panelStyle.Width(a.width - 2).Height(contentHeight).Render(logContent)
-
-	// Stack header, content, and footer
-	return lipgloss.JoinVertical(lipgloss.Left, header, logPanel, footer)
+	a.logViewer.SetSize(a.width-4, a.scrollableContentHeight())
+	return a.renderScrollableView(header, footer, a.logViewer.Render())
 }
 
 // renderLogHeader renders the header for the log view.
@@ -1019,10 +890,7 @@ func (a *App) renderLogHeader() string {
 	brand := headerStyle.Render("chief")
 
 	// View indicator
-	viewIndicator := lipgloss.NewStyle().
-		Foreground(PrimaryColor).
-		Bold(true).
-		Render("[Log View]")
+	viewIndicator := viewIndicatorStyle.Render("[Log View]")
 
 	// State indicator
 	stateStyle := GetStateStyle(a.state)
@@ -1034,9 +902,9 @@ func (a *App) renderLogHeader() string {
 	// Auto-scroll indicator
 	var scrollIndicator string
 	if a.logViewer.IsAutoScrolling() {
-		scrollIndicator = lipgloss.NewStyle().Foreground(SuccessColor).Render("[Auto-scroll]")
+		scrollIndicator = fgSuccess.Render("[Auto-scroll]")
 	} else {
-		scrollIndicator = lipgloss.NewStyle().Foreground(MutedColor).Render("[Manual scroll]")
+		scrollIndicator = fgMuted.Render("[Manual scroll]")
 	}
 
 	// Combine elements
@@ -1044,11 +912,10 @@ func (a *App) renderLogHeader() string {
 	rightPart := lipgloss.JoinHorizontal(lipgloss.Center, iteration, "  ", scrollIndicator)
 
 	// Create the full header line with proper spacing
-	spacing := strings.Repeat(" ", max(0, a.width-lipgloss.Width(leftPart)-lipgloss.Width(rightPart)-2))
-	headerLine := lipgloss.JoinHorizontal(lipgloss.Center, leftPart, spacing, rightPart)
+	headerLine := a.headerBar(leftPart, rightPart)
 
 	// Add a border below
-	border := DividerStyle.Render(strings.Repeat("─", a.width))
+	border := a.fullWidthDivider()
 
 	return lipgloss.JoinVertical(lipgloss.Left, headerLine, border)
 }
@@ -1059,10 +926,7 @@ func (a *App) renderNarrowLogHeader() string {
 	brand := headerStyle.Render("chief")
 
 	// Condensed view indicator
-	viewIndicator := lipgloss.NewStyle().
-		Foreground(PrimaryColor).
-		Bold(true).
-		Render("[Log]")
+	viewIndicator := viewIndicatorStyle.Render("[Log]")
 
 	// State indicator
 	stateStyle := GetStateStyle(a.state)
@@ -1071,9 +935,9 @@ func (a *App) renderNarrowLogHeader() string {
 	// Condensed iteration and scroll indicator
 	var scrollIcon string
 	if a.logViewer.IsAutoScrolling() {
-		scrollIcon = lipgloss.NewStyle().Foreground(SuccessColor).Render("▼")
+		scrollIcon = fgSuccess.Render("▼")
 	} else {
-		scrollIcon = lipgloss.NewStyle().Foreground(MutedColor).Render("▽")
+		scrollIcon = fgMuted.Render("▽")
 	}
 	rightPart := SubtitleStyle.Render(fmt.Sprintf("#%d", a.iteration)) + " " + scrollIcon
 
@@ -1081,11 +945,10 @@ func (a *App) renderNarrowLogHeader() string {
 	leftPart := lipgloss.JoinHorizontal(lipgloss.Center, brand, " ", viewIndicator, " ", state)
 
 	// Create the full header line with proper spacing
-	spacing := strings.Repeat(" ", max(0, a.width-lipgloss.Width(leftPart)-lipgloss.Width(rightPart)-2))
-	headerLine := lipgloss.JoinHorizontal(lipgloss.Center, leftPart, spacing, rightPart)
+	headerLine := a.headerBar(leftPart, rightPart)
 
 	// Add a border below
-	border := DividerStyle.Render(strings.Repeat("─", a.width))
+	border := a.fullWidthDivider()
 
 	return lipgloss.JoinVertical(lipgloss.Left, headerLine, border)
 }

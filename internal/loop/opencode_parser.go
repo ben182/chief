@@ -1,9 +1,7 @@
 package loop
 
 import (
-	"encoding/json"
 	"errors"
-	"strings"
 )
 
 type opencodeEvent struct {
@@ -63,13 +61,8 @@ type opencodeErrorData struct {
 }
 
 func ParseLineOpenCode(line string) *Event {
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return nil
-	}
-
-	var ev opencodeEvent
-	if err := json.Unmarshal([]byte(line), &ev); err != nil {
+	ev, ok := decodeLine[opencodeEvent](line)
+	if !ok {
 		return nil
 	}
 
@@ -98,16 +91,7 @@ func ParseLineOpenCode(line string) *Event {
 		if ev.Part == nil {
 			return nil
 		}
-		if strings.Contains(ev.Part.Text, "<chief-done/>") {
-			return &Event{
-				Type: EventStoryDone,
-				Text: ev.Part.Text,
-			}
-		}
-		return &Event{
-			Type: EventAssistantText,
-			Text: ev.Part.Text,
-		}
+		return classifyAssistantText(ev.Part.Text)
 
 	case "step_finish":
 		// step_finish signals the end of a single agent step, not the end of the PRD.

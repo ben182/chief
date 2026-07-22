@@ -58,10 +58,29 @@ func buildProgressStyle() ansi.StyleConfig {
 	return cfg
 }
 
-// renderGlamour renders a markdown string as styled terminal output.
+// glamourCacheKey identifies a rendered-markdown result. Glamour output is
+// deterministic for a given (markdown, width) once the process-wide progress
+// style is built, so results can be memoized safely.
+type glamourCacheKey struct {
+	width int
+	md    string
+}
+
+// glamourCache memoizes renderGlamour output. renderDetailsPanel calls
+// renderGlamour for every progress entry on every frame; without this each
+// call built a fresh glamour.TermRenderer and re-rendered unchanged markdown.
+var glamourCache sync.Map // glamourCacheKey -> string
+
+// renderGlamour renders a markdown string as styled terminal output, caching
+// the result per (markdown, width).
 func renderGlamour(markdown string, width int) string {
 	if width <= 0 || strings.TrimSpace(markdown) == "" {
 		return ""
+	}
+
+	key := glamourCacheKey{width: width, md: markdown}
+	if v, ok := glamourCache.Load(key); ok {
+		return v.(string)
 	}
 
 	r, err := glamour.NewTermRenderer(
@@ -78,7 +97,9 @@ func renderGlamour(markdown string, width int) string {
 	}
 
 	// Trim leading/trailing blank lines that glamour adds
-	return strings.TrimSpace(rendered)
+	result := strings.TrimSpace(rendered)
+	glamourCache.Store(key, result)
+	return result
 }
 
 // ansiStripRegex matches ANSI escape codes for stripping in tests.

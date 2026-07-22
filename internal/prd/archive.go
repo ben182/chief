@@ -7,9 +7,21 @@ import (
 	"sort"
 )
 
+// ChiefDir returns chief's per-project root directory (.chief). It is the single
+// place that knows the ".chief" segment; all other chief paths derive from it.
+func ChiefDir(baseDir string) string {
+	return filepath.Join(baseDir, ".chief")
+}
+
+// WorktreesDir returns the directory holding chief-managed git worktrees
+// (.chief/worktrees).
+func WorktreesDir(baseDir string) string {
+	return filepath.Join(ChiefDir(baseDir), "worktrees")
+}
+
 // PrdsDir returns the directory holding active PRDs (.chief/prds).
 func PrdsDir(baseDir string) string {
-	return filepath.Join(baseDir, ".chief", "prds")
+	return filepath.Join(ChiefDir(baseDir), "prds")
 }
 
 // PRDDir returns the directory of a single PRD (.chief/prds/<name>).
@@ -24,7 +36,7 @@ func PRDPath(baseDir, name string) string {
 
 // ArchiveDir returns the directory holding archived PRDs (.chief/archive).
 func ArchiveDir(baseDir string) string {
-	return filepath.Join(baseDir, ".chief", "archive")
+	return filepath.Join(ChiefDir(baseDir), "archive")
 }
 
 // ArchivePRD moves an active PRD directory from .chief/prds/<name> to
