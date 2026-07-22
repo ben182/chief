@@ -802,7 +802,7 @@ func (a App) startLoop() (tea.Model, tea.Cmd) {
 // startLoopForPRD starts the agent loop for a specific PRD.
 func (a App) startLoopForPRD(prdName string) (tea.Model, tea.Cmd) {
 	// Get the PRD directory
-	prdDir := filepath.Join(a.baseDir, ".chief", "prds", prdName)
+	prdDir := prd.PRDDir(a.baseDir, prdName)
 
 	if !git.IsGitRepo(a.baseDir) {
 		return a.doStartLoop(prdName, prdDir)
@@ -1162,9 +1162,17 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 		}
 	}
 
-	// Refresh tab bar to show updated state
+	// Refresh the tab bar only on events that change a tab's displayed state
+	// (progress counts, done/needs-review/error badges). Streaming events like
+	// assistant text, tool calls and usage fire many times per second, and each
+	// Refresh re-reads and re-parses every prd.md from disk — so refreshing on
+	// those chunks turned every token into a full directory scan.
 	if a.tabBar != nil {
-		a.tabBar.Refresh()
+		switch event.Type {
+		case loop.EventIterationStart, loop.EventStoryDone, loop.EventStoryNeedsReview,
+			loop.EventComplete, loop.EventError, loop.EventMaxIterationsReached:
+			a.tabBar.Refresh()
+		}
 	}
 
 	// Continue listening for manager events, plus any auto-action commands
@@ -1291,7 +1299,7 @@ func (a App) handleBranchWarningKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "enter":
 		prdName := a.pendingStartPRD
-		prdDir := filepath.Join(a.baseDir, ".chief", "prds", prdName)
+		prdDir := prd.PRDDir(a.baseDir, prdName)
 		a.pendingStartPRD = ""
 		a.pendingWorktreePath = ""
 		a.viewMode = ViewDashboard
@@ -1660,7 +1668,7 @@ func (a App) handleBackgroundAutoAction(msg backgroundAutoActionResultMsg) (tea.
 			dir := a.baseDir
 			prdPath := instance.PRDPath
 			if prdPath == "" {
-				prdPath = filepath.Join(a.baseDir, ".chief", "prds", prdName, "prd.md")
+				prdPath = prd.PRDPath(a.baseDir, prdName)
 			}
 			return a, func() tea.Msg {
 				p, err := prd.LoadPRD(prdPath)
@@ -1704,11 +1712,11 @@ func (a *App) completionGitDir(prdName string) string {
 func (a *App) summaryDir(prdName, gitDir string) string {
 	prdPath := a.prdPathForPRD(prdName)
 	if prdPath == "" {
-		return filepath.Join(gitDir, ".chief", "prds", prdName)
+		return prd.PRDDir(gitDir, prdName)
 	}
 	rel, err := filepath.Rel(a.baseDir, filepath.Dir(prdPath))
 	if err != nil || strings.HasPrefix(rel, "..") {
-		return filepath.Join(gitDir, ".chief", "prds", prdName)
+		return prd.PRDDir(gitDir, prdName)
 	}
 	return filepath.Join(gitDir, rel)
 }
@@ -1819,7 +1827,7 @@ func (a *App) runAutoCreatePR() tea.Cmd {
 	// parsing succeeds - the old prd.json layout was migrated away.
 	prdPath := a.prdPathForPRD(prdName)
 	if prdPath == "" {
-		prdPath = filepath.Join(a.baseDir, ".chief", "prds", prdName, "prd.md")
+		prdPath = prd.PRDPath(a.baseDir, prdName)
 	}
 	return func() tea.Msg {
 		p, err := prd.LoadPRD(prdPath)
@@ -2098,7 +2106,7 @@ func (a App) finishWorktreeSetup() (tea.Model, tea.Cmd) {
 	prdName := a.pendingStartPRD
 	worktreePath := a.pendingWorktreePath
 	branchName := a.worktreeSpinner.branchName
-	prdDir := filepath.Join(a.baseDir, ".chief", "prds", prdName)
+	prdDir := prd.PRDDir(a.baseDir, prdName)
 
 	// Register or update with worktree info. Prefer the already-known PRD path
 	// (handles the legacy .chief/prd.md and direct-path layouts) over convention.

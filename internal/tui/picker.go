@@ -100,7 +100,7 @@ func (p *PRDPicker) SetManager(manager *loop.Manager) {
 func (p *PRDPicker) Refresh() {
 	p.entries = make([]PRDEntry, 0)
 
-	prdsDir := filepath.Join(p.basePath, ".chief", "prds")
+	prdsDir := prd.PrdsDir(p.basePath)
 
 	// Read the prds directory
 	entries, err := os.ReadDir(prdsDir)
@@ -190,7 +190,7 @@ func (p *PRDPicker) Refresh() {
 			if !found {
 				p.entries = append(p.entries, PRDEntry{
 					Name:        prdName,
-					Path:        filepath.Join(p.basePath, ".chief", "prds", prdName, "prd.md"),
+					Path:        prd.PRDPath(p.basePath, prdName),
 					LoopState:   loop.LoopStateReady,
 					WorktreeDir: absPath,
 					Orphaned:    true,

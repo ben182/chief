@@ -49,7 +49,7 @@ func NewTabBar(baseDir, currentPRD string, manager *loop.Manager) *TabBar {
 func (t *TabBar) Refresh() {
 	t.entries = make([]TabEntry, 0)
 
-	prdsDir := filepath.Join(t.baseDir, ".chief", "prds")
+	prdsDir := prd.PrdsDir(t.baseDir)
 
 	// Read the prds directory
 	dirEntries, err := os.ReadDir(prdsDir)
