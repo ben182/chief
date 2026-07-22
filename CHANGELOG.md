@@ -32,6 +32,21 @@ All notable changes to Chief are documented in this file.
 - Stories are only marked `done` when a matching commit actually landed. If the agent emits `<chief-done/>` without committing (forgot, a hook rejected it, or it crashed), the story is treated as a failed attempt instead of being falsely completed, so uncommitted work is no longer silently lost
 - `prd.md` is now written atomically (temp file + rename), so a crash mid-write can never truncate the source of truth. The file watcher survives atomic replacement (also fixes spurious "removed" events from editors that save atomically)
 - Auto-push and auto-PR on completion only run when the branch has at least one commit, so a run with no committed work no longer creates an empty branch or pull request
+- **Parallel-PRD deadlock closed** — `Manager.Start` took the per-instance lock and then reached for the manager-wide lock, the reverse of the order `GetAllInstances`/`GetRunningPRDs` use. With several PRDs running while the dashboard polled their state, that AB-BA ordering could deadlock under load. Start now snapshots the manager fields it needs under the manager lock first, then takes the instance lock, so the two are always acquired in the same order
+- **Run logs no longer interleave mid-line** — the agent's stdout and stderr are logged from separate goroutines that wrote to the log file without synchronization, so lines could splice into one another and corrupt the stream-json log. Writes are now serialized behind a dedicated mutex
+- **Failed `prd.md` status writes stop the run instead of looping forever** — marking a story `done` or parking it `needs-review` is the source of truth for what's left to do, but a failed write was silently swallowed, so the loop would pick the same story again on the next iteration and never make progress (burning iterations). The failure is now logged, surfaced as an error event, and stops the run so the cause (e.g. a read-only filesystem) can be fixed
+
+### Performance
+- **Tab bar no longer rescans every PRD on each streaming chunk** — `tabBar.Refresh()` re-reads and re-parses every `prd.md` from disk, and it was called on every loop event. Streaming events (assistant text, tool calls, token usage) fire many times per second, so each chunk triggered a full directory scan of `.chief/prds/`. Refresh now runs only on events that change a tab's displayed state (iteration start, story done/needs-review, complete, error, max-iterations)
+
+### Refactoring
+- **CLI parsing extracted into `internal/cli`** — `cmd/chief/main.go` (667 lines) mixed subcommand dispatch, flag parsing, PRD-path resolution, provider setup and ~70 lines of ASCII art in one untested file. Argument parsing (`ParseArgs`, `AgentFlags`, `PRDPathFromArg`) and PRD lookup (`FindAvailablePRD`/`ListAvailablePRDs`) now live in a unit-tested `internal/cli` package that returns errors instead of calling `os.Exit`; help text and the ASCII art moved to their own file. `main.go` drops to 373 lines and is a thin orchestrator
+- **Central PRD path helpers** — the `.chief/prds/<name>/prd.md` convention was hardcoded in ~15 places. New `prd.PRDDir`/`prd.PRDPath` helpers (alongside the existing `PrdsDir`) centralize it so a layout change is a one-line edit
+- **git command helpers** — the `internal/git` package repeated the same `exec.Command("git", …)` / `cmd.Dir` / output-and-error dance ~34 times. Three helpers (`runGit`, `runGitRaw`, `runGitChecked`) fold it together and centralize error handling, trimming `git.go` from 303 to 253 lines with no behavior change
+- Added test coverage for the cost/pricing table (`internal/loop/pricing.go`) and `git.IsChiefIgnored`, plus full coverage of the new `internal/cli` package
+
+### Dependencies
+- Security-relevant bumps: `golang.org/x/net` 0.33→0.57 and `golang.org/x/crypto` 0.31→0.54, plus `chroma` 2.27, `fsnotify` 1.10.1 and `glamour` 1.0.0 (API- and render-compatible with 0.10.0 — no source changes). The release workflow's Go version moves 1.23→1.25 to match the `go` directive raised by the updated dependency graph
 
 ## [0.7.0] - 2026-03-08
 
