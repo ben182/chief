@@ -236,6 +236,171 @@ func TestPRD_NextStory_InterruptedTakesPrecedence(t *testing.T) {
 	}
 }
 
+func TestPRD_NextStory_BlockedByNotYetPassed(t *testing.T) {
+	p := &PRD{
+		UserStories: []UserStory{
+			{ID: "US-001", Priority: 1, Passes: false},
+			{ID: "US-002", Priority: 2, Passes: false, BlockedBy: []string{"US-001"}},
+		},
+	}
+
+	// US-002 is blocked by the still-unfinished US-001, so US-001 is picked even
+	// though both are unpassed.
+	next := p.NextStory()
+	if next == nil {
+		t.Fatal("expected non-nil story")
+	}
+	if next.ID != "US-001" {
+		t.Errorf("expected US-001 (US-002 blocked), got %s", next.ID)
+	}
+
+	// Once the blocker passes, US-002 becomes eligible.
+	p.UserStories[0].Passes = true
+	next = p.NextStory()
+	if next == nil {
+		t.Fatal("expected non-nil story")
+	}
+	if next.ID != "US-002" {
+		t.Errorf("expected US-002 after blocker passed, got %s", next.ID)
+	}
+}
+
+func TestPRD_NextStory_BlockedStoryWithLowerPrioritySkipped(t *testing.T) {
+	// US-002 has the lower priority number (would normally win) but is blocked by
+	// the unpassed US-001, so the eligible US-001 is chosen instead.
+	p := &PRD{
+		UserStories: []UserStory{
+			{ID: "US-001", Priority: 5, Passes: false},
+			{ID: "US-002", Priority: 1, Passes: false, BlockedBy: []string{"US-001"}},
+		},
+	}
+	next := p.NextStory()
+	if next == nil {
+		t.Fatal("expected non-nil story")
+	}
+	if next.ID != "US-001" {
+		t.Errorf("expected US-001 (only eligible), got %s", next.ID)
+	}
+}
+
+func TestPRD_NextStory_InProgressBeatsBlocking(t *testing.T) {
+	// In-progress precedence still wins, even if the in-progress story has
+	// unsatisfied blockers (interrupted work must resume).
+	p := &PRD{
+		UserStories: []UserStory{
+			{ID: "US-001", Priority: 1, Passes: false},
+			{ID: "US-002", Priority: 2, Passes: false, InProgress: true, BlockedBy: []string{"US-001"}},
+		},
+	}
+	next := p.NextStory()
+	if next == nil {
+		t.Fatal("expected non-nil story")
+	}
+	if next.ID != "US-002" {
+		t.Errorf("expected in-progress US-002 to take precedence, got %s", next.ID)
+	}
+}
+
+func TestPRD_NextStory_UnknownBlockerIgnored(t *testing.T) {
+	// A typo'd/unknown blocker ID must never deadlock: the story stays eligible.
+	p := &PRD{
+		UserStories: []UserStory{
+			{ID: "US-001", Priority: 1, Passes: false, BlockedBy: []string{"US-999"}},
+		},
+	}
+	next := p.NextStory()
+	if next == nil {
+		t.Fatal("expected non-nil story (unknown blocker should be ignored)")
+	}
+	if next.ID != "US-001" {
+		t.Errorf("expected US-001, got %s", next.ID)
+	}
+}
+
+func TestPRD_NextStory_SelfReferenceIgnored(t *testing.T) {
+	// A story blocking itself is ignored rather than deadlocking.
+	p := &PRD{
+		UserStories: []UserStory{
+			{ID: "US-001", Priority: 1, Passes: false, BlockedBy: []string{"US-001"}},
+		},
+	}
+	if got := p.Frontier(); len(got) != 1 || got[0].ID != "US-001" {
+		t.Errorf("Frontier = %v, want [US-001] (self-reference ignored)", got)
+	}
+	if next := p.NextStory(); next == nil || next.ID != "US-001" {
+		t.Errorf("NextStory should return US-001 despite self-reference")
+	}
+}
+
+func TestPRD_NextStory_CycleFallsBack(t *testing.T) {
+	// A 2-cycle (A blocks B, B blocks A): the frontier is empty, but NextStory
+	// must NOT return nil while both are actionable. The fallback returns the
+	// lowest-priority one so the loop never hangs.
+	p := &PRD{
+		UserStories: []UserStory{
+			{ID: "US-001", Priority: 2, Passes: false, BlockedBy: []string{"US-002"}},
+			{ID: "US-002", Priority: 1, Passes: false, BlockedBy: []string{"US-001"}},
+		},
+	}
+	if got := p.Frontier(); len(got) != 0 {
+		t.Errorf("Frontier = %v, want empty for a 2-cycle", got)
+	}
+	next := p.NextStory()
+	if next == nil {
+		t.Fatal("expected fallback story for a cycle, got nil")
+	}
+	if next.ID != "US-002" {
+		t.Errorf("expected lowest-priority fallback US-002, got %s", next.ID)
+	}
+}
+
+func TestPRD_NextStory_AllBlockedByParkedFallsBack(t *testing.T) {
+	// Every remaining story is blocked by a parked (NeedsReview) story. The
+	// frontier is empty, but actionable work remains → fallback picks it.
+	p := &PRD{
+		UserStories: []UserStory{
+			{ID: "US-001", Priority: 1, Passes: false, NeedsReview: true},
+			{ID: "US-002", Priority: 2, Passes: false, BlockedBy: []string{"US-001"}},
+		},
+	}
+	if got := p.Frontier(); len(got) != 0 {
+		t.Errorf("Frontier = %v, want empty (only blocked story remains)", got)
+	}
+	next := p.NextStory()
+	if next == nil {
+		t.Fatal("expected fallback story, got nil")
+	}
+	if next.ID != "US-002" {
+		t.Errorf("expected fallback US-002, got %s", next.ID)
+	}
+}
+
+func TestPRD_Frontier_ReturnsEligibleOnly(t *testing.T) {
+	p := &PRD{
+		UserStories: []UserStory{
+			{ID: "US-001", Priority: 1, Passes: true},                                 // passed → excluded
+			{ID: "US-002", Priority: 2, Passes: false},                                // eligible
+			{ID: "US-003", Priority: 3, Passes: false, NeedsReview: true},             // parked → excluded
+			{ID: "US-004", Priority: 4, Passes: false, BlockedBy: []string{"US-002"}}, // blocked → excluded
+			{ID: "US-005", Priority: 5, Passes: false, BlockedBy: []string{"US-001"}}, // blocker passed → eligible
+		},
+	}
+	front := p.Frontier()
+	gotIDs := make([]string, len(front))
+	for i, s := range front {
+		gotIDs[i] = s.ID
+	}
+	want := []string{"US-002", "US-005"}
+	if len(gotIDs) != len(want) {
+		t.Fatalf("Frontier IDs = %v, want %v", gotIDs, want)
+	}
+	for i := range want {
+		if gotIDs[i] != want[i] {
+			t.Errorf("Frontier IDs = %v, want %v (order = PRD order)", gotIDs, want)
+		}
+	}
+}
+
 func TestUserStory_Fields(t *testing.T) {
 	story := UserStory{
 		ID:                 "US-TEST",

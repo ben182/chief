@@ -74,8 +74,9 @@ Each story needs:
 
 **Format:**
 ```markdown
-### US-001: [Title]
-**Priority:** 1
+### US-003: [Title]
+**Priority:** 3
+**Blocked by:** US-001, US-002
 **Description:** As a [user], I want [feature] so that [benefit].
 
 **Acceptance Criteria:**
@@ -83,11 +84,20 @@ Each story needs:
 - [ ] Another criterion
 ```
 
+The `**Blocked by:**` line is optional — OMIT it entirely for stories that can
+start immediately (no dependencies).
+
 **Editing Guidelines:**
 - **Preserve story IDs** - Keep existing US-XXX IDs when modifying stories.
 - **Add new stories** with the next available ID number.
 - **Update priorities** if story order needs to change.
-- Each story should be small enough to implement in one focused coding session.
+- Each story should be a **vertical slice / tracer bullet**: a narrow but
+  COMPLETE path that is demoable or verifiable on its own — not a horizontal
+  slice of a single layer.
+- Use `**Blocked by:**` to declare the stories that must complete first. A story
+  with no blockers can start immediately. Prefer expressing real ordering through
+  blockers, using `Priority` only to order among stories that are all unblocked.
+  Keep dependencies minimal and acyclic; never make two stories block each other.
 - **Write acceptance criteria as observable outcomes, not implementation steps.**
   A criterion says what a person or a test can observe about the finished feature,
   not the code edit that produces it. "Deleting a task asks for confirmation first"
@@ -114,10 +124,16 @@ UI/UX requirements, mockup links, existing components to reuse.
 ### 7. Technical Considerations (Optional)
 Constraints, dependencies, integration points, performance requirements.
 
-### 8. Success Metrics
+### 8. Testing Decisions (present when the feature has testable logic)
+The seams the feature is tested at (prefer existing, highest, fewest — ideal one),
+what makes a good test here (observable behavior through the public interface, not
+implementation details), and prior-art tests to mirror. Preserve this section; when
+a change adds testable logic, update the seams accordingly.
+
+### 9. Success Metrics
 Specific, measurable indicators of success. Always review these when making changes — if the scope changes, the metrics likely should too.
 
-### 9. Open Questions
+### 10. Open Questions
 Keep this **empty** where possible. Resolve anything the user can answer via
 clarifying questions above; only list genuinely external items that cannot be
 decided now.
@@ -145,10 +161,12 @@ Before saving the edited PRD, verify:
 - [ ] For non-trivial changes, intended edits were summarized and confirmed before writing
 - [ ] Existing story IDs are preserved (not renumbered)
 - [ ] New stories use the next available ID
-- [ ] User stories are small, atomic, and specific
+- [ ] User stories are small, atomic, and specific — each a vertical slice that is demoable on its own
+- [ ] Cross-story dependencies are expressed with `**Blocked by:**` (not smuggled into Priority); the dependency graph is acyclic
 - [ ] Acceptance criteria describe observable outcomes, not code steps — no file paths, function names, or column names unless the user decided them
 - [ ] No generic quality gates ("Typecheck passes", "tests pass") listed as criteria — they are enforced automatically
 - [ ] Acceptance criteria are still verifiable (not vague)
+- [ ] Testing Decisions preserved (and updated if the change adds testable logic) — seams at existing/highest/fewest
 - [ ] Functional requirements are numbered and unambiguous
 - [ ] Non-goals updated if scope changed
 - [ ] Success metrics reviewed and updated if needed

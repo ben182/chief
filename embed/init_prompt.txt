@@ -81,6 +81,13 @@ Keep going until nothing answerable is left open. Cover at least:
 - **Design/Frontend** — when the feature has any UI, grill the frontend as hard as
   the behavior (see the dedicated section below). Skip this only for features with
   no user-facing surface (pure backend, CLI internals, data jobs).
+- **Testing seams** — when the feature has testable logic, sketch the *seams* you
+  will test at and CONFIRM them with the user, the way you confirm frontend
+  decisions. A seam is the public boundary where behavior is observed WITHOUT
+  reaching inside; prefer EXISTING seams, the HIGHEST seam, and the FEWEST of them
+  (ideal: one, or zero new ones). Seams are a decision, so confirm them — but which
+  test framework the repo uses and how its existing tests look are FACTS to look up,
+  not ask. Skip this for trivial or no-logic features.
 - **Success criteria** — how we know it's done and working.
 
 If an answer is vague, reveals a new ambiguity, or leaves a sub-decision unmade,
@@ -141,8 +148,9 @@ Each story should be small enough to implement in one focused coding session.
 
 **Format:**
 ```markdown
-### US-001: [Title]
-**Priority:** 1
+### US-003: [Title]
+**Priority:** 3
+**Blocked by:** US-001, US-002
 **Description:** As a [user], I want [feature] so that [benefit].
 
 **Acceptance Criteria:**
@@ -150,9 +158,19 @@ Each story should be small enough to implement in one focused coding session.
 - [ ] Another criterion
 ```
 
+The `**Blocked by:**` line is optional — OMIT it entirely for stories that can
+start immediately (no dependencies).
+
 **Guidelines:**
 - Lower priority numbers = higher priority. Build foundations first.
-- Order stories so earlier ones enable later ones (consider dependencies).
+- Each story should be a **vertical slice / tracer bullet**: a narrow but
+  COMPLETE path that is demoable or verifiable on its own — not a horizontal
+  slice of a single layer (e.g. "all the database tables") that can't be shown
+  to anyone.
+- Use `**Blocked by:**` to declare the stories that must complete first. A story
+  with no blockers can start immediately. Prefer expressing real ordering through
+  blockers, using `Priority` only to order among stories that are all unblocked.
+- Keep dependencies minimal and acyclic; never make two stories block each other.
 - **Write acceptance criteria as observable outcomes, not implementation steps.**
   A criterion says what a person or a test can observe about the finished feature
   — a behavior, a visible result, a state change — not the code edit that produces
@@ -211,13 +229,28 @@ independent implementation sessions build a consistent UI. Cover:
 - Integration points with existing systems
 - Performance requirements
 
-### 8. Success Metrics
+### 8. Testing Decisions (required when the feature has testable logic; omit for trivial/no-logic features)
+Record, concisely, the testing decisions confirmed during the grill. This is NOT
+acceptance criteria and NOT a generic "tests pass" gate — it is where the *how we
+test this* is written down:
+- **Seams** — the public boundary(ies) the feature is tested at, where behavior is
+  observed WITHOUT reaching inside. Prefer EXISTING seams, the HIGHEST seam, and the
+  FEWEST of them; the ideal number of *new* seams is one or zero.
+- **What makes a good test here** — it verifies observable behavior through that
+  public interface and survives refactors. Avoid tests coupled to implementation
+  (asserting private state, mocking internal collaborators, querying a DB instead of
+  using the interface) and tautological tests (where the expected value is recomputed
+  the same way the code does it — expected values must come from an independent source
+  such as a known-good literal or the spec).
+- **Prior art** — similar existing tests in the repo to mirror.
+
+### 9. Success Metrics
 How will success be measured? Be specific:
 - "Reduce time to complete X by 50%"
 - "Increase conversion rate by 10%"
 - "Users can accomplish Y in under 3 clicks"
 
-### 9. Open Questions
+### 10. Open Questions
 Aim for this to be **empty**. Anything answerable by the user must have been
 resolved during Phase 1, not parked here. Only list items that are genuinely
 external and cannot be decided now (e.g. "waiting on legal sign-off", "depends on
@@ -312,6 +345,15 @@ Add priority levels to tasks so users can focus on what matters most. Tasks can 
 - Filter state managed via URL search params
 - Priority stored in database, not computed
 
+## Testing Decisions
+
+- Tested at the task-store / list-render seam: set a priority through the store's
+  public API and assert what the rendered list shows (badge color, ordering) — do
+  not reach into internal store state.
+- Behavior-level and non-tautological: the expected badge colors and the
+  high>medium>low order come from FR-2 and FR-5, not recomputed from the code.
+- Mirror the existing task-store tests; no new seam needed.
+
 ## Success Metrics
 
 - Users can change priority in under 2 clicks
@@ -337,10 +379,12 @@ Before saving the PRD, verify:
 - [ ] Shared understanding was summarized and confirmed before writing
 - [ ] If the feature has a UI, the frontend was grilled (screens, states, components, interaction, visual direction) and captured in the Design & Frontend section
 - [ ] Every UI story has the relevant design decisions written INTO its acceptance criteria (states, named components, interaction) — not left only in the Design section, which the implementer never sees
-- [ ] User stories are small, atomic, and specific
+- [ ] User stories are small, atomic, and specific — each a vertical slice that is demoable on its own
+- [ ] Cross-story dependencies are expressed with `**Blocked by:**` (not smuggled into Priority); the dependency graph is acyclic
 - [ ] Acceptance criteria describe observable outcomes, not code steps — no file paths, function names, or column names unless the user decided them
 - [ ] No generic quality gates ("Typecheck passes", "tests pass") listed as criteria — they are enforced automatically
 - [ ] Acceptance criteria are still verifiable (not vague)
+- [ ] Testing Decisions records the seams to test at (existing/highest/fewest) when the feature has testable logic
 - [ ] Functional requirements are numbered and unambiguous
 - [ ] Non-goals section defines clear boundaries
 - [ ] Success metrics are specific and measurable

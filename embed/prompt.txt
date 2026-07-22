@@ -10,12 +10,29 @@ Your current story:
 </story>
 
 1. Read `{{PROGRESS_PATH}}` if it exists (check Codebase Patterns section first)
-2. Implement the user story above
+2. Implement the user story above — test-first, in vertical slices (see Testing below)
 3. Run quality checks (e.g., typecheck, lint, test - use whatever your project requires)
 4. If checks pass, commit changes with message: `feat: {{STORY_ID}} - {{STORY_TITLE}}`
    - **NEVER stage or commit `.chief/` files** — these are local working files and must stay out of version control
    - Stage only the files you changed for the story (do NOT use `git add -A` or `git add .`)
 5. Append your progress to `{{PROGRESS_PATH}}`
+
+## Testing
+
+When the story has testable logic, work test-first in vertical slices: write one
+failing test for a behavior, add the minimal code to pass it, repeat — do NOT write
+all tests first and then all the code.
+
+- **Test at the seams the story/PRD names** (the public boundary where behavior is
+  observed without reaching inside). If none is named, use the HIGHEST existing seam;
+  prefer existing seams over new ones and the fewest possible.
+- **Test observable behavior through the public interface, not implementation.** Two
+  anti-patterns to avoid: (a) implementation-coupled tests — asserting private state,
+  mocking internal collaborators, or querying a DB instead of using the interface;
+  they break on refactor though behavior is unchanged. (b) tautological tests — where
+  the expected value is recomputed the same way the code does it, so it can never
+  disagree; expected values must come from an independent source (a known-good
+  literal, a worked example, or the spec).
 
 ## Progress Report Format
 

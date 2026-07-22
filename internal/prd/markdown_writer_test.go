@@ -269,6 +269,57 @@ A description.
 	}
 }
 
+// TestSetStoryStatusInString_PreservesBlockedBy verifies that a surgical status
+// update (the only markdown writer in the package) leaves a story's
+// **Blocked by:** line untouched, so BlockedBy survives a parse→write→parse
+// round-trip. A story without a Blocked-by line must never gain one.
+func TestSetStoryStatusInString_PreservesBlockedBy(t *testing.T) {
+	md := `# P
+
+### US-001: First
+**Priority:** 1
+- [ ] A
+
+### US-002: Second
+**Priority:** 2
+**Blocked by:** US-001
+- [ ] B
+`
+	// Parse → confirm the blocker is captured.
+	p, err := ParseMarkdownPRDFromString(md)
+	if err != nil {
+		t.Fatalf("parse error = %v", err)
+	}
+	if got := p.UserStories[1].BlockedBy; len(got) != 1 || got[0] != "US-001" {
+		t.Fatalf("US-002 BlockedBy = %v, want [US-001]", got)
+	}
+
+	// Write (surgical status update) → the Blocked-by line must remain verbatim.
+	result, err := setStoryStatusInString(md, "US-001", "done")
+	if err != nil {
+		t.Fatalf("write error = %v", err)
+	}
+	if !strings.Contains(result, "**Blocked by:** US-001") {
+		t.Error("**Blocked by:** line should be preserved by the surgical writer")
+	}
+
+	// Parse again → BlockedBy round-trips unchanged.
+	p2, err := ParseMarkdownPRDFromString(result)
+	if err != nil {
+		t.Fatalf("re-parse error = %v", err)
+	}
+	if got := p2.UserStories[1].BlockedBy; len(got) != 1 || got[0] != "US-001" {
+		t.Errorf("after round-trip US-002 BlockedBy = %v, want [US-001]", got)
+	}
+	// US-001 had no blockers and must not have gained a Blocked-by line.
+	if len(p2.UserStories[0].BlockedBy) != 0 {
+		t.Errorf("US-001 BlockedBy = %v, want empty", p2.UserStories[0].BlockedBy)
+	}
+	if strings.Contains(result, "### US-001: First\n**Status:** done\n**Blocked by:") {
+		t.Error("US-001 should not have gained a Blocked-by line")
+	}
+}
+
 func TestWriteFileAtomic(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "prd.md")

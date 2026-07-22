@@ -19,6 +19,9 @@ var priorityLineRegex = regexp.MustCompile(`^\*\*Priority:\*\*\s*(.+)$`)
 // descriptionLineRegex matches "**Description:** value"
 var descriptionLineRegex = regexp.MustCompile(`^\*\*Description:\*\*\s*(.+)$`)
 
+// blockedByLineRegex matches "**Blocked by:** value"
+var blockedByLineRegex = regexp.MustCompile(`^\*\*Blocked by:\*\*\s*(.+)$`)
+
 // checkboxRegex matches "- [ ] text" or "- [x] text"
 var checkboxRegex = regexp.MustCompile(`^-\s+\[([ xX])\]\s+(.+)$`)
 
@@ -150,6 +153,12 @@ func ParseMarkdownPRDFromString(content string) (*PRD, error) {
 				continue
 			}
 
+			// **Blocked by:** line — explicit dependency edges.
+			if m := blockedByLineRegex.FindStringSubmatch(trimmed); m != nil {
+				current.story.BlockedBy = parseBlockedBy(m[1])
+				continue
+			}
+
 			// Checkbox items → acceptance criteria
 			if m := checkboxRegex.FindStringSubmatch(trimmed); m != nil {
 				current.story.AcceptanceCriteria = append(current.story.AcceptanceCriteria, strings.TrimSpace(m[2]))
@@ -177,4 +186,32 @@ func ParseMarkdownPRDFromString(content string) (*PRD, error) {
 	flushStory()
 
 	return p, nil
+}
+
+// parseBlockedBy parses the value of a "**Blocked by:**" line into a list of
+// story IDs. It splits on commas and keeps tokens that look like an ID (contain
+// a hyphen), mirroring the tolerance used elsewhere in the parser. An empty
+// value or a "None"-style value ("None", "none", "None — no deps", ...) yields
+// nil so unblocked stories carry no blockers.
+func parseBlockedBy(val string) []string {
+	val = strings.TrimSpace(val)
+	if val == "" {
+		return nil
+	}
+	lower := strings.ToLower(val)
+	if lower == "none" ||
+		strings.HasPrefix(lower, "none ") ||
+		strings.HasPrefix(lower, "none-") ||
+		strings.HasPrefix(lower, "none—") {
+		return nil
+	}
+
+	var ids []string
+	for _, tok := range strings.Split(val, ",") {
+		tok = strings.TrimSpace(tok)
+		if tok != "" && strings.Contains(tok, "-") {
+			ids = append(ids, tok)
+		}
+	}
+	return ids
 }

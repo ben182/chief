@@ -380,6 +380,78 @@ func TestParseMarkdownPRDFromString_AutoPriority(t *testing.T) {
 	}
 }
 
+func TestParseMarkdownPRDFromString_BlockedBy(t *testing.T) {
+	md := `# P
+
+### US-001: First
+**Priority:** 1
+- [ ] A
+
+### US-002: Second
+**Priority:** 2
+**Blocked by:** US-001
+- [ ] B
+
+### US-003: Third
+**Priority:** 3
+**Blocked by:** US-001, US-002
+This is prose that should become the description.
+- [ ] C
+`
+	p, err := ParseMarkdownPRDFromString(md)
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if len(p.UserStories) != 3 {
+		t.Fatalf("len = %d, want 3", len(p.UserStories))
+	}
+
+	// US-001 has no blockers.
+	if len(p.UserStories[0].BlockedBy) != 0 {
+		t.Errorf("US-001 BlockedBy = %v, want empty", p.UserStories[0].BlockedBy)
+	}
+
+	// US-002 blocked by a single story.
+	if got := p.UserStories[1].BlockedBy; len(got) != 1 || got[0] != "US-001" {
+		t.Errorf("US-002 BlockedBy = %v, want [US-001]", got)
+	}
+
+	// US-003 blocked by two stories, comma-separated.
+	if got := p.UserStories[2].BlockedBy; len(got) != 2 || got[0] != "US-001" || got[1] != "US-002" {
+		t.Errorf("US-003 BlockedBy = %v, want [US-001 US-002]", got)
+	}
+
+	// The Blocked-by line must not leak into the description.
+	if desc := p.UserStories[2].Description; desc != "This is prose that should become the description." {
+		t.Errorf("US-003 Description = %q, blocked-by line should not be captured as prose", desc)
+	}
+}
+
+func TestParseMarkdownPRDFromString_BlockedByNone(t *testing.T) {
+	cases := map[string]string{
+		"absent":      "### US-001: S\n**Priority:** 1\n- [ ] A\n",
+		"none":        "### US-001: S\n**Blocked by:** None\n- [ ] A\n",
+		"lower none":  "### US-001: S\n**Blocked by:** none\n- [ ] A\n",
+		"none dash":   "### US-001: S\n**Blocked by:** None - nothing blocks this\n- [ ] A\n",
+		"none emdash": "### US-001: S\n**Blocked by:** None — nothing blocks this\n- [ ] A\n",
+		"empty":       "### US-001: S\n**Blocked by:**\n- [ ] A\n",
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			p, err := ParseMarkdownPRDFromString("# P\n\n" + body)
+			if err != nil {
+				t.Fatalf("error = %v", err)
+			}
+			if len(p.UserStories) != 1 {
+				t.Fatalf("len = %d, want 1", len(p.UserStories))
+			}
+			if got := p.UserStories[0].BlockedBy; len(got) != 0 {
+				t.Errorf("BlockedBy = %v, want empty", got)
+			}
+		})
+	}
+}
+
 func TestParseMarkdownPRDFromString_FloatPriority(t *testing.T) {
 	md := `# P
 

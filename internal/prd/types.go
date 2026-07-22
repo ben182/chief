@@ -19,6 +19,10 @@ type UserStory struct {
 	Passes             bool     `json:"passes"`
 	InProgress         bool     `json:"inProgress,omitempty"`
 	NeedsReview        bool     `json:"needsReview,omitempty"` // parked after repeated failures; skipped by NextStory
+	// BlockedBy lists the IDs of stories that must have Passes==true before this
+	// story becomes eligible (see Frontier). Empty means the story can start
+	// immediately. Unknown/typo IDs are ignored so they can never deadlock the loop.
+	BlockedBy []string `json:"blockedBy,omitempty"`
 }
 
 // PRD represents a Product Requirements Document.
@@ -86,33 +90,106 @@ func (p *PRD) Incomplete() []UserStory {
 	return out
 }
 
-// NextStory returns the next story to work on.
-// It returns:
-//   - First story with inProgress: true (interrupted story), or
-//   - Lowest priority story with passes: false, or
-//   - nil if all stories are complete
+// Frontier returns, in PRD order, every story that is eligible to be worked on
+// next: not passed, not parked (NeedsReview), and with every blocker satisfied.
 //
-// Stories parked for human review (NeedsReview) are skipped so the loop moves
-// on to other unblocked stories instead of retrying a stuck one forever.
+// A blocker ID (from BlockedBy) is "satisfied" when it either refers to a story
+// in this PRD that has Passes==true, or refers to no story at all. Robustness
+// rules that guarantee the loop can never deadlock on authoring mistakes:
+//   - An unknown/typo blocker ID (matches no story) is treated as satisfied.
+//   - A self-reference (a story listing its own ID) is ignored.
+//   - Duplicate IDs are handled safely (checked more than once is harmless).
+func (p *PRD) Frontier() []*UserStory {
+	passed := make(map[string]bool, len(p.UserStories))
+	exists := make(map[string]bool, len(p.UserStories))
+	for i := range p.UserStories {
+		exists[p.UserStories[i].ID] = true
+		if p.UserStories[i].Passes {
+			passed[p.UserStories[i].ID] = true
+		}
+	}
+
+	var out []*UserStory
+	for i := range p.UserStories {
+		story := &p.UserStories[i]
+		if story.Passes || story.NeedsReview {
+			continue
+		}
+		if blockersSatisfied(story, exists, passed) {
+			out = append(out, story)
+		}
+	}
+	return out
+}
+
+// blockersSatisfied reports whether every blocker of story is satisfied given
+// the set of existing story IDs and the set of passed story IDs.
+func blockersSatisfied(story *UserStory, exists, passed map[string]bool) bool {
+	for _, dep := range story.BlockedBy {
+		if dep == story.ID {
+			continue // self-reference: ignore
+		}
+		if !exists[dep] {
+			continue // unknown/typo ID: treat as satisfied so it can't deadlock
+		}
+		if !passed[dep] {
+			return false
+		}
+	}
+	return true
+}
+
+// lowestPriority returns the story with the lowest Priority, breaking ties by
+// PRD order (the first story encountered wins on equal priority). Returns nil
+// for an empty slice.
+func lowestPriority(stories []*UserStory) *UserStory {
+	var best *UserStory
+	for _, s := range stories {
+		if best == nil || s.Priority < best.Priority {
+			best = s
+		}
+	}
+	return best
+}
+
+// NextStory returns the next story to work on:
+//
+//  1. The first in-progress, non-parked story (interrupted work resumes), or
+//  2. the lowest-priority eligible frontier story — one whose blockers are all
+//     satisfied (see Frontier); ties break by PRD order, or
+//  3. as a graceful fallback when nothing on the frontier is eligible but
+//     unpassed, non-parked work still remains (a dependency cycle, or every
+//     remaining story is blocked by a parked story), the lowest-priority
+//     unpassed, non-parked story — so the loop can never hang on an authoring
+//     bug, or
+//  4. nil when there are no unpassed, non-parked stories left at all.
+//
+// Stories parked for human review (NeedsReview) are always skipped so the loop
+// moves on instead of retrying a stuck one forever.
 func (p *PRD) NextStory() *UserStory {
-	// First, check for any in-progress story (interrupted)
+	// 1. In-progress (interrupted) story resumes first.
 	for i := range p.UserStories {
 		if p.UserStories[i].InProgress && !p.UserStories[i].NeedsReview {
 			return &p.UserStories[i]
 		}
 	}
 
-	// Find the lowest priority story that hasn't passed and isn't parked
-	var next *UserStory
+	// 2. Lowest-priority eligible frontier story.
+	if next := lowestPriority(p.Frontier()); next != nil {
+		return next
+	}
+
+	// 3. Graceful fallback: no eligible frontier story, but actionable work
+	//    remains. Pick the lowest-priority unpassed, non-parked story.
+	var remaining []*UserStory
 	for i := range p.UserStories {
 		story := &p.UserStories[i]
 		if !story.Passes && !story.NeedsReview {
-			if next == nil || story.Priority < next.Priority {
-				next = story
-			}
+			remaining = append(remaining, story)
 		}
 	}
-	return next
+	// 4. lowestPriority returns nil when nothing remains.
+	return lowestPriority(remaining)
 }
 
 // AllResolved returns true when every story is either done (passes) or parked

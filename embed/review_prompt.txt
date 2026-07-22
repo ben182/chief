@@ -29,7 +29,11 @@ project's standards. Look hard for:
 - Acceptance criteria that are only *partially* met, or met in a way the story
   did not intend.
 - Bugs, edge cases, and error paths the implementation missed.
-- Missing or weak tests for the new behavior.
+- Missing or weak tests for the new behavior — and tests that are wrong even when
+  present: implementation-coupled (asserting private state or mocking internal
+  collaborators, so they break on refactor) or tautological (the expected value is
+  recomputed the way the code does it). Check that new behavior is tested at the
+  right seam — its public boundary — not against internals.
 - Code that does not follow the patterns already established in this codebase.
 - Dead code, debug leftovers, or `.chief/` files accidentally staged.
 
