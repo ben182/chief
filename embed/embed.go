@@ -16,6 +16,9 @@ var initPromptTemplate string
 //go:embed edit_prompt.txt
 var editPromptTemplate string
 
+//go:embed followup_prompt.txt
+var followupPromptTemplate string
+
 //go:embed detect_setup_prompt.txt
 var detectSetupPromptTemplate string
 
@@ -205,6 +208,17 @@ func GetInitPrompt(prdDir, context string, nativeQuestions bool) string {
 // provider-appropriate question format substituted.
 func GetEditPrompt(prdDir string, nativeQuestions bool) string {
 	result := strings.ReplaceAll(editPromptTemplate, "{{PRD_DIR}}", prdDir)
+	result = strings.ReplaceAll(result, "{{QUESTION_FORMAT}}", questionFormatBatch)
+	return strings.ReplaceAll(result, "{{EXPLORE_MODEL}}", exploreModel(nativeQuestions))
+}
+
+// GetFollowupPrompt returns the follow-up ingest prompt with the PRD directory,
+// the inbox file path, and the provider-appropriate question/explore blocks
+// substituted. It drives an interactive session that converts a raw follow-up
+// inbox (e.g. todos.md) into structured user stories appended to prd.md.
+func GetFollowupPrompt(prdDir, inboxPath string, nativeQuestions bool) string {
+	result := strings.ReplaceAll(followupPromptTemplate, "{{PRD_DIR}}", prdDir)
+	result = strings.ReplaceAll(result, "{{INBOX_PATH}}", inboxPath)
 	result = strings.ReplaceAll(result, "{{QUESTION_FORMAT}}", questionFormatBatch)
 	return strings.ReplaceAll(result, "{{EXPLORE_MODEL}}", exploreModel(nativeQuestions))
 }

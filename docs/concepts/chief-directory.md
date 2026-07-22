@@ -20,6 +20,7 @@ your-project/
     │   └── my-feature/
     │       ├── prd.md                        # Structured PRD (you write, Chief reads/updates)
     │       ├── progress.md                   # Progress log (Chief appends after each story)
+    │       ├── todos.md                       # Optional follow-up inbox (fed to `chief followup`)
     │       └── claude-<timestamp>.log        # Raw agent output — one file per run (for debugging)
     ├── archive/                # Archived PRDs (hidden from the tab bar)
     │   └── old-feature/        # Same layout as a prds/ entry, restorable
@@ -86,6 +87,26 @@ A typical entry looks like:
 ```
 
 The `Codebase Patterns` section at the top of this file consolidates reusable patterns discovered across iterations — things like naming conventions, file locations, and architectural decisions that future iterations should follow.
+
+### `todos.md` (optional)
+
+A **follow-up inbox** you fill in by hand. `chief new` scaffolds an empty one
+(comment-only) next to `prd.md`, so the inbox is there from the start; an
+existing inbox is never overwritten. Once a PRD is implemented, you often spot
+small fixes and polish items while reviewing the finished work. Jot them down
+here as a flat markdown checklist:
+
+```markdown
+- [ ] Media card should be hidden when no media is attached
+- [ ] Add a download button to the media view
+```
+
+Running [`chief followup`](/reference/cli#chief-followup) reads this file and the
+existing `prd.md`, converts each open (`- [ ]`) item into a new `todo` user story
+with the next available ID (and a `Blocked by` lineage note when it refines a
+`done` story), then flips the consumed items to `- [x]`. The loop picks up the
+new stories on the next run. `followups.md` and `follow-ups.md` work as
+alternative names.
 
 ### `claude-<timestamp>.log`
 

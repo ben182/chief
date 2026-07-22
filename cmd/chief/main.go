@@ -30,6 +30,9 @@ func main() {
 		case "edit":
 			runEdit()
 			return
+		case "followup":
+			runFollowup()
+			return
 		case "status":
 			runStatus()
 			return
@@ -155,6 +158,29 @@ func runEdit() {
 		return // user cancelled the model select
 	}
 	if err := cmd.RunEdit(opts); err != nil {
+		fatal(err)
+	}
+}
+
+func runFollowup() {
+	opts := cmd.FollowupOptions{}
+
+	// Parse arguments: chief followup [name] [--agent X] [--agent-path X]
+	flagAgent, flagPath, flagModel, remaining, err := cli.AgentFlags(os.Args, 2)
+	if err != nil {
+		fatal(err)
+	}
+	for _, arg := range remaining {
+		if opts.Name == "" && !strings.HasPrefix(arg, "-") {
+			opts.Name = arg
+		}
+	}
+
+	opts.Provider = resolveProvider(flagAgent, flagPath, flagModel)
+	if !selectModelForProvider(opts.Provider, "Ingest follow-ups", flagModel) {
+		return // user cancelled the model select
+	}
+	if err := cmd.RunFollowup(opts); err != nil {
 		fatal(err)
 	}
 }

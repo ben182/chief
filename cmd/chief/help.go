@@ -13,6 +13,7 @@ Commands:
   start [name]              Launch the TUI and begin the loop immediately
   new [name] [context]      Create a new PRD interactively (prompts for the Claude model unless --model is set)
   edit [name] [options]     Edit an existing PRD interactively (prompts for the Claude model unless --model is set)
+  followup [name]           Convert a PRD's follow-up inbox (todos.md) into new user stories
   status [name]             Show progress for a PRD (default: default)
   list                      List all PRDs with progress
   help                      Show this help message
@@ -51,6 +52,7 @@ Examples:
                             Create PRD with context hint
   chief edit                Edit PRD in .chief/prds/default/
   chief edit auth           Edit PRD in .chief/prds/auth/
+  chief followup auth       Turn .chief/prds/auth/todos.md items into new stories
   chief status              Show progress for default PRD
   chief status auth         Show progress for auth PRD
   chief list                List all PRDs with progress

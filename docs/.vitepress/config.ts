@@ -78,6 +78,7 @@ export default defineConfig({
           { text: 'The Ralph Loop', link: '/concepts/ralph-loop' },
           { text: 'The Review Agent', link: '/concepts/code-review' },
           { text: 'PRD Format', link: '/concepts/prd-format' },
+          { text: 'Follow-ups', link: '/concepts/follow-ups' },
           { text: 'The .chief Directory', link: '/concepts/chief-directory' }
         ]
       },

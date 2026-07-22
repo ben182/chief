@@ -129,8 +129,18 @@ Autonomous doesn't mean unattended. The TUI lets you:
 - **Clean worktrees**: Press `c` in the picker to remove a worktree and optionally delete the branch
 - **Configure settings**: Press `,` to open the Settings overlay
 
+## After the Loop: Follow-ups
+
+The loop ends when every story is `done` — but reviewing the finished feature by
+hand usually turns up small fixes and polish. Rather than reopening completed
+stories (which breaks the one-commit-per-story history), Chief lets you collect
+those in a **follow-up inbox** and convert them into fresh stories with
+[`chief followup`](/reference/cli#chief-followup). The loop then works through
+only the new stories. See [Follow-ups](/concepts/follow-ups) for the workflow.
+
 ## Further Reading
 
 - [The Ralph Loop](/concepts/ralph-loop): Deep dive into the execution loop mechanics
 - [PRD Format](/concepts/prd-format): How to structure your project with effective user stories
+- [Follow-ups](/concepts/follow-ups): Turn post-launch fixes and polish into new stories
 - [The .chief Directory](/concepts/chief-directory): Understanding where state is stored

@@ -119,6 +119,13 @@ func RunNew(opts NewOptions) error {
 		fmt.Println("\nPRD created successfully!")
 	}
 
+	// Scaffold a follow-up inbox so there's a ready place to collect
+	// post-implementation follow-ups for `chief followup`. Best-effort — a
+	// failure here should never fail PRD creation.
+	if err := scaffoldFollowupInbox(prdDir); err != nil {
+		fmt.Printf("Warning: could not create todos.md: %v\n", err)
+	}
+
 	fmt.Printf("\nYour PRD is ready! Run 'chief' or 'chief %s' to start working on it.\n", opts.Name)
 	return nil
 }

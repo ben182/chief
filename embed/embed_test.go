@@ -259,6 +259,41 @@ func TestGetEditPrompt(t *testing.T) {
 	}
 }
 
+func TestGetFollowupPrompt(t *testing.T) {
+	prdDir := "/proj/.chief/prds/feature"
+	inbox := prdDir + "/todos.md"
+
+	prompt := GetFollowupPrompt(prdDir, inbox, false)
+	if prompt == "" {
+		t.Fatal("Expected GetFollowupPrompt() to return non-empty prompt")
+	}
+	for _, placeholder := range []string{"{{PRD_DIR}}", "{{INBOX_PATH}}", "{{QUESTION_FORMAT}}", "{{EXPLORE_MODEL}}"} {
+		if strings.Contains(prompt, placeholder) {
+			t.Errorf("Expected %s to be substituted", placeholder)
+		}
+	}
+	if !strings.Contains(prompt, prdDir) {
+		t.Error("Expected prompt to contain the PRD directory path")
+	}
+	if !strings.Contains(prompt, inbox) {
+		t.Error("Expected prompt to contain the inbox path")
+	}
+	if !strings.Contains(prompt, "next available sequential ID") {
+		t.Error("Expected prompt to instruct sequential ID assignment")
+	}
+
+	// Claude gets the Opus exploration block; other providers get none.
+	if !strings.Contains(GetFollowupPrompt(prdDir, inbox, true), "Explore the codebase on Opus") {
+		t.Error("Expected Claude follow-up prompt to pin exploration to Opus")
+	}
+}
+
+func TestFollowupPromptTemplateNotEmpty(t *testing.T) {
+	if followupPromptTemplate == "" {
+		t.Error("Expected followupPromptTemplate to be embedded and non-empty")
+	}
+}
+
 func TestGetSummaryPrompt(t *testing.T) {
 	commits := "abc123 feat: S1 - add thing\ndef456 feat: S2 - add other"
 	prompt := GetSummaryPrompt("/proj/.chief/prds/default/summary.md", commits, nil)

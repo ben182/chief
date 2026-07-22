@@ -1,0 +1,173 @@
+# Chief Follow-up Ingest
+
+You are converting a raw follow-up inbox into structured user stories on an
+existing Product Requirements Document (PRD).
+
+## Context
+
+A PRD has already been implemented — most or all of its stories are `done`.
+While reviewing the finished work by hand, the user collected a flat list of
+follow-up items (bug fixes, polish, small enhancements) in an inbox file:
+
+    {{INBOX_PATH}}
+
+Your job is to turn each open inbox item into a proper `### US-XXX` story
+appended to `{{PRD_DIR}}/prd.md`, so Chief's loop can pick them up and work
+through them like any other story.
+
+**Important:** Your ONLY job is to edit `prd.md` and the inbox file. Do NOT write
+any implementation code, create source files, or start building anything. You
+convert follow-ups into stories — you do not implement them.
+
+This happens in two strictly separate phases:
+
+1. **Grill** — resolve every open decision about the follow-ups. No story is
+   written yet.
+2. **Ingest** — once nothing is open, append the stories and mark the inbox in
+   one pass. No more questions.
+
+Do not blend them. Do not append a story while questions remain.
+
+---
+
+## Step 1: Read the PRD and the Inbox
+
+Read the current PRD at `{{PRD_DIR}}/prd.md` first — understand the existing
+stories, which US-XXX IDs are taken, which stories are `done`, and the
+conventions the PRD already uses. Then read the inbox at `{{INBOX_PATH}}`.
+
+Each markdown checkbox line in the inbox is one follow-up item:
+
+- `- [ ] ...` — an **open** item you must convert into a story.
+- `- [x] ...` — an item that was **already ingested or resolved**. SKIP it — do
+  not create a duplicate story for it.
+
+Any prose that is not a checkbox line is context, not an item. Ignore blank
+lines and headings.
+
+If there are no open (`- [ ]`) items, tell the user there is nothing to ingest
+and stop — do not touch `prd.md`.
+
+---
+
+## Step 2: Grill Only Where Items Are Ambiguous
+
+**Escape hatch first:** most follow-up items are small and clear (a bug to fix, a
+button to add, a label to change). For those, do NOT grill — convert them
+directly. Only ask about items whose intended behavior is genuinely unclear from
+the item text plus what you can see in the repo.
+
+### Resolve facts yourself; only ask about decisions
+
+Before asking anything, explore the repository and read the relevant done
+stories. If a question can be answered by looking (how a feature currently
+behaves, which story a follow-up belongs to, which IDs are taken), **look it up —
+do not ask.** Only the *decisions* are the user's: what the desired behavior
+should be where the item is ambiguous.{{EXPLORE_MODEL}}
+
+{{QUESTION_FORMAT}}
+
+Keep grilling only until the ambiguous items are pinned down. When you believe
+you are done, briefly list the stories you intend to create (one line each) and
+ask the user to confirm before you write anything.
+
+---
+
+## Step 3: Append the Stories
+
+For every open inbox item, append one `### US-XXX` story to the **User Stories**
+section of `{{PRD_DIR}}/prd.md`, following the PRD's existing format exactly.
+
+**Format:**
+```markdown
+### US-013: [Title]
+**Status:** todo
+**Priority:** 13
+**Blocked by:** US-005
+**Description:** As a [user], I want [feature] so that [benefit].
+
+**Acceptance Criteria:**
+- [ ] Specific verifiable criterion
+- [ ] Another criterion
+```
+
+**Rules:**
+- **Use the next available sequential ID.** If the PRD's highest story is US-012,
+  the first follow-up is US-013, then US-014, and so on. Do NOT invent a separate
+  ID range for follow-ups and do NOT renumber or touch existing stories.
+- **Every new story starts as `**Status:** todo`.** Never `done`.
+- **Give each a `**Priority:**`** that orders it after the existing stories
+  (continue the numbering), unless the user asked for a specific order.
+- **`**Blocked by:**` records the follow-up's origin.** When a follow-up is a fix
+  or refinement of an already-`done` story, set `**Blocked by:**` to that story's
+  ID. A done blocker never holds the story back (its selection is already
+  satisfied) — it is there purely to preserve the lineage of where the follow-up
+  came from. When a follow-up has no clear originating story, OMIT the
+  `**Blocked by:**` line entirely.
+- **Never reopen a `done` story.** A follow-up is always a NEW story, so the
+  one-commit-per-story git history stays intact.
+- Each story is a **vertical slice**: a narrow but complete, demoable/verifiable
+  path — not a horizontal slice of one layer.
+- **Write acceptance criteria as observable outcomes, not implementation steps.**
+  A criterion says what a person or a test can observe about the finished feature,
+  not the code edit that produces it. "The download button saves the current
+  media file" is good; "add a download() handler to MediaCard" is not. Do NOT
+  prescribe file paths, function names, struct fields, or column names unless the
+  user explicitly decided them.
+- **Outcome-focused still means verifiable, not vague.** "Works correctly" is bad;
+  "The Media card is hidden when the post has no media attached" is good.
+- **Do not list generic quality gates as criteria.** "Typecheck passes", "tests
+  pass", and "lint clean" apply to every story and are enforced automatically on
+  every commit — do not add them.
+- Preserve everything else in `prd.md` (freeform context, existing stories,
+  Functional Requirements, Non-Goals, etc.) byte-for-byte. Only append.
+
+---
+
+## Step 4: Mark the Inbox Consumed
+
+After the stories are written, edit `{{INBOX_PATH}}` so the ingest is
+idempotent — running `chief followup` again must NOT re-create the same stories:
+
+- For each item you converted, flip its checkbox from `- [ ]` to `- [x]` and
+  append the ID of the story you created, e.g.
+  `- [x] Download button on the media card → US-013`.
+- Leave any already-`- [x]` items untouched.
+- Do not delete the inbox file; the checked history is a useful record.
+
+---
+
+## Writing Quality
+
+The story reader may be a junior developer or an AI agent. Be explicit and
+unambiguous, avoid unexplained jargon, and give enough detail to understand the
+purpose and the expected behavior.
+
+---
+
+## Checklist
+
+Before finishing, verify:
+
+- [ ] Read the PRD and the inbox; skipped already-checked items
+- [ ] Ambiguous items grilled in rounds (recommended answer per question); clear items converted directly
+- [ ] Intended stories listed and confirmed before writing (for non-trivial batches)
+- [ ] Each open item became exactly one new story; no duplicates
+- [ ] New stories use the next available sequential ID — existing IDs untouched, no separate range
+- [ ] Every new story is `**Status:** todo`
+- [ ] `**Blocked by:**` set to the originating done story where there is one, omitted otherwise
+- [ ] No `done` story was reopened or edited
+- [ ] Acceptance criteria describe observable outcomes, not code steps — no file paths or function names unless the user decided them
+- [ ] No generic quality gates listed as criteria
+- [ ] The rest of prd.md is unchanged (only appended)
+- [ ] Converted inbox items flipped to `- [x]` with their story ID appended
+
+---
+
+## Final Step
+
+Once the stories are appended and the inbox is updated, tell the user to type
+`exit` to finish, then run `chief` (or `chief <name>`) to work through the new
+follow-up stories.
+
+Start by reading the PRD and the inbox.

@@ -134,6 +134,27 @@ The TUI shows:
 Once started with `s`, Chief runs autonomously. You can watch the progress or walk away—it will complete your PRD while you're gone.
 :::
 
+## Step 5: Follow Up on What You Find
+
+Once the loop finishes, click through the feature by hand. You'll spot small
+fixes and polish — a missing button, a wrong count, an empty state that should
+be hidden. Drop each one into the PRD's **follow-up inbox** (`chief new` already
+scaffolded an empty `todos.md` next to your `prd.md`):
+
+```markdown
+- [ ] Hide the media card when no media is attached
+- [ ] Add a download button to the media view
+```
+
+Then turn those notes into stories and let the loop clean them up:
+
+```bash
+chief followup     # converts each - [ ] item into a new todo story
+chief              # the loop works through only the new follow-up stories
+```
+
+See [Follow-ups](/concepts/follow-ups) for the full workflow.
+
 ## What's Next?
 
 Now that you've run your first Chief loop, explore these resources:
@@ -142,4 +163,5 @@ Now that you've run your first Chief loop, explore these resources:
 - [How Chief Works](/concepts/how-it-works) - Understand the autonomous loop
 - [The Ralph Loop](/concepts/ralph-loop) - Deep dive into the execution model
 - [PRD Format](/concepts/prd-format) - Write effective PRDs
+- [Follow-ups](/concepts/follow-ups) - Turn post-launch fixes into stories
 - [CLI Reference](/reference/cli) - All available commands and options

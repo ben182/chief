@@ -127,6 +127,7 @@ chief new [name] [context]
 6. After you confirm the shared understanding, the agent writes `prd.md` in one pass
 7. When done, type `/exit` to leave the agent session
 8. Chief validates the `prd.md` can be parsed
+9. Chief scaffolds an empty `todos.md` [follow-up inbox](/concepts/chief-directory#todos-md-optional) next to `prd.md`, ready for the fixes and polish items you collect after the feature is built (fed to [`chief followup`](#chief-followup)). An existing inbox is never overwritten
 
 **Model picker (Claude only):**
 
@@ -197,6 +198,61 @@ chief edit
 
 # Edit a specific PRD
 chief edit auth-system
+```
+
+---
+
+### chief followup
+
+Convert a PRD's **follow-up inbox** into new user stories.
+
+```bash
+chief followup
+```
+
+After a PRD is implemented, you often find small fixes and polish items while
+reviewing the finished work by hand. Drop them as a flat markdown checklist into
+a `todos.md` (or `followups.md`) file inside the PRD's directory:
+
+```markdown
+- [ ] Media card should be hidden when no media is attached
+- [ ] Add a download button to the media view
+- [ ] "In use" badge counts the same post twice
+```
+
+`chief followup` launches the agent, which reads that inbox plus the existing
+`prd.md`, and turns each **open** (`- [ ]`) item into a proper `### US-XXX` story
+appended to `prd.md`:
+
+- New stories get the **next available sequential ID** (no separate range) and
+  start as `**Status:** todo`, so the normal loop picks them up next — completed
+  stories are skipped by [story selection](/concepts/prd-format#story-selection-logic).
+- When a follow-up refines an already-`done` story, its `**Blocked by:**` records
+  that story's ID as a lineage note (a done blocker never holds the story back).
+- Existing `done` stories are never reopened, keeping the one-commit-per-story
+  history intact.
+- Converted items are flipped to `- [x]` in the inbox with their new story ID, so
+  re-running is idempotent.
+
+Like `chief new`/`chief edit`, this shows the [Claude model picker](#chief-new)
+before the session starts (Claude only; skipped when `--model` is set). It only
+grills you about items whose intended behavior is genuinely ambiguous — clear
+items are converted directly.
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `name` | PRD name whose inbox to ingest (optional, auto-detects if omitted) |
+
+**Examples:**
+
+```bash
+# Ingest the auto-detected PRD's todos.md
+chief followup
+
+# Ingest a specific PRD's inbox
+chief followup auth-system
 ```
 
 ---
