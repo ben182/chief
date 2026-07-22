@@ -386,12 +386,12 @@ The core value proposition: transform a PRD into working code with minimal human
 **Description:** As a user without Homebrew, I want a simple install script so that I can install Chief easily.
 
 **Acceptance Criteria:**
-- [ ] Create `install.sh` script hosted at `raw.githubusercontent.com/MiniCodeMonkey/chief/refs/heads/main/install.sh`
+- [ ] Create `install.sh` script hosted at `raw.githubusercontent.com/ben182/chief/refs/heads/main/install.sh`
 - [ ] Script detects OS (darwin/linux) and architecture (amd64/arm64)
 - [ ] Downloads correct binary from GitHub releases
 - [ ] Installs to `/usr/local/bin` (or `~/.local/bin` if no sudo)
 - [ ] Verifies checksum before installing
-- [ ] `curl -fsSL https://raw.githubusercontent.com/MiniCodeMonkey/chief/refs/heads/main/install.sh | sh` works
+- [ ] `curl -fsSL https://raw.githubusercontent.com/ben182/chief/refs/heads/main/install.sh | sh` works
 - [ ] Script is idempotent (can run multiple times safely)
 
 ---
