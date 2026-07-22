@@ -25,20 +25,28 @@ type Config struct {
 // reviews the story's changes, fixes anything it finds, and amends the commit —
 // a second pair of eyes rather than the author checking their own work.
 type ReviewConfig struct {
+	// Enabled turns the review agent on with just the built-in review prompt (the
+	// two-axis Spec/Standards review and code-smell baseline), no extra config. A
+	// non-empty Skill or Instructions also enables the review on its own, so this
+	// flag is only needed to run the bare baseline with neither of those set.
+	Enabled bool `yaml:"enabled"`
 	// Skill is the name of a project skill the review agent should run as part of
 	// its review (e.g. "/code-quality"). Claude-specific; other providers ignore
-	// it. Optional — Instructions alone are enough to enable the review.
+	// it. Optional — setting it also enables the review.
 	Skill string `yaml:"skill"`
 	// Instructions is free-form guidance for the review agent (e.g. "watch for
-	// N+1 queries and missing tests"). Works with any provider. Optional — Skill
-	// alone is enough to enable the review.
+	// N+1 queries and missing tests"). Works with any provider. Optional — setting
+	// it also enables the review.
 	Instructions string `yaml:"instructions"`
 }
 
-// Enabled reports whether a review agent should run: true when either a skill or
-// free-form instructions are configured.
-func (r ReviewConfig) Enabled() bool {
-	return strings.TrimSpace(r.Skill) != "" || strings.TrimSpace(r.Instructions) != ""
+// Active reports whether a review agent should run: true when the review is
+// explicitly enabled, or when a skill or free-form instructions are configured
+// (either of which enables it on its own).
+func (r ReviewConfig) Active() bool {
+	return r.Enabled ||
+		strings.TrimSpace(r.Skill) != "" ||
+		strings.TrimSpace(r.Instructions) != ""
 }
 
 // LoopConfig holds agent-loop tuning knobs.

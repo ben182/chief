@@ -23,22 +23,61 @@ current branch. Inspect exactly what changed:
 
 ## How to review
 
-Review the changes adversarially against the story's acceptance criteria and the
-project's standards. Look hard for:
+Review the changes adversarially along **two separate axes**. Keep them apart:
+code can pass one and fail the other — correct behavior written in sloppy code, or
+clean code that implements the wrong thing — and a pass on one axis must never
+hide a failure on the other.
+
+### Axis 1 — Spec: does it do what the story asked?
+
+Judge the diff against the story's acceptance criteria. Look hard for:
 
 - Acceptance criteria that are only *partially* met, or met in a way the story
   did not intend.
 - Bugs, edge cases, and error paths the implementation missed.
+- **Scope creep** — changes in the diff the story never asked for.
 - Missing or weak tests for the new behavior — and tests that are wrong even when
   present: implementation-coupled (asserting private state or mocking internal
   collaborators, so they break on refactor) or tautological (the expected value is
   recomputed the way the code does it). Check that new behavior is tested at the
   right seam — its public boundary — not against internals.
-- Code that does not follow the patterns already established in this codebase.
+
+### Axis 2 — Standards: is it good code for *this* repo?
+
+Judge the change against the patterns already established in this codebase, plus
+the baseline of code smells below. These are **judgment calls, not hard
+violations** — flag one only when addressing it genuinely improves the code:
+
+- **Mysterious name** — an identifier that doesn't reveal its intent → rename.
+- **Duplicated code** — the same logic shape in more than one place → extract.
+- **Feature envy** — a function reaching into another type's data more than its
+  own → move it next to that data.
+- **Data clumps** — the same group of values passed around together → bundle them
+  into a type.
+- **Primitive obsession** — a primitive standing in for a domain concept → give it
+  a dedicated type.
+- **Repeated switches** — the same cascade of conditionals recurring → replace with
+  a table or polymorphism.
+- **Shotgun surgery** — one conceptual change forcing edits scattered across many
+  files → consolidate.
+- **Divergent change** — one file edited for several unrelated reasons → split by
+  concern.
+- **Speculative generality** — abstraction added for a need that isn't here yet →
+  inline it until the need is real.
+- **Message chains / middle man** — long `a.b().c().d()` navigation, or a type that
+  only forwards calls → talk to the real target directly.
 - Dead code, debug leftovers, or `.chief/` files accidentally staged.
 
-{{REVIEW_SKILL}}{{REVIEW_INSTRUCTIONS}}
-## Fixing what you find
+Rules for this axis:
+
+- The codebase's established patterns and any documented standards **override**
+  this baseline — match what's already there over the generic advice.
+- **Skip anything the project's tooling already enforces** (formatting, lint
+  rules): that is not your job.
+- A smell is not a defect. Do not invent refactors to look busy — the story's
+  commit should stay focused on the story.
+
+{{REVIEW_SKILL}}{{REVIEW_INSTRUCTIONS}}## Fixing what you find
 
 You are allowed and expected to fix problems yourself:
 

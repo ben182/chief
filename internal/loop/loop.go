@@ -171,21 +171,21 @@ func promptBuilderForPRD(prdPath string) func() (string, string, string, error) 
 	}
 }
 
-// SetReview configures the separate review agent. When either skill or
-// instructions is non-empty, a review agent runs after each story's build agent
-// commits: it reviews the committed changes with a fresh context and fixes and
-// re-commits anything it finds. Both empty disables the review.
-func (l *Loop) SetReview(skill, instructions string) {
+// SetReview configures the separate review agent. When enabled is true or either
+// skill or instructions is non-empty, a review agent runs after each story's
+// build agent commits: it reviews the committed changes with a fresh context and
+// fixes and re-commits anything it finds. All unset disables the review.
+func (l *Loop) SetReview(enabled bool, skill, instructions string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.review = reviewer{skill: skill, instructions: instructions}
+	l.review = reviewer{enabled: enabled, skill: skill, instructions: instructions}
 }
 
 // reviewEnabled reports whether a review agent should run after a story commits.
 func (l *Loop) reviewEnabled() bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.review.enabled()
+	return l.review.active()
 }
 
 // Events returns the channel for receiving events from the loop.

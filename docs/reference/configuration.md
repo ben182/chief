@@ -27,6 +27,7 @@ onComplete:
 loop:
   watchdogTimeoutSeconds: 300   # kill a silent agent after N seconds; 0 = default (5 min)
 review:
+  enabled: true                 # run the review with just the built-in prompt (no extra config needed)
   skill: "/code-quality"        # optional project skill the review agent runs (Claude only)
   instructions: |               # optional free-form guidance for the review agent
     Watch for N+1 queries and make sure new behavior has tests.
@@ -45,10 +46,11 @@ review:
 | `onComplete.summary` | bool | `true` | When a run finishes (or hits max iterations with committed work), run the agent once more to write a human-facing, timestamped `summary-<date>-<time>.md` next to the PRD — what was built, how to test it, where the new functionality lives, and open/parked follow-ups. Each run writes its own file (sortable name), so the PRD keeps a run history. The file is committed automatically (force-added, so it lands even when `.chief/` is gitignored); with `onComplete.push` on, it rides along in the pushed branch/PR. Only runs when the branch has at least one commit. |
 | `onComplete.notify` | bool | `true` | Send a desktop notification when a run finishes (macOS `osascript`, Linux `notify-send`). |
 | `loop.watchdogTimeoutSeconds` | int | `0` | Seconds of agent silence (no output) before the watchdog kills the hung process. `0` uses the built-in default of 5 minutes. Raise it when the agent runs long, silent builds or test suites that would otherwise trip the watchdog. |
-| `review.skill` | string | `""` | Name of a project skill (e.g. `/code-quality`) the **separate review agent** runs as part of its review. Claude-specific; other providers ignore it. Optional — `review.instructions` alone also enables the review. |
-| `review.instructions` | string | `""` | Free-form guidance for the review agent (e.g. "watch for N+1 queries and missing tests"). Works with any provider. Optional — `review.skill` alone also enables the review. |
+| `review.enabled` | bool | `false` | Turn the review agent on with just the built-in review prompt (the two-axis Spec/Standards review and code-smell baseline) — no skill or instructions needed. Setting `review.skill` or `review.instructions` also enables the review on its own, so this flag is only needed to run the bare baseline. |
+| `review.skill` | string | `""` | Name of a project skill (e.g. `/code-quality`) the **separate review agent** runs as part of its review. Claude-specific; other providers ignore it. Optional — setting it also enables the review. |
+| `review.instructions` | string | `""` | Free-form guidance for the review agent (e.g. "watch for N+1 queries and missing tests"). Works with any provider. Optional — setting it also enables the review. |
 
-When either `review.skill` or `review.instructions` is set, Chief spawns a **separate agent with a fresh context** after each story's build agent has committed. It never sees the build agent's reasoning, so it reviews the committed changes adversarially — like a colleague reviewing a PR rather than the author re-checking their own work. It fixes anything it finds and amends the story's commit (keeping one commit per story). The review is best-effort: a review crash is logged but does not un-complete the story.
+When `review.enabled` is true, or either `review.skill` or `review.instructions` is set, Chief spawns a **separate agent with a fresh context** after each story's build agent has committed. It never sees the build agent's reasoning, so it reviews the committed changes adversarially — like a colleague reviewing a PR rather than the author re-checking their own work. It fixes anything it finds and amends the story's commit (keeping one commit per story). The review is best-effort: a review crash is logged but does not un-complete the story.
 
 See [The Review Agent](/concepts/code-review) for the full picture — why it's a separate agent, how it slots into the loop, and how the review prompt is assembled from your `skill`/`instructions`.
 

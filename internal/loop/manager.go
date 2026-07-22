@@ -242,7 +242,7 @@ func (m *Manager) Start(name string) error {
 	instance.Loop = NewLoopWithWorkDir(instance.PRDPath, workDir, "", maxIter, provider)
 	instance.Loop.buildPrompt = promptBuilderForPRD(instance.PRDPath)
 	if cfg != nil {
-		instance.Loop.SetReview(cfg.Review.Skill, cfg.Review.Instructions)
+		instance.Loop.SetReview(cfg.Review.Enabled, cfg.Review.Skill, cfg.Review.Instructions)
 	}
 	instance.Loop.SetRetryConfig(retryConfig)
 	if cfg != nil && cfg.Loop.WatchdogTimeoutSeconds > 0 {

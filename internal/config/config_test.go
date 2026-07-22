@@ -69,14 +69,16 @@ func TestReviewConfigEnabled(t *testing.T) {
 		want bool
 	}{
 		{"empty", ReviewConfig{}, false},
+		{"enabled flag only", ReviewConfig{Enabled: true}, true},
 		{"skill only", ReviewConfig{Skill: "/code-quality"}, true},
 		{"instructions only", ReviewConfig{Instructions: "watch for N+1"}, true},
 		{"both", ReviewConfig{Skill: "/cq", Instructions: "x"}, true},
 		{"whitespace only", ReviewConfig{Skill: "  ", Instructions: "\n\t"}, false},
+		{"disabled flag, whitespace fields", ReviewConfig{Enabled: false, Skill: "  "}, false},
 	}
 	for _, tt := range tests {
-		if got := tt.cfg.Enabled(); got != tt.want {
-			t.Errorf("%s: Enabled() = %v, want %v", tt.name, got, tt.want)
+		if got := tt.cfg.Active(); got != tt.want {
+			t.Errorf("%s: Active() = %v, want %v", tt.name, got, tt.want)
 		}
 	}
 }

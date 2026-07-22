@@ -79,24 +79,28 @@ history stays intact.
 
 ## Configuration
 
-Enable the review by setting either or both fields under `review` in
+Enable the review by setting any of the fields under `review` in
 `.chief/config.yaml`:
 
 ```yaml
 review:
+  enabled: true                 # run the review with just the built-in prompt
   skill: "/code-quality"        # optional project skill (Claude only)
   instructions: |               # optional free-form guidance (any provider)
     Watch for N+1 queries and make sure new behavior has tests.
     Flag any public function added without a doc comment.
 ```
 
+- **`review.enabled`** — turns the review on with just the built-in prompt (the
+  two-axis Spec/Standards review and code-smell baseline). Use this to run the
+  bare baseline when you don't need a skill or custom instructions.
 - **`review.skill`** — a project skill the review agent runs as part of its
   review (e.g. `/code-quality`). This is Claude-specific; other providers ignore
   it.
 - **`review.instructions`** — free-form text steering what the reviewer should
   pay attention to. Works with any provider.
 
-Setting **either one enables the review**. Leaving both empty (the default)
+Setting **any one of them enables the review**. Leaving all unset (the default)
 disables it, and Chief marks stories done straight after the build commit as
 before.
 
@@ -114,7 +118,7 @@ reviewer's *stance* and never changes. Its sections:
 |---------|--------------|
 | **Role** | "You are a critical, independent code reviewer. You did NOT write that code and have no stake in defending it." — the adversarial core. |
 | **What to review** | Inspect the diff (`git show HEAD`), read surrounding code for context, but do **not** re-read the whole repo or redo the story. |
-| **How to review** | A checklist: partially-met acceptance criteria, missed edge cases, missing/weak tests, deviations from existing patterns, stray `.chief/` files. |
+| **How to review** | Two separate axes so a pass on one never hides a failure on the other. **Spec:** partially-met acceptance criteria, missed edge cases, scope creep, missing/weak tests. **Standards:** deviations from existing patterns plus a code-smell baseline (mysterious names, duplication, feature envy, data clumps, primitive obsession, speculative generality, …), framed as judgment calls — established patterns and tooling-enforced rules override it, and a smell is not a defect to refactor for its own sake. |
 | **Fixing** | Fix issues yourself, run the project's checks, then `git commit --amend --no-edit` (staging only changed files). If the work is already correct, change nothing. |
 | **Progress note** | Append a short review note to `progress.md`. |
 | **Stop condition** | Emit `<chief-done/>` once the review is complete and fixes are committed. |

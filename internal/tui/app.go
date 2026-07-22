@@ -224,7 +224,7 @@ func NewAppWithOptions(prdPath string, maxIter int, provider loop.Provider) (*Ap
 	}
 	// Signal in the story-done marker that a review still follows, so the reader
 	// knows the build agent's <chief-done/> isn't the final word on the story.
-	app.logViewer.SetReviewPending(cfg != nil && cfg.Review.Enabled())
+	app.logViewer.SetReviewPending(cfg != nil && cfg.Review.Active())
 	return app, nil
 }
 

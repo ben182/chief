@@ -3,16 +3,21 @@ package loop
 import "strings"
 
 // reviewer holds the configuration for the optional post-commit review agent.
-// When either field is non-empty, a separate agent reviews (and fixes) each
-// story's committed changes with a fresh context before the story is marked done.
+// When it is explicitly enabled or either free-form field is non-empty, a
+// separate agent reviews (and fixes) each story's committed changes with a fresh
+// context before the story is marked done.
 type reviewer struct {
+	enabled      bool
 	skill        string
 	instructions string
 }
 
-// enabled reports whether a review agent should run after a story commits.
-func (r reviewer) enabled() bool {
-	return strings.TrimSpace(r.skill) != "" || strings.TrimSpace(r.instructions) != ""
+// active reports whether a review agent should run after a story commits: true
+// when explicitly enabled, or when a skill or instructions are configured.
+func (r reviewer) active() bool {
+	return r.enabled ||
+		strings.TrimSpace(r.skill) != "" ||
+		strings.TrimSpace(r.instructions) != ""
 }
 
 // iterationMode distinguishes the build agent (the default that implements a

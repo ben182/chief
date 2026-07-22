@@ -941,21 +941,25 @@ func TestLoop_DoneWithoutCommitIsNotTrusted(t *testing.T) {
 }
 
 // TestLoop_SetReview verifies the review-enabled predicate reflects the
-// configured skill/instructions.
+// configured enabled flag / skill / instructions.
 func TestLoop_SetReview(t *testing.T) {
 	l := NewLoop("/test/prd.json", "test", 5, testProvider)
 	if l.reviewEnabled() {
 		t.Error("expected review disabled by default")
 	}
-	l.SetReview("/code-quality", "")
+	l.SetReview(true, "", "")
+	if !l.reviewEnabled() {
+		t.Error("expected review enabled with the enabled flag alone")
+	}
+	l.SetReview(false, "/code-quality", "")
 	if !l.reviewEnabled() {
 		t.Error("expected review enabled with a skill")
 	}
-	l.SetReview("", "watch for N+1")
+	l.SetReview(false, "", "watch for N+1")
 	if !l.reviewEnabled() {
 		t.Error("expected review enabled with instructions only")
 	}
-	l.SetReview("  ", "  ")
+	l.SetReview(false, "  ", "  ")
 	if l.reviewEnabled() {
 		t.Error("expected whitespace-only config to be treated as disabled")
 	}
@@ -992,7 +996,7 @@ func TestLoop_ReviewAgentRunsAfterCommit(t *testing.T) {
 		l.buildPrompt = promptBuilderForPRD(prdPath)
 		l.DisableRetry()
 		if withReview {
-			l.SetReview("", "check the implementation carefully")
+			l.SetReview(false, "", "check the implementation carefully")
 		}
 
 		done := make(chan bool)
