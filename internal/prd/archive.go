@@ -12,6 +12,16 @@ func PrdsDir(baseDir string) string {
 	return filepath.Join(baseDir, ".chief", "prds")
 }
 
+// PRDDir returns the directory of a single PRD (.chief/prds/<name>).
+func PRDDir(baseDir, name string) string {
+	return filepath.Join(PrdsDir(baseDir), name)
+}
+
+// PRDPath returns the prd.md path of a single PRD (.chief/prds/<name>/prd.md).
+func PRDPath(baseDir, name string) string {
+	return filepath.Join(PRDDir(baseDir, name), "prd.md")
+}
+
 // ArchiveDir returns the directory holding archived PRDs (.chief/archive).
 func ArchiveDir(baseDir string) string {
 	return filepath.Join(baseDir, ".chief", "archive")

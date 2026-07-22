@@ -37,7 +37,7 @@ func RunEdit(opts EditOptions) error {
 	}
 
 	// Build the PRD directory path
-	prdDir := filepath.Join(opts.BaseDir, ".chief", "prds", opts.Name)
+	prdDir := prd.PRDDir(opts.BaseDir, opts.Name)
 	prdMdPath := filepath.Join(prdDir, "prd.md")
 
 	// Check if prd.md exists

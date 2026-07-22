@@ -30,7 +30,7 @@ func RunStatus(opts StatusOptions) error {
 	}
 
 	// Build PRD path
-	prdPath := filepath.Join(opts.BaseDir, ".chief", "prds", opts.Name, "prd.md")
+	prdPath := prd.PRDPath(opts.BaseDir, opts.Name)
 
 	// Load PRD
 	p, err := prd.LoadPRD(prdPath)
@@ -105,7 +105,7 @@ func RunList(opts ListOptions) error {
 	}
 
 	// Find all PRDs in .chief/prds/
-	prdsDir := filepath.Join(opts.BaseDir, ".chief", "prds")
+	prdsDir := prd.PrdsDir(opts.BaseDir)
 	entries, err := os.ReadDir(prdsDir)
 	if err != nil {
 		if os.IsNotExist(err) {

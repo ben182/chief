@@ -42,7 +42,7 @@ func RunNew(opts NewOptions) error {
 	}
 
 	// Create directory structure: .chief/prds/<name>/
-	prdDir := filepath.Join(opts.BaseDir, ".chief", "prds", opts.Name)
+	prdDir := prd.PRDDir(opts.BaseDir, opts.Name)
 	if err := os.MkdirAll(prdDir, 0755); err != nil {
 		return fmt.Errorf("failed to create PRD directory: %w", err)
 	}
