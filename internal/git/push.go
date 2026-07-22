@@ -27,12 +27,7 @@ func CheckGHCLI() (installed bool, authenticated bool, err error) {
 
 // PushBranch pushes the branch to origin.
 func PushBranch(dir, branch string) error {
-	cmd := exec.Command("git", "push", "-u", "origin", branch)
-	cmd.Dir = dir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to push branch: %s", strings.TrimSpace(string(out)))
-	}
-	return nil
+	return runGitChecked(dir, "failed to push branch", "push", "-u", "origin", branch)
 }
 
 // CreatePR creates a pull request via `gh pr create` and returns the PR URL.
@@ -76,10 +71,5 @@ func PRBodyFromPRD(p *prd.PRD) string {
 
 // DeleteBranch deletes a local branch.
 func DeleteBranch(repoDir, branch string) error {
-	cmd := exec.Command("git", "branch", "-D", branch)
-	cmd.Dir = repoDir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to delete branch: %s", strings.TrimSpace(string(out)))
-	}
-	return nil
+	return runGitChecked(repoDir, "failed to delete branch", "branch", "-D", branch)
 }

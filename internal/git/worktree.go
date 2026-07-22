@@ -19,11 +19,7 @@ type Worktree struct {
 // GetDefaultBranch detects the default branch (main or master) for a repository.
 func GetDefaultBranch(repoDir string) (string, error) {
 	// Try symbolic-ref first (works for repos with remotes)
-	cmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD")
-	cmd.Dir = repoDir
-	output, err := cmd.Output()
-	if err == nil {
-		ref := strings.TrimSpace(string(output))
+	if ref, err := runGit(repoDir, "symbolic-ref", "refs/remotes/origin/HEAD"); err == nil {
 		// refs/remotes/origin/main -> main
 		parts := strings.Split(ref, "/")
 		if len(parts) > 0 {
@@ -79,31 +75,18 @@ func CreateWorktree(repoDir, worktreePath, branch string) error {
 		return fmt.Errorf("failed to check branch existence: %w", err)
 	}
 	if !exists {
-		cmd := exec.Command("git", "branch", branch, defaultBranch)
-		cmd.Dir = repoDir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to create branch %s: %s", branch, strings.TrimSpace(string(out)))
+		if err := runGitChecked(repoDir, "failed to create branch "+branch, "branch", branch, defaultBranch); err != nil {
+			return err
 		}
 	}
 
 	// Add the worktree
-	cmd := exec.Command("git", "worktree", "add", absWorktreePath, branch)
-	cmd.Dir = repoDir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to add worktree: %s", strings.TrimSpace(string(out)))
-	}
-
-	return nil
+	return runGitChecked(repoDir, "failed to add worktree", "worktree", "add", absWorktreePath, branch)
 }
 
 // RemoveWorktree removes a git worktree at the given path.
 func RemoveWorktree(repoDir, worktreePath string) error {
-	cmd := exec.Command("git", "worktree", "remove", worktreePath)
-	cmd.Dir = repoDir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to remove worktree: %s", strings.TrimSpace(string(out)))
-	}
-	return nil
+	return runGitChecked(repoDir, "failed to remove worktree", "worktree", "remove", worktreePath)
 }
 
 // ListWorktrees parses `git worktree list --porcelain` and returns all worktrees.
@@ -187,12 +170,7 @@ func WorktreePathForPRD(baseDir, prdName string) string {
 
 // PruneWorktrees runs `git worktree prune` to clean up stale worktree tracking.
 func PruneWorktrees(repoDir string) error {
-	cmd := exec.Command("git", "worktree", "prune")
-	cmd.Dir = repoDir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to prune worktrees: %s", strings.TrimSpace(string(out)))
-	}
-	return nil
+	return runGitChecked(repoDir, "failed to prune worktrees", "worktree", "prune")
 }
 
 // DetectOrphanedWorktrees scans .chief/worktrees/ and returns a map of PRD name -> absolute worktree path
@@ -238,15 +216,13 @@ func MergeBranch(repoDir, branch string) ([]string, error) {
 
 // parseConflicts uses `git diff --name-only --diff-filter=U` to find conflicting files.
 func parseConflicts(repoDir string) []string {
-	cmd := exec.Command("git", "diff", "--name-only", "--diff-filter=U")
-	cmd.Dir = repoDir
-	output, err := cmd.Output()
+	output, err := runGit(repoDir, "diff", "--name-only", "--diff-filter=U")
 	if err != nil {
 		return nil
 	}
 
 	var conflicts []string
-	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+	for _, line := range strings.Split(output, "\n") {
 		if line != "" {
 			conflicts = append(conflicts, line)
 		}

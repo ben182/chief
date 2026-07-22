@@ -8,15 +8,49 @@ import (
 	"strings"
 )
 
-// GetCurrentBranch returns the current git branch name for a directory.
-func GetCurrentBranch(dir string) (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+// runGit runs a git command in dir and returns its trimmed stdout. Use it for
+// read-only queries where only stdout matters.
+func runGit(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	output, err := cmd.Output()
+	out, err := cmd.Output()
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(output)), nil
+	return strings.TrimSpace(string(out)), nil
+}
+
+// runGitRaw is like runGit but returns stdout verbatim (no trimming), for diffs
+// and other output where surrounding whitespace is meaningful.
+func runGitRaw(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// runGitChecked runs a mutating git command and, on failure, returns an error
+// carrying the trimmed combined output so the caller sees git's own message. A
+// non-empty what is prefixed to that message (e.g. "git add failed").
+func runGitChecked(dir, what string, args ...string) error {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		msg := strings.TrimSpace(string(out))
+		if what != "" {
+			return fmt.Errorf("%s: %s", what, msg)
+		}
+		return fmt.Errorf("%s", msg)
+	}
+	return nil
+}
+
+// GetCurrentBranch returns the current git branch name for a directory.
+func GetCurrentBranch(dir string) (string, error) {
+	return runGit(dir, "rev-parse", "--abbrev-ref", "HEAD")
 }
 
 // IsProtectedBranch returns true if the branch name is main or master.
@@ -36,20 +70,14 @@ func CreateBranch(dir, branchName string) error {
 	if exists {
 		args = []string{"checkout", branchName}
 	}
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	if out, cerr := cmd.CombinedOutput(); cerr != nil {
-		return fmt.Errorf("%s", strings.TrimSpace(string(out)))
-	}
-	return nil
+	return runGitChecked(dir, "", args...)
 }
 
 // BranchExists returns true if a branch with the given name exists.
 func BranchExists(dir, branchName string) (bool, error) {
 	cmd := exec.Command("git", "rev-parse", "--verify", branchName)
 	cmd.Dir = dir
-	err := cmd.Run()
-	if err != nil {
+	if err := cmd.Run(); err != nil {
 		// Branch doesn't exist
 		return false, nil
 	}
@@ -70,13 +98,11 @@ func CommitCount(repoDir, branch string) int {
 	if err != nil {
 		return 0
 	}
-	cmd := exec.Command("git", "rev-list", "--count", defaultBranch+".."+branch)
-	cmd.Dir = repoDir
-	out, err := cmd.Output()
+	out, err := runGit(repoDir, "rev-list", "--count", defaultBranch+".."+branch)
 	if err != nil {
 		return 0
 	}
-	count, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	count, err := strconv.Atoi(out)
 	if err != nil {
 		return 0
 	}
@@ -98,13 +124,13 @@ func GetDiff(dir string) (string, error) {
 		if err == nil && baseBranch != "" {
 			mergeBase, err := getMergeBase(dir, baseBranch, "HEAD")
 			if err == nil && mergeBase != "" {
-				return getDiffOutput(dir, mergeBase, "HEAD")
+				return runGitRaw(dir, "diff", mergeBase, "HEAD")
 			}
 		}
 	}
 
 	// Fallback: show diff of recent commits (last 10)
-	return getDiffOutput(dir, "HEAD~10", "HEAD")
+	return runGitRaw(dir, "diff", "HEAD~10", "HEAD")
 }
 
 // GetDiffStats returns a short diffstat summary.
@@ -119,46 +145,22 @@ func GetDiffStats(dir string) (string, error) {
 		if err == nil && baseBranch != "" {
 			mergeBase, err := getMergeBase(dir, baseBranch, "HEAD")
 			if err == nil && mergeBase != "" {
-				cmd := exec.Command("git", "diff", "--stat", mergeBase, "HEAD")
-				cmd.Dir = dir
-				output, err := cmd.Output()
-				if err != nil {
-					return "", err
-				}
-				return strings.TrimSpace(string(output)), nil
+				return runGit(dir, "diff", "--stat", mergeBase, "HEAD")
 			}
 		}
 	}
 
-	cmd := exec.Command("git", "diff", "--stat", "HEAD~10", "HEAD")
-	cmd.Dir = dir
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(output)), nil
+	return runGit(dir, "diff", "--stat", "HEAD~10", "HEAD")
 }
 
 // GetDiffForCommit returns the diff for a single commit using git show.
 func GetDiffForCommit(dir, commitHash string) (string, error) {
-	cmd := exec.Command("git", "show", "--format=", commitHash)
-	cmd.Dir = dir
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return string(output), nil
+	return runGitRaw(dir, "show", "--format=", commitHash)
 }
 
 // GetDiffStatsForCommit returns the diffstat for a single commit.
 func GetDiffStatsForCommit(dir, commitHash string) (string, error) {
-	cmd := exec.Command("git", "show", "--format=", "--stat", commitHash)
-	cmd.Dir = dir
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(output)), nil
+	return runGit(dir, "show", "--format=", "--stat", commitHash)
 }
 
 // FindCommitForStory searches the git log for a commit whose subject line
@@ -167,14 +169,7 @@ func GetDiffStatsForCommit(dir, commitHash string) (string, error) {
 // previous PRD runs that may reuse the same story IDs.
 // Returns the commit hash if found, empty string otherwise.
 func FindCommitForStory(dir, storyID, title string) (string, error) {
-	cmd := exec.Command("git", "log", "--fixed-strings", "--grep=feat: "+storyID+" - "+title, "--format=%H", "-1")
-	cmd.Dir = dir
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	hash := strings.TrimSpace(string(output))
-	return hash, nil
+	return runGit(dir, "log", "--fixed-strings", "--grep=feat: "+storyID+" - "+title, "--format=%H", "-1")
 }
 
 // StoryRef identifies a story by the fields that make up its chief commit
@@ -210,13 +205,7 @@ func CommitLogForStories(repoDir string, stories []StoryRef) (string, error) {
 	// order, i.e. oldest story first), rather than walking history and dragging in
 	// everything reachable, or re-sorting by commit date (the --no-walk default).
 	args := append([]string{"log", "--no-walk=unsorted", "--format=%h %s"}, hashes...)
-	cmd := exec.Command("git", args...)
-	cmd.Dir = repoDir
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
+	return runGit(repoDir, args...)
 }
 
 // CommitPaths stages the given paths and commits them with message. Paths are
@@ -227,31 +216,17 @@ func CommitPaths(dir, message string, paths ...string) error {
 	if len(paths) == 0 {
 		return fmt.Errorf("no paths to commit")
 	}
-	addArgs := append([]string{"add", "-f", "--"}, paths...)
-	add := exec.Command("git", addArgs...)
-	add.Dir = dir
-	if out, err := add.CombinedOutput(); err != nil {
-		return fmt.Errorf("git add failed: %s", strings.TrimSpace(string(out)))
+	if err := runGitChecked(dir, "git add failed", append([]string{"add", "-f", "--"}, paths...)...); err != nil {
+		return err
 	}
-	commit := exec.Command("git", append([]string{"commit", "-m", message, "--"}, paths...)...)
-	commit.Dir = dir
-	if out, err := commit.CombinedOutput(); err != nil {
-		return fmt.Errorf("git commit failed: %s", strings.TrimSpace(string(out)))
-	}
-	return nil
+	return runGitChecked(dir, "git commit failed", append([]string{"commit", "-m", message, "--"}, paths...)...)
 }
 
 // HeadSubject returns the subject line (first line of the message) of the
 // current HEAD commit. It errors on a repo with no commits yet, letting callers
 // treat "no commit to inspect" the same as "HEAD isn't what I expected".
 func HeadSubject(dir string) (string, error) {
-	cmd := exec.Command("git", "log", "-1", "--format=%s")
-	cmd.Dir = dir
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
+	return runGit(dir, "log", "-1", "--format=%s")
 }
 
 // AmendPaths force-adds the given paths and folds them into the current HEAD
@@ -266,38 +241,13 @@ func AmendPaths(dir string, paths ...string) error {
 	if len(paths) == 0 {
 		return fmt.Errorf("no paths to amend")
 	}
-	addArgs := append([]string{"add", "-f", "--"}, paths...)
-	add := exec.Command("git", addArgs...)
-	add.Dir = dir
-	if out, err := add.CombinedOutput(); err != nil {
-		return fmt.Errorf("git add failed: %s", strings.TrimSpace(string(out)))
+	if err := runGitChecked(dir, "git add failed", append([]string{"add", "-f", "--"}, paths...)...); err != nil {
+		return err
 	}
-	commit := exec.Command("git", append([]string{"commit", "--amend", "--no-edit", "--"}, paths...)...)
-	commit.Dir = dir
-	if out, err := commit.CombinedOutput(); err != nil {
-		return fmt.Errorf("git commit --amend failed: %s", strings.TrimSpace(string(out)))
-	}
-	return nil
+	return runGitChecked(dir, "git commit --amend failed", append([]string{"commit", "--amend", "--no-edit", "--"}, paths...)...)
 }
 
 // getMergeBase returns the merge base commit between two refs.
 func getMergeBase(dir, ref1, ref2 string) (string, error) {
-	cmd := exec.Command("git", "merge-base", ref1, ref2)
-	cmd.Dir = dir
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(output)), nil
-}
-
-// getDiffOutput returns the full diff between two refs.
-func getDiffOutput(dir, from, to string) (string, error) {
-	cmd := exec.Command("git", "diff", from, to)
-	cmd.Dir = dir
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return string(output), nil
+	return runGit(dir, "merge-base", ref1, ref2)
 }
