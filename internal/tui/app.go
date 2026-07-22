@@ -1125,7 +1125,7 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 				if branch := a.branchFor(prdName); branch != "" &&
 					git.CommitCount(a.completionGitDir(prdName), branch) > 0 {
 					a.lastActivity = "Max iterations reached — writing summary..."
-					autoActionCmd = a.runAutoSummary(prdName, branch, false, false)
+					autoActionCmd = a.runAutoSummary(prdName, false, false)
 				}
 			}
 		}
@@ -1543,7 +1543,7 @@ func (a *App) showCompletionScreen(prdName string) tea.Cmd {
 		// rides along in the pushed branch / PR.
 		a.completionScreen.SetSummaryInProgress()
 		cmds = append(cmds, tickCompletionSpinner(),
-			a.runAutoSummary(prdName, branch, true, pushEnabled))
+			a.runAutoSummary(prdName, true, pushEnabled))
 	case pushEnabled && canAct:
 		a.completionScreen.SetPushInProgress()
 		cmds = append(cmds, tickCompletionSpinner(), a.runAutoPush())
@@ -1593,12 +1593,14 @@ func (a *App) runBackgroundAutoActions(prdName string) tea.Cmd {
 
 	return func() tea.Msg {
 		if summaryEnabled {
+			var stories []git.StoryRef
 			var parked []string
 			if p, err := prd.LoadPRD(prdPath); err == nil {
+				stories = storyRefs(p)
 				parked = parkedStoryLabels(p)
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-			_, _ = summary.Generate(ctx, provider, dir, prdDir, branch, parked) // best-effort
+			_, _ = summary.Generate(ctx, provider, dir, prdDir, stories, parked) // best-effort
 			cancel()
 		}
 		if !pushEnabled {
@@ -1726,18 +1728,32 @@ func parkedStoryLabels(p *prd.PRD) []string {
 	return out
 }
 
+// storyRefs maps a PRD's stories to git.StoryRef, in PRD order, so the summary
+// can be scoped to the commits chief authored for exactly these stories.
+func storyRefs(p *prd.PRD) []git.StoryRef {
+	if p == nil {
+		return nil
+	}
+	refs := make([]git.StoryRef, 0, len(p.UserStories))
+	for _, s := range p.UserStories {
+		refs = append(refs, git.StoryRef{ID: s.ID, Title: s.Title})
+	}
+	return refs
+}
+
 // runAutoSummary returns a tea.Cmd that generates and commits the run summary in
 // the background. showOnScreen reflects progress on the completion screen;
 // pushAfter asks the handler to start auto-push once the summary lands.
-func (a *App) runAutoSummary(prdName, branch string, showOnScreen, pushAfter bool) tea.Cmd {
+func (a *App) runAutoSummary(prdName string, showOnScreen, pushAfter bool) tea.Cmd {
 	provider := a.provider
 	gitDir := a.completionGitDir(prdName)
 	prdDir := a.summaryDir(prdName, gitDir)
+	stories := storyRefs(a.prd)
 	parked := parkedStoryLabels(a.prd)
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		res, err := summary.Generate(ctx, provider, gitDir, prdDir, branch, parked)
+		res, err := summary.Generate(ctx, provider, gitDir, prdDir, stories, parked)
 		if errors.Is(err, summary.ErrNothingToSummarize) {
 			err = nil // nothing to describe; treat as a clean skip
 		}

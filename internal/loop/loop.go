@@ -215,7 +215,7 @@ func (l *Loop) Run(ctx context.Context) error {
 
 	// Open a per-run log file in the PRD directory. The name carries a timestamp
 	// (e.g. claude-2006-01-02-150405.log) so each run keeps its own log next to
-	// its own SUMMARY-<time>.md, instead of every run appending to one file that
+	// its own summary-<time>.md, instead of every run appending to one file that
 	// grows without bound and mixes runs together.
 	prdDir := filepath.Dir(l.prdPath)
 	git.IgnoreLogsIn(prdDir)

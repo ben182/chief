@@ -1,17 +1,21 @@
 You are wrapping up an automated coding run. Multiple user stories were
 implemented one commit at a time, and the work is now finished. Your ONLY job in
-this session is to write a clear, human-facing summary of what was built.
+this session is to write a clear summary of what was built — for the product
+owner, NOT for a developer.
 
-Here are the commits that landed on this branch, oldest first:
+Here are the commits this run produced for the PRD's user stories, oldest first.
+These are the only commits you should describe — ignore any unrelated work that
+may also sit on this branch:
 
 {{COMMITS}}
 {{PARKED}}
 ## What to do
 
-1. Study the commits above. Use `git show <hash>`, `git log`, and read the
-   changed files to understand what actually changed — do not guess from the
-   commit subjects alone.
-2. Write a Markdown summary to this exact path (overwrite it if it exists):
+1. Study the commits above to understand what actually changed. Use
+   `git show <hash>`, `git log`, and read the changed files as needed — but only
+   to understand it. Do NOT guess from the commit subjects alone.
+2. Then TRANSLATE what you learned into plain, product-level language and write a
+   Markdown summary to this exact path (overwrite it if it exists):
 
    {{SUMMARY_PATH}}
 
@@ -19,31 +23,50 @@ Here are the commits that landed on this branch, oldest first:
    after you finish. Do NOT change any other files. Once the summary is written,
    output <chief-done/> and stop.
 
-## What the summary must contain
+## Audience and tone — read this carefully
 
-Write it for a developer (likely future-you) who was away while this ran and now
-needs to pick it up. Use these sections, in this order:
+Write for the person who requested the feature, not for an engineer. They want to
+know WHAT the product can now do and HOW to try it — they do NOT care how it is
+built. This means:
 
-# Run Summary
+- Describe features and changes at the PRODUCT level: what a user can now do,
+  what got added, what behaves differently than before.
+- Talk in terms of screens, pages, buttons, flows, and what the user sees.
+- DO NOT list file paths, class names, function names, database tables, migration
+  names, config keys, or code identifiers. If you catch yourself writing a path
+  like `app/...` or a ClassName, rewrite that sentence in product terms.
+- No code blocks full of file references. The only commands worth including are
+  ones the reader would actually type to try the feature (if any).
 
-A 2–4 sentence overview: what was this run about, what got done.
+## Structure
 
-## Was wurde gebaut
-Concrete list of the features/changes that landed, grouped sensibly. Reference
-the relevant files/modules so the reader knows where each piece lives.
+Write in German. Use these sections, in this order:
 
-## Wie kann ich es testen
-The most important section. Give concrete, copy-pasteable steps to try the new
-functionality: commands to run, what to click/call, what the expected result is.
-Mention any automated tests that were added and how to run them.
+# Zusammenfassung
 
-## Wo finde ich das Neue
-Point to where the new functionality lives — files, screens, endpoints, CLI
-commands, config keys — so the reader can navigate straight to it.
+2–4 sentences: what did this run deliver, described as a product change. What can
+the user (or their customer) now do that they couldn't before?
+
+## Was ist neu / was hat sich geändert
+
+A readable, grouped rundown of the new and changed behaviour — from the user's
+point of view. For each point: what is it, where does it show up, and what does it
+let someone do? Call out anything that VISIBLY changed (new pages, new buttons,
+new sections, changed wording, changed flows). Group related things together;
+don't just mirror the story list one-to-one.
+
+## Wie kann ich es ausprobieren
+
+The most important section. Give a concrete click-through: where to go, what to
+click, and what you should see happen — step by step, as if walking a colleague
+through it. Include the URL/environment if relevant. Point out what looks
+different on screen. Keep it something a non-developer could follow.
 
 ## Offene Punkte
-Anything left undone: parked/needs-review stories, known gaps, TODOs, or
-follow-ups you noticed while reading the diff. If there is nothing, say so.
 
-Write in German (matching the section headings), be specific, and prefer real
-file paths and commands over vague description. Keep it tight — no filler.
+Anything left undone or worth knowing before shipping: parked/needs-review
+stories, deliberate non-goals, known gaps, or setup that must happen first. If
+there is nothing, say so briefly.
+
+Be specific and concrete, but stay on the product level. Keep it tight — no
+filler, no technical inventory.

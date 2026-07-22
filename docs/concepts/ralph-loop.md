@@ -222,7 +222,7 @@ Beyond per-story retries, Chief keeps a global iteration cap purely as a runaway
 
 When a run finishes (all stories complete, or max iterations reached with committed work), Chief can automatically:
 
-1. **Write a run summary** — If `onComplete.summary` is enabled (**on by default**), Chief runs the agent once more to write a human-facing, timestamped `SUMMARY-<date>-<time>.md` next to the PRD (what was built, how to test it, where the new functionality lives, open/parked follow-ups) and commits it so it rides along in any push/PR
+1. **Write a run summary** — If `onComplete.summary` is enabled (**on by default**), Chief runs the agent once more to write a human-facing, timestamped `summary-<date>-<time>.md` next to the PRD (what was built, how to test it, where the new functionality lives, open/parked follow-ups) and commits it so it rides along in any push/PR
 2. **Push the branch** — If `onComplete.push` is enabled in `.chief/config.yaml`, Chief pushes the branch to origin
 3. **Create a pull request** — If `onComplete.createPR` is also enabled, Chief creates a PR via the `gh` CLI with a title and body generated from the PRD
 4. **Send a desktop notification** — If `onComplete.notify` is enabled (**on by default**), Chief pings you when the run finishes (macOS `osascript`, Linux `notify-send`)

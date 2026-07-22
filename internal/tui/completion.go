@@ -146,7 +146,7 @@ func (c *CompletionScreen) SetSummaryInProgress() {
 }
 
 // SetSummarySuccess marks summary generation as successful. fileName is the
-// base name of the written summary (e.g. SUMMARY-2026-07-21-143205.md), shown
+// base name of the written summary (e.g. summary-2026-07-21-143205.md), shown
 // so the user can find it; empty is tolerated.
 func (c *CompletionScreen) SetSummarySuccess(fileName string) {
 	c.summaryState = AutoActionSuccess

@@ -241,12 +241,12 @@ func TestGetEditPrompt(t *testing.T) {
 
 func TestGetSummaryPrompt(t *testing.T) {
 	commits := "abc123 feat: S1 - add thing\ndef456 feat: S2 - add other"
-	prompt := GetSummaryPrompt("/proj/.chief/prds/default/SUMMARY.md", commits, nil)
+	prompt := GetSummaryPrompt("/proj/.chief/prds/default/summary.md", commits, nil)
 
 	if strings.Contains(prompt, "{{SUMMARY_PATH}}") || strings.Contains(prompt, "{{COMMITS}}") || strings.Contains(prompt, "{{PARKED}}") {
 		t.Errorf("unsubstituted placeholder left in prompt:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "/proj/.chief/prds/default/SUMMARY.md") {
+	if !strings.Contains(prompt, "/proj/.chief/prds/default/summary.md") {
 		t.Error("summary path not inlined")
 	}
 	if !strings.Contains(prompt, "feat: S1 - add thing") {
@@ -259,7 +259,7 @@ func TestGetSummaryPrompt(t *testing.T) {
 }
 
 func TestGetSummaryPrompt_Parked(t *testing.T) {
-	prompt := GetSummaryPrompt("/x/SUMMARY.md", "abc feat: S1 - a", []string{"S3 - flaky thing", "S7 - hard thing"})
+	prompt := GetSummaryPrompt("/x/summary.md", "abc feat: S1 - a", []string{"S3 - flaky thing", "S7 - hard thing"})
 	if !strings.Contains(prompt, "parked for human review") {
 		t.Error("expected parked block")
 	}

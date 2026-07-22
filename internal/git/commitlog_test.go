@@ -23,43 +23,87 @@ func commitFile(t *testing.T, dir, name, content, msg string) {
 	}
 }
 
-func TestCommitLog(t *testing.T) {
+func TestCommitLogForStories(t *testing.T) {
 	dir := initTestRepo(t)
 	if err := CreateBranch(dir, "chief/feature"); err != nil {
 		t.Fatalf("CreateBranch: %v", err)
 	}
-	commitFile(t, dir, "a.txt", "a", "feat: S1 - add a")
-	commitFile(t, dir, "b.txt", "b", "feat: S2 - add b")
+	commitFile(t, dir, "a.txt", "a", "feat: US-001 - add a")
+	commitFile(t, dir, "b.txt", "b", "feat: US-002 - add b")
 
-	log, err := CommitLog(dir, "chief/feature")
+	stories := []StoryRef{
+		{ID: "US-001", Title: "add a"},
+		{ID: "US-002", Title: "add b"},
+	}
+	log, err := CommitLogForStories(dir, stories)
 	if err != nil {
-		t.Fatalf("CommitLog: %v", err)
+		t.Fatalf("CommitLogForStories: %v", err)
 	}
 
 	lines := strings.Split(log, "\n")
 	if len(lines) != 2 {
 		t.Fatalf("expected 2 commits, got %d: %q", len(lines), log)
 	}
-	// Oldest first.
-	if !strings.Contains(lines[0], "feat: S1 - add a") {
-		t.Errorf("first line = %q, want S1 first", lines[0])
+	if !strings.Contains(lines[0], "feat: US-001 - add a") {
+		t.Errorf("first line = %q, want US-001 first", lines[0])
 	}
-	if !strings.Contains(lines[1], "feat: S2 - add b") {
-		t.Errorf("second line = %q, want S2 second", lines[1])
+	if !strings.Contains(lines[1], "feat: US-002 - add b") {
+		t.Errorf("second line = %q, want US-002 second", lines[1])
+	}
+
+	// Order follows the passed slice, not commit date: passing the newer commit
+	// (US-002) first must put it first, even though it is the more recent commit.
+	rev, err := CommitLogForStories(dir, []StoryRef{{ID: "US-002", Title: "add b"}, {ID: "US-001", Title: "add a"}})
+	if err != nil {
+		t.Fatalf("CommitLogForStories (reversed): %v", err)
+	}
+	if first := strings.Split(rev, "\n")[0]; !strings.Contains(first, "feat: US-002 - add b") {
+		t.Errorf("reversed first line = %q, want US-002 first (order must follow the slice)", first)
 	}
 }
 
-func TestCommitLog_EmptyWhenNoCommits(t *testing.T) {
+// TestCommitLogForStories_ExcludesUnrelatedWork is the crux: a branch may carry
+// commits from other PRDs (even reusing the same story IDs) plus unrelated
+// churn. Only commits whose "feat: <ID> - <Title>" matches a story of *this*
+// PRD may appear — a same-numbered story with a different title must not leak in.
+func TestCommitLogForStories_ExcludesUnrelatedWork(t *testing.T) {
+	dir := initTestRepo(t)
+	if err := CreateBranch(dir, "chief/feature"); err != nil {
+		t.Fatalf("CreateBranch: %v", err)
+	}
+	// Prior work from another PRD that reuses US-001, plus noise.
+	commitFile(t, dir, "other.txt", "x", "feat: US-001 - some other feature")
+	commitFile(t, dir, "noise.txt", "y", "chore: unrelated cleanup")
+	// This PRD's actual work.
+	commitFile(t, dir, "mine.txt", "z", "feat: US-001 - my real feature")
+
+	log, err := CommitLogForStories(dir, []StoryRef{{ID: "US-001", Title: "my real feature"}})
+	if err != nil {
+		t.Fatalf("CommitLogForStories: %v", err)
+	}
+
+	if !strings.Contains(log, "my real feature") {
+		t.Errorf("log missing this PRD's commit: %q", log)
+	}
+	if strings.Contains(log, "some other feature") || strings.Contains(log, "unrelated cleanup") {
+		t.Errorf("log leaked unrelated commits: %q", log)
+	}
+	if lines := strings.Split(log, "\n"); len(lines) != 1 {
+		t.Errorf("expected exactly 1 commit, got %d: %q", len(lines), log)
+	}
+}
+
+func TestCommitLogForStories_EmptyWhenNoMatch(t *testing.T) {
 	dir := initTestRepo(t)
 	if err := CreateBranch(dir, "chief/empty"); err != nil {
 		t.Fatalf("CreateBranch: %v", err)
 	}
-	log, err := CommitLog(dir, "chief/empty")
+	log, err := CommitLogForStories(dir, []StoryRef{{ID: "US-001", Title: "never committed"}})
 	if err != nil {
-		t.Fatalf("CommitLog: %v", err)
+		t.Fatalf("CommitLogForStories: %v", err)
 	}
 	if log != "" {
-		t.Errorf("expected empty log for a branch with no new commits, got %q", log)
+		t.Errorf("expected empty log when no story commit matches, got %q", log)
 	}
 }
 
@@ -73,7 +117,7 @@ func TestCommitPaths_ForceAddsGitignoredFile(t *testing.T) {
 	if err := os.MkdirAll(prdDir, 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	summaryPath := filepath.Join(prdDir, "SUMMARY.md")
+	summaryPath := filepath.Join(prdDir, "summary.md")
 	if err := os.WriteFile(summaryPath, []byte("# Summary\n"), 0644); err != nil {
 		t.Fatalf("write summary: %v", err)
 	}

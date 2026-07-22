@@ -147,7 +147,7 @@ worktree:
 onComplete:
   push: true
   createPR: true
-  summary: true      # write & commit a timestamped SUMMARY file when a run finishes
+  summary: true      # write & commit a timestamped summary file when a run finishes
   notify: true       # desktop notification when a run finishes
 loop:
   watchdogTimeoutSeconds: 0   # 0 = built-in default (5 min)

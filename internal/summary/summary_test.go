@@ -11,11 +11,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ben182/chief/internal/git"
 	"github.com/ben182/chief/internal/loop"
 )
 
+// storyS1 matches the "feat: S1 - add feature" commit initRepoWithBranch makes.
+var storyS1 = []git.StoryRef{{ID: "S1", Title: "add feature"}}
+
 // fakeProvider is a loop.Provider whose loop command writes a fixed file (to
-// stand in for the agent writing SUMMARY.md), or fails without writing.
+// stand in for the agent writing summary.md), or fails without writing.
 type fakeProvider struct {
 	writePath string // where the "agent" writes the summary
 	content   string
@@ -38,7 +42,7 @@ func (f *fakeProvider) CleanOutput(output string) string                    { re
 func (f *fakeProvider) ParseLine(line string) *loop.Event                   { return nil }
 func (f *fakeProvider) LogFileName() string                                 { return "fake.log" }
 
-func initRepoWithBranch(t *testing.T) (dir, branch string) {
+func initRepoWithBranch(t *testing.T) (dir string) {
 	t.Helper()
 	dir = t.TempDir()
 	run := func(args ...string) {
@@ -58,29 +62,28 @@ func initRepoWithBranch(t *testing.T) (dir, branch string) {
 	run("add", ".")
 	run("commit", "-m", "init")
 
-	branch = "chief/feature"
-	run("checkout", "-b", branch)
+	run("checkout", "-b", "chief/feature")
 	if err := os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("x\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	run("add", ".")
 	run("commit", "-m", "feat: S1 - add feature")
-	return dir, branch
+	return dir
 }
 
 func TestGenerate_WritesAndCommits(t *testing.T) {
-	dir, branch := initRepoWithBranch(t)
+	dir := initRepoWithBranch(t)
 	prdDir := filepath.Join(dir, ".chief", "prds", "default")
 	now := time.Date(2026, 7, 21, 14, 32, 5, 0, time.UTC)
 	summaryPath := filepath.Join(prdDir, FileNameFor(now))
 
-	if base := filepath.Base(summaryPath); base != "SUMMARY-2026-07-21-143205.md" {
+	if base := filepath.Base(summaryPath); base != "summary-2026-07-21-143205.md" {
 		t.Fatalf("unexpected timestamped name %q", base)
 	}
 
 	provider := &fakeProvider{writePath: summaryPath, content: "# Run Summary"}
 
-	res, err := generateAt(context.Background(), provider, dir, prdDir, branch, []string{"S2 - parked"}, now)
+	res, err := generateAt(context.Background(), provider, dir, prdDir, storyS1, []string{"S2 - parked"}, now)
 	if err != nil {
 		t.Fatalf("generateAt: %v", err)
 	}
@@ -104,7 +107,7 @@ func TestGenerate_WritesAndCommits(t *testing.T) {
 }
 
 func TestGenerate_SweepsWorkingFiles(t *testing.T) {
-	dir, branch := initRepoWithBranch(t)
+	dir := initRepoWithBranch(t)
 	prdDir := filepath.Join(dir, ".chief", "prds", "default")
 	if err := os.MkdirAll(prdDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -122,7 +125,7 @@ func TestGenerate_SweepsWorkingFiles(t *testing.T) {
 	summaryPath := filepath.Join(prdDir, FileNameFor(now))
 	provider := &fakeProvider{writePath: summaryPath, content: "# Run Summary"}
 
-	if _, err := generateAt(context.Background(), provider, dir, prdDir, branch, nil, now); err != nil {
+	if _, err := generateAt(context.Background(), provider, dir, prdDir, storyS1, nil, now); err != nil {
 		t.Fatalf("generateAt: %v", err)
 	}
 
@@ -167,19 +170,19 @@ func TestGenerate_NothingToSummarize(t *testing.T) {
 	now := time.Date(2026, 7, 21, 14, 32, 5, 0, time.UTC)
 	provider := &fakeProvider{writePath: filepath.Join(prdDir, FileNameFor(now)), content: "x"}
 
-	_, err := generateAt(context.Background(), provider, dir, prdDir, "chief/empty", nil, now)
+	_, err := generateAt(context.Background(), provider, dir, prdDir, nil, nil, now)
 	if !errors.Is(err, ErrNothingToSummarize) {
 		t.Fatalf("expected ErrNothingToSummarize, got %v", err)
 	}
 }
 
 func TestGenerate_AgentFailsWithoutFile(t *testing.T) {
-	dir, branch := initRepoWithBranch(t)
+	dir := initRepoWithBranch(t)
 	prdDir := filepath.Join(dir, ".chief", "prds", "default")
 	now := time.Date(2026, 7, 21, 14, 32, 5, 0, time.UTC)
 	provider := &fakeProvider{writePath: filepath.Join(prdDir, FileNameFor(now)), content: "x", fail: true}
 
-	_, err := generateAt(context.Background(), provider, dir, prdDir, branch, nil, now)
+	_, err := generateAt(context.Background(), provider, dir, prdDir, storyS1, nil, now)
 	if err == nil {
 		t.Fatal("expected an error when the agent fails and writes no file")
 	}

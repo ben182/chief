@@ -1,6 +1,6 @@
 // Package summary generates a human-facing run summary once a PRD finishes.
 // It gathers the commits that landed on the branch, has the configured agent
-// write a timestamped SUMMARY-<time>.md describing what was built and how to
+// write a timestamped summary-<time>.md describing what was built and how to
 // test it, and commits that file so it rides along in the push/PR. Each run
 // writes its own timestamped file, so a PRD keeps a history of its runs.
 package summary
@@ -19,9 +19,10 @@ import (
 )
 
 // FilePrefix is the prefix of each timestamped run-summary file. Every run
-// writes its own SUMMARY-<timestamp>.md instead of overwriting a single file,
-// so a PRD keeps a readable, sortable history of its runs.
-const FilePrefix = "SUMMARY-"
+// writes its own summary-<timestamp>.md instead of overwriting a single file,
+// so a PRD keeps a readable, sortable history of its runs. Kept lowercase to
+// match chief's other working files (prd.md, progress.md, the run logs).
+const FilePrefix = "summary-"
 
 // timestampLayout is the sortable, filesystem-safe timestamp used in the
 // summary file name (local time, second precision to avoid collisions).
@@ -48,26 +49,28 @@ var ErrNothingToSummarize = fmt.Errorf("no commits to summarize")
 //   - gitDir:   the working dir whose branch the commits live on and where the
 //     summary is committed (worktree dir when set, else project root).
 //   - prdDir:   the directory the PRD lives in; the summary file is written here.
-//   - branch:   the branch whose commits (vs. the default branch) are summarized.
+//   - stories:  the PRD's stories, in order; the summary is scoped to the commits
+//     chief authored for exactly these (matched by "feat: <ID> - <Title>"), so
+//     unrelated work sitting on the same branch is left out.
 //   - parked:   stories left for human review, surfaced under "Offene Punkte".
 //
 // It returns ErrNothingToSummarize when there are no commits to describe. The
 // agent writes the file; Generate then force-adds and commits it so it lands
 // even when the PRD dir sits under a gitignored `.chief/`.
-func Generate(ctx context.Context, provider loop.Provider, gitDir, prdDir, branch string, parked []string) (Result, error) {
-	return generateAt(ctx, provider, gitDir, prdDir, branch, parked, time.Now())
+func Generate(ctx context.Context, provider loop.Provider, gitDir, prdDir string, stories []git.StoryRef, parked []string) (Result, error) {
+	return generateAt(ctx, provider, gitDir, prdDir, stories, parked, time.Now())
 }
 
 // generateAt is Generate with an injectable clock so the timestamped file name
 // is deterministic in tests.
-func generateAt(ctx context.Context, provider loop.Provider, gitDir, prdDir, branch string, parked []string, now time.Time) (Result, error) {
+func generateAt(ctx context.Context, provider loop.Provider, gitDir, prdDir string, stories []git.StoryRef, parked []string, now time.Time) (Result, error) {
 	if provider == nil {
 		return Result{}, fmt.Errorf("summary requires a provider")
 	}
 
-	commits, err := git.CommitLog(gitDir, branch)
+	commits, err := git.CommitLogForStories(gitDir, stories)
 	if err != nil || commits == "" {
-		// No range / no commits: nothing worth summarizing. Not an error.
+		// No chief-authored story commits: nothing worth summarizing. Not an error.
 		return Result{}, ErrNothingToSummarize
 	}
 

@@ -177,17 +177,40 @@ func FindCommitForStory(dir, storyID, title string) (string, error) {
 	return hash, nil
 }
 
-// CommitLog returns a one-line-per-commit log (`<short-hash> <subject>`) of the
-// commits on branch that are not on the default branch, oldest first. It is used
-// to feed the run summary generator the list of work that landed. Returns an
-// empty string (no error) when the range can't be determined or is empty, so the
-// caller can simply skip summarizing when there is nothing to describe.
-func CommitLog(repoDir, branch string) (string, error) {
-	defaultBranch, err := GetDefaultBranch(repoDir)
-	if err != nil {
-		return "", err
+// StoryRef identifies a story by the fields that make up its chief commit
+// subject ("feat: <ID> - <Title>"). It scopes the run summary to the commits
+// chief actually authored for a specific PRD.
+type StoryRef struct {
+	ID    string
+	Title string
+}
+
+// CommitLogForStories returns a one-line-per-commit log (`<short-hash> <subject>`)
+// of the commits chief authored for the given stories, in the order the stories
+// are passed (PRD order, oldest first). Each commit is matched by its exact
+// "feat: <ID> - <Title>" subject, so the result contains only this PRD's work and
+// excludes unrelated commits sitting on the same branch — including same-numbered
+// stories from other PRDs, since the title must match too. Stories with no
+// matching commit are skipped. Returns an empty string (no error) when none match.
+func CommitLogForStories(repoDir string, stories []StoryRef) (string, error) {
+	var hashes []string
+	for _, s := range stories {
+		hash, err := FindCommitForStory(repoDir, s.ID, s.Title)
+		if err != nil {
+			return "", err
+		}
+		if hash != "" {
+			hashes = append(hashes, hash)
+		}
 	}
-	cmd := exec.Command("git", "log", "--reverse", "--format=%h %s", defaultBranch+".."+branch)
+	if len(hashes) == 0 {
+		return "", nil
+	}
+	// --no-walk=unsorted lists exactly the named commits in the order given (PRD
+	// order, i.e. oldest story first), rather than walking history and dragging in
+	// everything reachable, or re-sorting by commit date (the --no-walk default).
+	args := append([]string{"log", "--no-walk=unsorted", "--format=%h %s"}, hashes...)
+	cmd := exec.Command("git", args...)
 	cmd.Dir = repoDir
 	out, err := cmd.Output()
 	if err != nil {

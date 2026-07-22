@@ -67,7 +67,7 @@ type OnCompleteConfig struct {
 	CreatePR bool `yaml:"createPR"`
 	Notify   bool `yaml:"notify"`
 	// Summary, when true, generates a human-facing, timestamped summary file
-	// (SUMMARY-<date>-<time>.md) next to the PRD once the run finishes (what was
+	// (summary-<date>-<time>.md) next to the PRD once the run finishes (what was
 	// built, how to test it, where the new functionality lives, open follow-ups)
 	// and commits it so it rides along in the push/PR. Runs both on full
 	// completion and when max iterations is hit, as long as the branch has
