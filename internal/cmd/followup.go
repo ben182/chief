@@ -12,12 +12,6 @@ import (
 	"github.com/ben182/chief/internal/prd"
 )
 
-// followupInboxNames lists the accepted follow-up inbox filenames, in preference
-// order. A follow-up inbox is a flat markdown checklist the user fills in by hand
-// while reviewing a finished PRD; `chief followup` converts its open items into
-// structured user stories.
-var followupInboxNames = []string{"todos.md", "followups.md", "follow-ups.md"}
-
 // FollowupOptions contains configuration for the followup command.
 type FollowupOptions struct {
 	Name     string        // PRD name (default: "default")
@@ -50,25 +44,13 @@ flipped to "- [x]" with their new story ID, so re-running never duplicates them.
 
 // scaffoldFollowupInbox writes a starter todos.md into prdDir so a new PRD has a
 // ready place to collect post-implementation follow-ups. It never overwrites an
-// existing inbox file (any of followupInboxNames) — it is a convenience, so a
+// existing inbox file (any of prd.FollowupInboxNames) — it is a convenience, so a
 // write failure is returned for the caller to treat as non-fatal.
 func scaffoldFollowupInbox(prdDir string) error {
-	if findFollowupInbox(prdDir) != "" {
+	if prd.FollowupInboxPath(prdDir) != "" {
 		return nil // an inbox already exists — leave it untouched
 	}
-	return os.WriteFile(filepath.Join(prdDir, followupInboxNames[0]), []byte(followupInboxScaffold), 0644)
-}
-
-// findFollowupInbox returns the path to the first existing follow-up inbox file
-// in prdDir (see followupInboxNames), or "" when none exists.
-func findFollowupInbox(prdDir string) string {
-	for _, name := range followupInboxNames {
-		path := filepath.Join(prdDir, name)
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-	}
-	return ""
+	return os.WriteFile(filepath.Join(prdDir, prd.FollowupInboxNames[0]), []byte(followupInboxScaffold), 0644)
 }
 
 // prdNameFromBranch infers a PRD name from the current git branch when it
@@ -123,9 +105,9 @@ func RunFollowup(opts FollowupOptions) error {
 		return fmt.Errorf("PRD not found at %s. Use 'chief new %s' to create it first", prdMdPath, opts.Name)
 	}
 
-	inboxPath := findFollowupInbox(prdDir)
+	inboxPath := prd.FollowupInboxPath(prdDir)
 	if inboxPath == "" {
-		return fmt.Errorf("no follow-up inbox found in %s. Create a %s with your follow-up items as a markdown checklist (- [ ] ...), then run 'chief followup %s' again", prdDir, followupInboxNames[0], opts.Name)
+		return fmt.Errorf("no follow-up inbox found in %s. Create a %s with your follow-up items as a markdown checklist (- [ ] ...), then run 'chief followup %s' again", prdDir, prd.FollowupInboxNames[0], opts.Name)
 	}
 
 	if opts.Provider == nil {

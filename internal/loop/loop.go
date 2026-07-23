@@ -735,9 +735,16 @@ func (l *Loop) commitStoryProgress(storyID, storyTitle string) {
 	}
 	prdDir := filepath.Dir(l.prdPath)
 	// Only stage files that exist: `git add` fails the whole command on a missing
-	// pathspec, and progress.md / .gitignore may not have been written yet.
+	// pathspec, and progress.md / .gitignore may not have been written yet. The
+	// follow-up inbox (todos.md) is swept in too so a `chief followup` run's
+	// checked-off items don't linger as an uncommitted change after the loop lands
+	// the stories it ingested; FollowupInboxPath returns "" when no inbox exists.
 	var paths []string
-	for _, p := range []string{l.prdPath, prd.ProgressPath(l.prdPath), filepath.Join(prdDir, ".gitignore")} {
+	candidates := []string{l.prdPath, prd.ProgressPath(l.prdPath), filepath.Join(prdDir, ".gitignore")}
+	if inbox := prd.FollowupInboxPath(prdDir); inbox != "" {
+		candidates = append(candidates, inbox)
+	}
+	for _, p := range candidates {
 		if _, err := os.Stat(p); err == nil {
 			paths = append(paths, p)
 		}

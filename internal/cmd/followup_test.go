@@ -206,29 +206,3 @@ func TestRunFollowupInfersNameFromBranch(t *testing.T) {
 		t.Fatalf("expected to reach Provider check (name inferred from branch), got: %v", err)
 	}
 }
-
-func TestFindFollowupInbox(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	if got := findFollowupInbox(tmpDir); got != "" {
-		t.Errorf("expected no inbox, got %q", got)
-	}
-
-	// followups.md is accepted as a fallback name.
-	fallback := filepath.Join(tmpDir, "followups.md")
-	if err := os.WriteFile(fallback, []byte("x"), 0644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	if got := findFollowupInbox(tmpDir); got != fallback {
-		t.Errorf("expected fallback inbox %q, got %q", fallback, got)
-	}
-
-	// todos.md takes precedence when both exist.
-	todos := filepath.Join(tmpDir, "todos.md")
-	if err := os.WriteFile(todos, []byte("x"), 0644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	if got := findFollowupInbox(tmpDir); got != todos {
-		t.Errorf("expected todos.md to win, got %q", got)
-	}
-}

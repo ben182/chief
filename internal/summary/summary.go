@@ -16,6 +16,7 @@ import (
 	"github.com/ben182/chief/embed"
 	"github.com/ben182/chief/internal/git"
 	"github.com/ben182/chief/internal/loop"
+	"github.com/ben182/chief/internal/prd"
 )
 
 // FilePrefix is the prefix of each timestamped run-summary file. Every run
@@ -120,7 +121,13 @@ func generateAt(ctx context.Context, provider loop.Provider, gitDir, prdDir stri
 	if git.IsGitRepo(gitDir) {
 		msg := "docs: add run summary"
 		paths := []string{summaryPath}
-		for _, name := range []string{"prd.md", "progress.md", ".gitignore"} {
+		names := []string{"prd.md", "progress.md", ".gitignore"}
+		// Sweep the follow-up inbox too, so a `chief followup` run's checked-off
+		// items are committed by the end of the run instead of being left behind as
+		// an uncommitted change. FollowupInboxNames is the same set the followup
+		// command accepts (todos.md and its aliases); only existing files are added.
+		names = append(names, prd.FollowupInboxNames...)
+		for _, name := range names {
 			p := filepath.Join(prdDir, name)
 			if _, statErr := os.Stat(p); statErr == nil {
 				paths = append(paths, p)
