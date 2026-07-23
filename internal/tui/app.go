@@ -627,8 +627,19 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // tryQuit attempts to quit the app. If any loop is running, it shows the quit
 // confirmation dialog instead of quitting immediately.
 func (a App) tryQuit() (tea.Model, tea.Cmd) {
-	if a.manager != nil && a.manager.IsAnyRunning() {
+	loopRunning := a.manager != nil && a.manager.IsAnyRunning()
+	// A finished loop leaves IsAnyRunning() false, but a post-completion action
+	// (summary/push/PR) may still be running on the completion screen; quitting
+	// would kill its process and leave e.g. a half-written summary behind.
+	actionRunning := a.viewMode == ViewCompletion && a.completionScreen.IsAutoActionRunning()
+	if loopRunning || actionRunning {
 		a.previousViewMode = a.viewMode
+		// A running loop is the more consequential warning, so it wins the copy.
+		if loopRunning {
+			a.quitConfirm.ForLoop()
+		} else {
+			a.quitConfirm.ForAutoAction()
+		}
 		a.viewMode = ViewQuitConfirm
 		a.quitConfirm.Reset()
 		a.quitConfirm.SetSize(a.width, a.height)

@@ -19,13 +19,37 @@ type QuitConfirmation struct {
 	width       int
 	height      int
 	selectedIdx int
+	message     []string // lines explaining what quitting will interrupt
+	quitLabel   string   // label for the affirmative (quit) option
 }
 
 // NewQuitConfirmation creates a new quit confirmation dialog.
 func NewQuitConfirmation() *QuitConfirmation {
-	return &QuitConfirmation{
+	q := &QuitConfirmation{
 		selectedIdx: 1, // Default to Cancel (safe choice)
 	}
+	q.ForLoop()
+	return q
+}
+
+// ForLoop sets the dialog copy for the case where a Ralph loop is still running.
+func (q *QuitConfirmation) ForLoop() {
+	q.message = []string{
+		"A Ralph loop is currently running.",
+		"Exiting will stop the loop.",
+	}
+	q.quitLabel = "Quit and stop loop"
+}
+
+// ForAutoAction sets the dialog copy for the case where a post-completion
+// action (writing the run summary, pushing, or opening a PR) is still running.
+// Quitting kills the underlying process, so a half-written summary never lands.
+func (q *QuitConfirmation) ForAutoAction() {
+	q.message = []string{
+		"A post-completion action is still running.",
+		"Exiting now will interrupt it.",
+	}
+	q.quitLabel = "Quit and interrupt"
 }
 
 // SetSize sets the dialog dimensions.
@@ -79,16 +103,17 @@ func (q *QuitConfirmation) Render() string {
 
 	// Message
 	messageStyle := lipgloss.NewStyle().Foreground(TextColor)
-	content.WriteString(messageStyle.Render("A Ralph loop is currently running."))
+	for _, line := range q.message {
+		content.WriteString(messageStyle.Render(line))
+		content.WriteString("\n")
+	}
 	content.WriteString("\n")
-	content.WriteString(messageStyle.Render("Exiting will stop the loop."))
-	content.WriteString("\n\n")
 
 	// Options
 	optionStyle := lipgloss.NewStyle().Foreground(TextColor)
 	selectedStyle := lipgloss.NewStyle().Foreground(PrimaryColor).Bold(true)
 
-	options := []string{"Quit and stop loop", "Cancel"}
+	options := []string{q.quitLabel, "Cancel"}
 	for i, opt := range options {
 		if i == q.selectedIdx {
 			content.WriteString(selectedStyle.Render("▶ " + opt))
