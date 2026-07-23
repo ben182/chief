@@ -2,10 +2,36 @@ package cmd
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// initGitRepoOnBranch creates a git repo in dir and checks out branch, so tests
+// can exercise the chief/<name> branch-inference in RunFollowup.
+func initGitRepoOnBranch(t *testing.T, dir, branch string) {
+	t.Helper()
+	readme := filepath.Join(dir, "README.md")
+	if err := os.WriteFile(readme, []byte("# Test\n"), 0644); err != nil {
+		t.Fatalf("failed to create README: %v", err)
+	}
+	cmds := [][]string{
+		{"git", "init"},
+		{"git", "config", "user.email", "test@test.com"},
+		{"git", "config", "user.name", "Test"},
+		{"git", "add", "."},
+		{"git", "commit", "-m", "initial commit"},
+		{"git", "checkout", "-B", branch},
+	}
+	for _, args := range cmds {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("setup command %v failed: %s", args, string(out))
+		}
+	}
+}
 
 // writePRD creates .chief/prds/<name>/prd.md under baseDir and returns the PRD dir.
 func writePRD(t *testing.T, baseDir, name string) string {
@@ -119,6 +145,65 @@ func TestScaffoldFollowupInbox(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir2, "todos.md")); !os.IsNotExist(err) {
 		t.Error("scaffold created todos.md even though followups.md already exists")
+	}
+}
+
+func TestPrdNameFromBranch(t *testing.T) {
+	t.Run("infers name from chief branch when PRD exists", func(t *testing.T) {
+		dir := t.TempDir()
+		initGitRepoOnBranch(t, dir, "chief/linkedin-post-media")
+		writePRD(t, dir, "linkedin-post-media")
+
+		if got := prdNameFromBranch(dir); got != "linkedin-post-media" {
+			t.Errorf("expected %q, got %q", "linkedin-post-media", got)
+		}
+	})
+
+	t.Run("empty when PRD dir is missing", func(t *testing.T) {
+		dir := t.TempDir()
+		initGitRepoOnBranch(t, dir, "chief/linkedin-post-media")
+		// no PRD written — must not adopt the inferred name
+		if got := prdNameFromBranch(dir); got != "" {
+			t.Errorf("expected empty (no PRD), got %q", got)
+		}
+	})
+
+	t.Run("empty on a non-chief branch", func(t *testing.T) {
+		dir := t.TempDir()
+		initGitRepoOnBranch(t, dir, "main")
+		writePRD(t, dir, "main")
+		if got := prdNameFromBranch(dir); got != "" {
+			t.Errorf("expected empty (non-chief branch), got %q", got)
+		}
+	})
+
+	t.Run("empty outside a git repo", func(t *testing.T) {
+		dir := t.TempDir()
+		if got := prdNameFromBranch(dir); got != "" {
+			t.Errorf("expected empty (no git repo), got %q", got)
+		}
+	})
+}
+
+// TestRunFollowupInfersNameFromBranch checks that RunFollowup, given no explicit
+// name, picks up the PRD matching the current chief/<name> branch rather than
+// falling back to "default".
+func TestRunFollowupInfersNameFromBranch(t *testing.T) {
+	dir := t.TempDir()
+	initGitRepoOnBranch(t, dir, "chief/feature")
+	prdDir := writePRD(t, dir, "feature")
+	if err := os.WriteFile(filepath.Join(prdDir, "todos.md"), []byte("- [ ] item"), 0644); err != nil {
+		t.Fatalf("write todos.md: %v", err)
+	}
+
+	// No Name given: it must resolve to "feature" (from the branch) and get past
+	// the PRD-exists and inbox checks, failing only on the missing Provider.
+	err := RunFollowup(FollowupOptions{BaseDir: dir})
+	if err == nil {
+		t.Fatal("expected provider validation error")
+	}
+	if !contains(err.Error(), "Provider") {
+		t.Fatalf("expected to reach Provider check (name inferred from branch), got: %v", err)
 	}
 }
 

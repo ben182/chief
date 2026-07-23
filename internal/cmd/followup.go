@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/ben182/chief/embed"
+	"github.com/ben182/chief/internal/git"
 	"github.com/ben182/chief/internal/loop"
 	"github.com/ben182/chief/internal/prd"
 )
@@ -69,11 +71,47 @@ func findFollowupInbox(prdDir string) string {
 	return ""
 }
 
+// prdNameFromBranch infers a PRD name from the current git branch when it
+// follows chief's chief/<name> convention (e.g. branch chief/linkedin-post-media
+// -> "linkedin-post-media"). It only returns a name whose prd.md actually exists
+// under baseDir, so a stray chief/ branch without a matching PRD leaves the
+// normal "default" resolution untouched. Returns "" when nothing applies.
+func prdNameFromBranch(baseDir string) string {
+	if !git.IsGitRepo(baseDir) {
+		return ""
+	}
+	branch, err := git.GetCurrentBranch(baseDir)
+	if err != nil {
+		return ""
+	}
+	name, ok := strings.CutPrefix(branch, "chief/")
+	if !ok || !isValidPRDName(name) {
+		return ""
+	}
+	if _, err := os.Stat(filepath.Join(prd.PRDDir(baseDir, name), "prd.md")); err != nil {
+		return ""
+	}
+	return name
+}
+
 // RunFollowup converts a PRD's follow-up inbox (e.g. todos.md) into structured
 // user stories appended to prd.md, by launching an interactive agent session.
 // The PRD must already exist and carry an inbox file; new stories are appended
 // as `todo` so the normal loop picks them up next.
 func RunFollowup(opts FollowupOptions) error {
+	// When no PRD name is given explicitly, try to infer it from the current git
+	// branch. Chief branches follow the chief/<name> convention (see RunNew), so
+	// running `chief followup` from within a PRD's own branch picks up that PRD
+	// instead of silently falling back to "default".
+	if opts.Name == "" {
+		if base, err := resolveBaseDir(opts.BaseDir); err == nil {
+			if inferred := prdNameFromBranch(base); inferred != "" {
+				fmt.Printf("Using PRD %q inferred from current branch chief/%s\n", inferred, inferred)
+				opts.Name = inferred
+			}
+		}
+	}
+
 	name, baseDir, prdDir, prdMdPath, err := preparePRDPaths(opts.Name, opts.BaseDir)
 	if err != nil {
 		return err

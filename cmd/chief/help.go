@@ -14,6 +14,7 @@ Commands:
   new [name] [context]      Create a new PRD interactively (prompts for the Claude model unless --model is set)
   edit [name] [options]     Edit an existing PRD interactively (prompts for the Claude model unless --model is set)
   followup [name]           Convert a PRD's follow-up inbox (todos.md) into new user stories
+                            (name defaults to the PRD of the current chief/<name> branch)
   status [name]             Show progress for a PRD (default: default)
   list                      List all PRDs with progress
   help                      Show this help message
