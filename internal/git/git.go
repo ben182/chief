@@ -173,9 +173,23 @@ func GetDiffStatsForCommit(dir, commitHash string) (string, error) {
 // matches the chief commit format "feat: <storyID> - <title>".
 // Both the story ID and title are required to avoid false positives from
 // previous PRD runs that may reuse the same story IDs.
+// When sinceRef is non-empty the search is scoped to sinceRef..HEAD, so a
+// followup run only finds the commit if it landed during this run and not on an
+// earlier one that already committed the same story on this branch.
 // Returns the commit hash if found, empty string otherwise.
-func FindCommitForStory(dir, storyID, title string) (string, error) {
-	return runGit(dir, "log", "--fixed-strings", "--grep=feat: "+storyID+" - "+title, "--format=%H", "-1")
+func FindCommitForStory(dir, storyID, title, sinceRef string) (string, error) {
+	args := []string{"log", "--fixed-strings", "--grep=feat: " + storyID + " - " + title, "--format=%H", "-1"}
+	if sinceRef != "" {
+		args = append(args, sinceRef+"..HEAD")
+	}
+	return runGit(dir, args...)
+}
+
+// HeadHash returns the full commit hash of the current HEAD. It errors on a repo
+// with no commits yet. Callers capture this at the start of a run so the summary
+// can be scoped to only the commits that run adds (HeadHash..HEAD at the end).
+func HeadHash(dir string) (string, error) {
+	return runGit(dir, "rev-parse", "HEAD")
 }
 
 // StoryRef identifies a story by the fields that make up its chief commit
@@ -193,10 +207,14 @@ type StoryRef struct {
 // excludes unrelated commits sitting on the same branch — including same-numbered
 // stories from other PRDs, since the title must match too. Stories with no
 // matching commit are skipped. Returns an empty string (no error) when none match.
-func CommitLogForStories(repoDir string, stories []StoryRef) (string, error) {
+//
+// When sinceRef is non-empty the match is scoped to sinceRef..HEAD, so a followup
+// run's summary describes only the stories that run completed and not the ones an
+// earlier run already landed on the same branch.
+func CommitLogForStories(repoDir string, stories []StoryRef, sinceRef string) (string, error) {
 	var hashes []string
 	for _, s := range stories {
-		hash, err := FindCommitForStory(repoDir, s.ID, s.Title)
+		hash, err := FindCommitForStory(repoDir, s.ID, s.Title, sinceRef)
 		if err != nil {
 			return "", err
 		}

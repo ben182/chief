@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ben182/chief/internal/config"
+	"github.com/ben182/chief/internal/git"
 	"github.com/ben182/chief/internal/prd"
 )
 
@@ -47,14 +48,18 @@ type LoopInstance struct {
 	PRDPath     string
 	WorktreeDir string // Working directory for this PRD (empty = project root)
 	Branch      string // Git branch for this PRD (empty = current branch)
-	Loop        *Loop
-	State       LoopState
-	Iteration   int
-	StartTime   time.Time
-	Error       error
-	ctx         context.Context
-	cancel      context.CancelFunc
-	mu          sync.Mutex
+	// StartRef is the branch HEAD hash captured when this run started, so the run
+	// summary can be scoped to this run's commits (StartRef..HEAD). Empty when HEAD
+	// couldn't be read (e.g. a repo with no commits yet).
+	StartRef  string
+	Loop      *Loop
+	State     LoopState
+	Iteration int
+	StartTime time.Time
+	Error     error
+	ctx       context.Context
+	cancel    context.CancelFunc
+	mu        sync.Mutex
 }
 
 // ManagerEvent represents an event from any managed loop.
@@ -248,6 +253,12 @@ func (m *Manager) Start(name string) error {
 	if cfg != nil && cfg.Loop.WatchdogTimeoutSeconds > 0 {
 		instance.Loop.SetWatchdogTimeout(time.Duration(cfg.Loop.WatchdogTimeoutSeconds) * time.Second)
 	}
+	// Capture the branch HEAD before the loop makes any commits, so the run
+	// summary can be scoped to exactly this run's work (StartRef..HEAD). On a
+	// followup run this is the tip left by the previous run, so its already-landed
+	// stories are excluded. Best-effort: an unborn branch leaves it empty, which
+	// falls back to summarizing every matching story commit on the branch.
+	instance.StartRef, _ = git.HeadHash(workDir)
 	instance.ctx, instance.cancel = context.WithCancel(context.Background())
 	instance.State = LoopStateRunning
 	instance.StartTime = time.Now()
@@ -449,6 +460,7 @@ func (i *LoopInstance) snapshot() *LoopInstance {
 		PRDPath:     i.PRDPath,
 		WorktreeDir: i.WorktreeDir,
 		Branch:      i.Branch,
+		StartRef:    i.StartRef,
 		State:       i.State,
 		Iteration:   i.Iteration,
 		StartTime:   i.StartTime,

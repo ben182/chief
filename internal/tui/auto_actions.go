@@ -102,6 +102,7 @@ func (a *App) runBackgroundAutoActions(prdName string) tea.Cmd {
 	provider := a.provider
 	prdPath := instance.PRDPath
 	prdDir := a.summaryDir(prdName, dir)
+	sinceRef := instance.StartRef
 
 	return func() tea.Msg {
 		if summaryEnabled {
@@ -112,7 +113,7 @@ func (a *App) runBackgroundAutoActions(prdName string) tea.Cmd {
 				parked = parkedStoryLabels(p)
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-			_, _ = summary.Generate(ctx, provider, dir, prdDir, stories, parked) // best-effort
+			_, _ = summary.Generate(ctx, provider, dir, prdDir, stories, parked, sinceRef) // best-effort
 			cancel()
 		}
 		if !pushEnabled {
@@ -262,10 +263,14 @@ func (a *App) runAutoSummary(prdName string, showOnScreen, pushAfter bool) tea.C
 	prdDir := a.summaryDir(prdName, gitDir)
 	stories := storyRefs(a.prd)
 	parked := parkedStoryLabels(a.prd)
+	sinceRef := ""
+	if inst := a.manager.GetInstance(prdName); inst != nil {
+		sinceRef = inst.StartRef
+	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		res, err := summary.Generate(ctx, provider, gitDir, prdDir, stories, parked)
+		res, err := summary.Generate(ctx, provider, gitDir, prdDir, stories, parked, sinceRef)
 		if errors.Is(err, summary.ErrNothingToSummarize) {
 			err = nil // nothing to describe; treat as a clean skip
 		}

@@ -83,7 +83,7 @@ func TestGenerate_WritesAndCommits(t *testing.T) {
 
 	provider := &fakeProvider{writePath: summaryPath, content: "# Run Summary"}
 
-	res, err := generateAt(context.Background(), provider, dir, prdDir, storyS1, []string{"S2 - parked"}, now)
+	res, err := generateAt(context.Background(), provider, dir, prdDir, storyS1, []string{"S2 - parked"}, "", now)
 	if err != nil {
 		t.Fatalf("generateAt: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestGenerate_SweepsWorkingFiles(t *testing.T) {
 	summaryPath := filepath.Join(prdDir, FileNameFor(now))
 	provider := &fakeProvider{writePath: summaryPath, content: "# Run Summary"}
 
-	if _, err := generateAt(context.Background(), provider, dir, prdDir, storyS1, nil, now); err != nil {
+	if _, err := generateAt(context.Background(), provider, dir, prdDir, storyS1, nil, "", now); err != nil {
 		t.Fatalf("generateAt: %v", err)
 	}
 
@@ -170,7 +170,7 @@ func TestGenerate_NothingToSummarize(t *testing.T) {
 	now := time.Date(2026, 7, 21, 14, 32, 5, 0, time.UTC)
 	provider := &fakeProvider{writePath: filepath.Join(prdDir, FileNameFor(now)), content: "x"}
 
-	_, err := generateAt(context.Background(), provider, dir, prdDir, nil, nil, now)
+	_, err := generateAt(context.Background(), provider, dir, prdDir, nil, nil, "", now)
 	if !errors.Is(err, ErrNothingToSummarize) {
 		t.Fatalf("expected ErrNothingToSummarize, got %v", err)
 	}
@@ -182,7 +182,7 @@ func TestGenerate_AgentFailsWithoutFile(t *testing.T) {
 	now := time.Date(2026, 7, 21, 14, 32, 5, 0, time.UTC)
 	provider := &fakeProvider{writePath: filepath.Join(prdDir, FileNameFor(now)), content: "x", fail: true}
 
-	_, err := generateAt(context.Background(), provider, dir, prdDir, storyS1, nil, now)
+	_, err := generateAt(context.Background(), provider, dir, prdDir, storyS1, nil, "", now)
 	if err == nil {
 		t.Fatal("expected an error when the agent fails and writes no file")
 	}

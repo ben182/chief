@@ -35,7 +35,7 @@ func TestCommitLogForStories(t *testing.T) {
 		{ID: "US-001", Title: "add a"},
 		{ID: "US-002", Title: "add b"},
 	}
-	log, err := CommitLogForStories(dir, stories)
+	log, err := CommitLogForStories(dir, stories, "")
 	if err != nil {
 		t.Fatalf("CommitLogForStories: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestCommitLogForStories(t *testing.T) {
 
 	// Order follows the passed slice, not commit date: passing the newer commit
 	// (US-002) first must put it first, even though it is the more recent commit.
-	rev, err := CommitLogForStories(dir, []StoryRef{{ID: "US-002", Title: "add b"}, {ID: "US-001", Title: "add a"}})
+	rev, err := CommitLogForStories(dir, []StoryRef{{ID: "US-002", Title: "add b"}, {ID: "US-001", Title: "add a"}}, "")
 	if err != nil {
 		t.Fatalf("CommitLogForStories (reversed): %v", err)
 	}
@@ -77,7 +77,7 @@ func TestCommitLogForStories_ExcludesUnrelatedWork(t *testing.T) {
 	// This PRD's actual work.
 	commitFile(t, dir, "mine.txt", "z", "feat: US-001 - my real feature")
 
-	log, err := CommitLogForStories(dir, []StoryRef{{ID: "US-001", Title: "my real feature"}})
+	log, err := CommitLogForStories(dir, []StoryRef{{ID: "US-001", Title: "my real feature"}}, "")
 	if err != nil {
 		t.Fatalf("CommitLogForStories: %v", err)
 	}
@@ -98,12 +98,50 @@ func TestCommitLogForStories_EmptyWhenNoMatch(t *testing.T) {
 	if err := CreateBranch(dir, "chief/empty"); err != nil {
 		t.Fatalf("CreateBranch: %v", err)
 	}
-	log, err := CommitLogForStories(dir, []StoryRef{{ID: "US-001", Title: "never committed"}})
+	log, err := CommitLogForStories(dir, []StoryRef{{ID: "US-001", Title: "never committed"}}, "")
 	if err != nil {
 		t.Fatalf("CommitLogForStories: %v", err)
 	}
 	if log != "" {
 		t.Errorf("expected empty log when no story commit matches, got %q", log)
+	}
+}
+
+// TestCommitLogForStories_ScopesToSinceRef is the followup case: a branch already
+// carries a story an earlier run committed. Passing the HEAD captured at the start
+// of this run as sinceRef must exclude that already-landed story, so the summary
+// describes only what this run added.
+func TestCommitLogForStories_ScopesToSinceRef(t *testing.T) {
+	dir := initTestRepo(t)
+	if err := CreateBranch(dir, "chief/feature"); err != nil {
+		t.Fatalf("CreateBranch: %v", err)
+	}
+	// Previous run's work.
+	commitFile(t, dir, "a.txt", "a", "feat: US-001 - add a")
+	// The followup run starts here; capture the tip it will build on top of.
+	sinceRef, err := HeadHash(dir)
+	if err != nil {
+		t.Fatalf("HeadHash: %v", err)
+	}
+	// This run's work.
+	commitFile(t, dir, "b.txt", "b", "feat: US-002 - add b")
+
+	stories := []StoryRef{
+		{ID: "US-001", Title: "add a"},
+		{ID: "US-002", Title: "add b"},
+	}
+	log, err := CommitLogForStories(dir, stories, sinceRef)
+	if err != nil {
+		t.Fatalf("CommitLogForStories: %v", err)
+	}
+	if strings.Contains(log, "add a") {
+		t.Errorf("log leaked the previous run's story (US-001): %q", log)
+	}
+	if !strings.Contains(log, "add b") {
+		t.Errorf("log missing this run's story (US-002): %q", log)
+	}
+	if lines := strings.Split(log, "\n"); len(lines) != 1 {
+		t.Errorf("expected exactly 1 commit for this run, got %d: %q", len(lines), log)
 	}
 }
 

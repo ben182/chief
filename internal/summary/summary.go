@@ -53,22 +53,26 @@ var ErrNothingToSummarize = fmt.Errorf("no commits to summarize")
 //     chief authored for exactly these (matched by "feat: <ID> - <Title>"), so
 //     unrelated work sitting on the same branch is left out.
 //   - parked:   stories left for human review, surfaced under "Offene Punkte".
+//   - sinceRef: the branch HEAD captured when the run started; when non-empty the
+//     summary is scoped to sinceRef..HEAD so a followup run describes only the
+//     stories that run completed, not ones an earlier run already landed on the
+//     same branch. Empty means "describe every matching story commit on the branch".
 //
 // It returns ErrNothingToSummarize when there are no commits to describe. The
 // agent writes the file; Generate then force-adds and commits it so it lands
 // even when the PRD dir sits under a gitignored `.chief/`.
-func Generate(ctx context.Context, provider loop.Provider, gitDir, prdDir string, stories []git.StoryRef, parked []string) (Result, error) {
-	return generateAt(ctx, provider, gitDir, prdDir, stories, parked, time.Now())
+func Generate(ctx context.Context, provider loop.Provider, gitDir, prdDir string, stories []git.StoryRef, parked []string, sinceRef string) (Result, error) {
+	return generateAt(ctx, provider, gitDir, prdDir, stories, parked, sinceRef, time.Now())
 }
 
 // generateAt is Generate with an injectable clock so the timestamped file name
 // is deterministic in tests.
-func generateAt(ctx context.Context, provider loop.Provider, gitDir, prdDir string, stories []git.StoryRef, parked []string, now time.Time) (Result, error) {
+func generateAt(ctx context.Context, provider loop.Provider, gitDir, prdDir string, stories []git.StoryRef, parked []string, sinceRef string, now time.Time) (Result, error) {
 	if provider == nil {
 		return Result{}, fmt.Errorf("summary requires a provider")
 	}
 
-	commits, err := git.CommitLogForStories(gitDir, stories)
+	commits, err := git.CommitLogForStories(gitDir, stories, sinceRef)
 	if err != nil || commits == "" {
 		// No chief-authored story commits: nothing worth summarizing. Not an error.
 		return Result{}, ErrNothingToSummarize

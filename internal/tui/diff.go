@@ -53,7 +53,7 @@ func (d *DiffViewer) LoadForStory(storyID, title string) {
 
 	// Find the commit for this story (match both ID and title to avoid
 	// false positives from previous PRD runs with the same story IDs)
-	commitHash, err := git.FindCommitForStory(d.baseDir, storyID, title)
+	commitHash, err := git.FindCommitForStory(d.baseDir, storyID, title, "")
 	if err != nil || commitHash == "" {
 		d.noCommit = true
 		d.offset = 0

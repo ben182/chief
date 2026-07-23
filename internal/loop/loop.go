@@ -713,7 +713,9 @@ func (l *Loop) storyHasCommit(storyID, title string) bool {
 		}
 		return true
 	}
-	hash, _ := git.FindCommitForStory(dir, storyID, title)
+	// Whole-branch search (no since-ref): a story committed by an earlier run on
+	// this branch is still done, so a followup run must recognize it as complete.
+	hash, _ := git.FindCommitForStory(dir, storyID, title, "")
 	return hash != ""
 }
 
