@@ -251,17 +251,39 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 		if isCurrentPRD {
 			a.lastActivity = "Story done"
 		}
-		// Finalize story timing (for every PRD, not just the viewed one)
-		a.finalizeStoryTiming(prdName)
+		// Finalize story timing (for every PRD, not just the viewed one). When a
+		// review agent runs after the build commit, the story isn't really finished
+		// yet: defer finalizing until EventReviewDone so the review pass counts
+		// toward the story's duration (and thus the ETA) instead of falling into an
+		// unmeasured gap.
+		if !a.reviewActive() {
+			a.finalizeStoryTiming(prdName)
+		}
 	case loop.EventStoryNeedsReview:
 		if isCurrentPRD {
 			a.lastActivity = event.Text
 		}
 		a.finalizeStoryTiming(prdName)
-	case loop.EventReviewStart, loop.EventReviewDone:
+	case loop.EventReviewStart:
 		if isCurrentPRD {
 			a.lastActivity = event.Text
 		}
+		// Keep the story that's being reviewed selected and tagged instead of
+		// letting the UI drift to the next story while the review agent runs.
+		if event.StoryID != "" {
+			a.reviewingStoryID[prdName] = event.StoryID
+			if isCurrentPRD {
+				a.selectStoryByID(event.StoryID)
+			}
+		}
+	case loop.EventReviewDone:
+		if isCurrentPRD {
+			a.lastActivity = event.Text
+		}
+		// The build+review pass for this story is complete: record its full
+		// duration now (see EventStoryDone) and drop the reviewing tag.
+		a.finalizeStoryTiming(prdName)
+		delete(a.reviewingStoryID, prdName)
 	case loop.EventComplete:
 		// Finalize the last story's timing for any PRD that completes.
 		a.finalizeStoryTiming(prdName)

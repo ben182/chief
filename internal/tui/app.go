@@ -82,7 +82,12 @@ type App struct {
 	currentStoryStart  map[string]time.Time
 	currentStoryCost   map[string]float64    // cost accrued for the in-progress story (across retries), per PRD
 	currentStoryTokens map[string]TokenUsage // token usage accrued for the in-progress story, per PRD
-	totalCost          float64               // cumulative cost across all stories this run
+	// reviewingStoryID names the story whose committed work the separate review
+	// agent is currently inspecting, per PRD. Set on EventReviewStart and cleared
+	// on EventReviewDone. While set, the story stays selected and is shown with a
+	// "Reviewing" tag instead of advancing to the next story.
+	reviewingStoryID map[string]string
+	totalCost        float64 // cumulative cost across all stories this run
 
 	// Settings overlay
 	settingsOverlay *SettingsOverlay
@@ -221,6 +226,7 @@ func NewAppWithOptions(prdPath string, maxIter int, provider loop.Provider) (*Ap
 		currentStoryStart:  make(map[string]time.Time),
 		currentStoryCost:   make(map[string]float64),
 		currentStoryTokens: make(map[string]TokenUsage),
+		reviewingStoryID:   make(map[string]string),
 	}
 	// Signal in the story-done marker that a review still follows, so the reader
 	// knows the build agent's <chief-done/> isn't the final word on the story.
@@ -1330,8 +1336,13 @@ func (a *App) clearInProgress() {
 	}
 }
 
-// selectInProgressStory sets the selected index to the first in-progress story.
+// selectInProgressStory sets the selected index to the first in-progress story,
+// or, when a story is under review, to that story — so the selection stays on
+// the story being reviewed rather than jumping ahead while the review runs.
 func (a *App) selectInProgressStory() {
+	if id := a.reviewingStoryID[a.prdName]; id != "" && a.selectStoryByID(id) {
+		return
+	}
 	for i, story := range a.prd.UserStories {
 		if story.InProgress {
 			a.selectedIndex = i
@@ -1339,6 +1350,31 @@ func (a *App) selectInProgressStory() {
 			return
 		}
 	}
+}
+
+// selectStoryByID selects the story with the given ID, returning true if found.
+func (a *App) selectStoryByID(id string) bool {
+	for i, story := range a.prd.UserStories {
+		if story.ID == id {
+			a.selectedIndex = i
+			a.adjustStoriesScroll()
+			return true
+		}
+	}
+	return false
+}
+
+// reviewActive reports whether a separate review agent runs after each story's
+// build commit. When it does, a story's timing is only finalized once the review
+// finishes (see handleLoopEvent) so the review pass counts toward the ETA.
+func (a *App) reviewActive() bool {
+	return a.config != nil && a.config.Review.Active()
+}
+
+// isReviewing reports whether the given story is currently being inspected by
+// the review agent for the viewed PRD.
+func (a *App) isReviewing(storyID string) bool {
+	return storyID != "" && a.reviewingStoryID[a.prdName] == storyID
 }
 
 // GetState returns the current app state.

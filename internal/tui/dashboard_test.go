@@ -22,6 +22,7 @@ func newTestApp(stories []prd.UserStory, width, height int) *App {
 		currentStoryStart:  make(map[string]time.Time),
 		currentStoryCost:   make(map[string]float64),
 		currentStoryTokens: make(map[string]TokenUsage),
+		reviewingStoryID:   make(map[string]string),
 	}
 }
 

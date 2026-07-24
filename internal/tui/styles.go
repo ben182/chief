@@ -18,6 +18,7 @@ var (
 	SuccessColor = lipgloss.AdaptiveColor{Dark: "#5AF78E", Light: "#1A7F37"} // Green - passed, complete states
 	WarningColor = lipgloss.AdaptiveColor{Dark: "#F3F99D", Light: "#9A6700"} // Yellow - paused, warning states
 	ErrorColor   = lipgloss.AdaptiveColor{Dark: "#FF5C57", Light: "#CF222E"} // Red - failed, error states
+	ReviewColor  = lipgloss.AdaptiveColor{Dark: "#CBA6F7", Light: "#8250DF"} // Mauve - under review by the review agent
 	MutedColor   = lipgloss.AdaptiveColor{Dark: "#6C7086", Light: "#57606A"} // Gray - pending, muted text
 	BorderColor  = lipgloss.AdaptiveColor{Dark: "#45475A", Light: "#D0D7DE"} // Borders, dividers
 
@@ -104,6 +105,7 @@ var (
 	statusPendingStyle    = lipgloss.NewStyle().Foreground(MutedColor)
 	statusFailedStyle     = lipgloss.NewStyle().Foreground(ErrorColor)
 	statusPausedStyle     = lipgloss.NewStyle().Foreground(WarningColor)
+	statusReviewingStyle  = lipgloss.NewStyle().Foreground(ReviewColor)
 
 	// State badge styles (with bold for headers)
 	StateReadyStyle    = lipgloss.NewStyle().Bold(true).Foreground(MutedColor)
@@ -228,6 +230,7 @@ const (
 	IconFailed      = "✗"
 	IconPaused      = "◐"
 	IconNeedsReview = "⚑"
+	IconReviewing   = "◍"
 )
 
 // GetStatusIcon returns the appropriate icon for a story's status.
@@ -242,6 +245,13 @@ func GetStatusIcon(passed, inProgress, needsReview bool) string {
 		return statusInProgressStyle.Render(glyph(IconInProgress, "*"))
 	}
 	return statusPendingStyle.Render(glyph(IconPending, "."))
+}
+
+// ReviewingIcon returns the icon for a story currently being inspected by the
+// separate review agent. It takes precedence over the in-progress icon so the
+// review pass is visually distinct from ordinary building.
+func ReviewingIcon() string {
+	return statusReviewingStyle.Render(glyph(IconReviewing, "?"))
 }
 
 // GetStateStyle returns the appropriate style for an app state.
