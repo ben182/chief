@@ -20,6 +20,14 @@ func TestEventTypeString(t *testing.T) {
 		{EventError, "Error"},
 		{EventRetrying, "Retrying"},
 		{EventWatchdogTimeout, "WatchdogTimeout"},
+		{EventStoryNeedsReview, "StoryNeedsReview"},
+		{EventStoryNoCommit, "StoryNoCommit"},
+		{EventResult, "Result"},
+		{EventNoGitRepo, "NoGitRepo"},
+		{EventReviewStart, "ReviewStart"},
+		{EventReviewDone, "ReviewDone"},
+		{EventUsage, "Usage"},
+		{EventType(9999), "Unknown"},
 	}
 
 	for _, tt := range tests {
