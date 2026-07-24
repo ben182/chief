@@ -113,18 +113,31 @@ func (a *App) GetElapsedTime() time.Duration {
 	return time.Since(a.startTime)
 }
 
-// GetCompletionPercentage returns the percentage of completed stories.
-func (a *App) GetCompletionPercentage() float64 {
-	if len(a.prd.UserStories) == 0 {
-		return 100.0
-	}
-	var completed int
+// runProgress returns the completed and total story counts for the current
+// run, excluding stories that were already passing when the run started (e.g.
+// follow-up stories appended to a finished PRD). Before any run has started
+// this session runBaselineDone is nil, so the whole PRD is counted.
+func (a *App) runProgress() (completed, total int) {
 	for _, s := range a.prd.UserStories {
+		if a.runBaselineDone[s.ID] {
+			continue
+		}
+		total++
 		if s.Passes {
 			completed++
 		}
 	}
-	return float64(completed) / float64(len(a.prd.UserStories)) * 100.0
+	return completed, total
+}
+
+// GetCompletionPercentage returns the percentage of completed stories for the
+// current run.
+func (a *App) GetCompletionPercentage() float64 {
+	completed, total := a.runProgress()
+	if total == 0 {
+		return 100.0
+	}
+	return float64(completed) / float64(total) * 100.0
 }
 
 // minTimingsForETA is how many completed stories are needed before showing an

@@ -23,6 +23,12 @@ type App struct {
 	state               AppState
 	iteration           int
 	startTime           time.Time
+	// runBaselineDone holds the IDs of stories that were already passing when
+	// the current run started. The dashboard progress bar counts only stories
+	// outside this set, so follow-up stories appended to an otherwise finished
+	// PRD show progress for this run rather than for the whole PRD. Nil before
+	// any run has started this session, in which case the whole PRD is counted.
+	runBaselineDone map[string]bool
 	selectedIndex       int
 	storiesScrollOffset int
 	width               int

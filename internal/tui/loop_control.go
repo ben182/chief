@@ -112,6 +112,23 @@ func (a App) doStartLoop(prdName, prdDir string) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// For the viewed PRD, reload from disk so any follow-up stories added since
+	// the last render are reflected before we snapshot the run baseline and
+	// restore timings.
+	if prdName == a.prdName {
+		if p, err := prd.LoadPRD(a.prdPath); err == nil {
+			a.prd = p
+		}
+		// Snapshot the stories that are already passing: this run only owns the
+		// rest, so the progress bar tracks this run rather than the whole PRD.
+		a.runBaselineDone = make(map[string]bool)
+		for _, s := range a.prd.UserStories {
+			if s.Passes {
+				a.runBaselineDone[s.ID] = true
+			}
+		}
+	}
+
 	// Restore this PRD's timings from progress.md (rather than wiping them) so a
 	// stopped/interrupted run keeps its ETA instead of needing two fresh stories
 	// again. Only the in-flight tracking is reset.

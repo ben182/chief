@@ -705,13 +705,7 @@ func (a *App) renderInterruptedWarning(width int) string {
 // renderProgressBar renders a progress bar showing completion percentage.
 func (a *App) renderProgressBar(width int) string {
 	percentage := a.GetCompletionPercentage()
-	completedStories := 0
-	totalStories := len(a.prd.UserStories)
-	for _, s := range a.prd.UserStories {
-		if s.Passes {
-			completedStories++
-		}
-	}
+	completedStories, totalStories := a.runProgress()
 
 	// Calculate bar width
 	barWidth := width - 15 // Space for percentage and count
