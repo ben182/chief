@@ -148,9 +148,9 @@ Each story should be small enough to implement in one focused coding session.
 
 **Format:**
 ```markdown
-### US-003: [Title]
+### AUTH-003: [Title]
 **Priority:** 3
-**Blocked by:** US-001, US-002
+**Blocked by:** AUTH-001, AUTH-002
 **Description:** As a [user], I want [feature] so that [benefit].
 
 **Acceptance Criteria:**
@@ -160,6 +160,12 @@ Each story should be small enough to implement in one focused coding session.
 
 The `**Blocked by:**` line is optional — OMIT it entirely for stories that can
 start immediately (no dependencies).
+
+**Story IDs:** Give this PRD a short uppercase prefix derived from its
+feature/domain (e.g. `AUTH` for authentication, `BILL` for billing) and number
+the stories `PREFIX-001`, `PREFIX-002`, … Pick a prefix unlikely to be reused by
+another PRD rather than the generic `US`, so stories stay distinguishable across
+PRDs at a glance. Keep one consistent prefix for the whole PRD.
 
 **Guidelines:**
 - Lower priority numbers = higher priority. Build foundations first.
@@ -289,7 +295,7 @@ Add priority levels to tasks so users can focus on what matters most. Tasks can 
 
 ## User Stories
 
-### US-001: Set a task's priority
+### PRIO-001: Set a task's priority
 **Priority:** 1
 **Description:** As a user, I want to mark a task as high, medium, or low priority so that I can focus on what matters most.
 
@@ -298,7 +304,7 @@ Add priority levels to tasks so users can focus on what matters most. Tasks can 
 - [ ] A newly created task is medium priority until it is changed
 - [ ] A task's priority is remembered after reloading the app
 
-### US-002: See a task's priority at a glance
+### PRIO-002: See a task's priority at a glance
 **Priority:** 2
 **Description:** As a user, I want to see task priority without opening a task so I know what needs attention first.
 
@@ -307,7 +313,7 @@ Add priority levels to tasks so users can focus on what matters most. Tasks can 
 - [ ] The badge is visible in the list without hovering or opening the task
 - [ ] Changing a task's priority updates its badge immediately
 
-### US-003: Change a task's priority while editing
+### PRIO-003: Change a task's priority while editing
 **Priority:** 3
 **Description:** As a user, I want to change a task's priority when editing it.
 
@@ -316,7 +322,7 @@ Add priority levels to tasks so users can focus on what matters most. Tasks can 
 - [ ] It shows the task's current priority as pre-selected
 - [ ] Choosing a new level takes effect immediately, with no separate save step
 
-### US-004: Filter tasks by priority
+### PRIO-004: Filter tasks by priority
 **Priority:** 4
 **Description:** As a user, I want to filter the task list to see only high-priority items when I'm focused.
 

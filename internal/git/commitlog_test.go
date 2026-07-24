@@ -145,6 +145,65 @@ func TestCommitLogForStories_ScopesToSinceRef(t *testing.T) {
 	}
 }
 
+// TestFindCommitForStory_NamespaceDisambiguates is the case the old title-only
+// matcher could not solve: two PRDs on the same branch each committed a story
+// with the *same* ID AND the *same* title. Only the PRD namespace in the commit
+// subject ("feat: <prdName>/<ID> - …") tells them apart.
+func TestFindCommitForStory_NamespaceDisambiguates(t *testing.T) {
+	dir := initTestRepo(t)
+	if err := CreateBranch(dir, "chief/billing"); err != nil {
+		t.Fatalf("CreateBranch: %v", err)
+	}
+	// Another PRD's story, then this PRD's story: identical ID and title.
+	commitFile(t, dir, "auth.txt", "a", "feat: auth/US-001 - Login form")
+	commitFile(t, dir, "billing.txt", "b", "feat: billing/US-001 - Login form")
+	want, err := HeadHash(dir) // the billing commit is HEAD
+	if err != nil {
+		t.Fatalf("HeadHash: %v", err)
+	}
+
+	got, err := FindCommitForStory(dir, "billing", "US-001", "Login form", "")
+	if err != nil {
+		t.Fatalf("FindCommitForStory: %v", err)
+	}
+	if got != want {
+		t.Errorf("matched %q, want the billing commit %q (namespace must disambiguate)", got, want)
+	}
+
+	// The auth PRD's same-numbered, same-titled story must resolve to the *other*
+	// commit, never the billing one.
+	authHash, err := FindCommitForStory(dir, "auth", "US-001", "Login form", "")
+	if err != nil {
+		t.Fatalf("FindCommitForStory (auth): %v", err)
+	}
+	if authHash == "" || authHash == want {
+		t.Errorf("auth story matched %q, want the auth commit (distinct from billing %q)", authHash, want)
+	}
+}
+
+// TestFindCommitForStory_LegacyFallback covers commits authored before the PRD
+// namespace existed ("feat: <ID> - <title>"): with no namespaced match, the
+// lookup falls back to the exact ID+title subject so old work is still found.
+func TestFindCommitForStory_LegacyFallback(t *testing.T) {
+	dir := initTestRepo(t)
+	if err := CreateBranch(dir, "chief/legacy"); err != nil {
+		t.Fatalf("CreateBranch: %v", err)
+	}
+	commitFile(t, dir, "old.txt", "x", "feat: US-042 - Old style commit")
+	want, err := HeadHash(dir)
+	if err != nil {
+		t.Fatalf("HeadHash: %v", err)
+	}
+
+	got, err := FindCommitForStory(dir, "someprd", "US-042", "Old style commit", "")
+	if err != nil {
+		t.Fatalf("FindCommitForStory: %v", err)
+	}
+	if got != want {
+		t.Errorf("legacy fallback matched %q, want %q", got, want)
+	}
+}
+
 func TestCommitPaths_ForceAddsGitignoredFile(t *testing.T) {
 	dir := initTestRepo(t)
 	// Ignore .chief, then write a summary underneath it.

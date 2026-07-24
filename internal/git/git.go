@@ -169,16 +169,40 @@ func GetDiffStatsForCommit(dir, commitHash string) (string, error) {
 	return runGit(dir, "show", "--format=", "--stat", commitHash)
 }
 
-// FindCommitForStory searches the git log for a commit whose subject line
-// matches the chief commit format "feat: <storyID> - <title>".
-// Both the story ID and title are required to avoid false positives from
-// previous PRD runs that may reuse the same story IDs.
+// FindCommitForStory searches the git log for the commit chief authored for a
+// story. It first looks for the namespaced format "feat: <prdName>/<storyID> - "
+// (matched as a prefix, so a later title edit in prd.md never loses the commit).
+// Because prdName is the PRD's unique directory name, prdName+storyID is a stable
+// key even when two PRDs reuse the same story ID (e.g. both start at US-001).
+//
+// When no namespaced commit exists it falls back to the legacy format
+// "feat: <storyID> - <title>" (which needs the exact title, since the legacy
+// subject carried no PRD namespace) so commits authored before this format
+// change are still found.
+//
 // When sinceRef is non-empty the search is scoped to sinceRef..HEAD, so a
 // followup run only finds the commit if it landed during this run and not on an
 // earlier one that already committed the same story on this branch.
 // Returns the commit hash if found, empty string otherwise.
-func FindCommitForStory(dir, storyID, title, sinceRef string) (string, error) {
-	args := []string{"log", "--fixed-strings", "--grep=feat: " + storyID + " - " + title, "--format=%H", "-1"}
+func FindCommitForStory(dir, prdName, storyID, title, sinceRef string) (string, error) {
+	if prdName != "" {
+		grep := "feat: " + prdName + "/" + storyID + " - "
+		hash, err := grepCommit(dir, grep, sinceRef)
+		if err != nil {
+			return "", err
+		}
+		if hash != "" {
+			return hash, nil
+		}
+	}
+	// Legacy fallback: subject without the PRD namespace.
+	return grepCommit(dir, "feat: "+storyID+" - "+title, sinceRef)
+}
+
+// grepCommit returns the newest commit hash whose subject contains grep (a
+// fixed string), optionally scoped to sinceRef..HEAD. Empty string when none.
+func grepCommit(dir, grep, sinceRef string) (string, error) {
+	args := []string{"log", "--fixed-strings", "--grep=" + grep, "--format=%H", "-1"}
 	if sinceRef != "" {
 		args = append(args, sinceRef+"..HEAD")
 	}
@@ -193,20 +217,23 @@ func HeadHash(dir string) (string, error) {
 }
 
 // StoryRef identifies a story by the fields that make up its chief commit
-// subject ("feat: <ID> - <Title>"). It scopes the run summary to the commits
-// chief actually authored for a specific PRD.
+// subject ("feat: <PRDName>/<ID> - <Title>"). It scopes the run summary to the
+// commits chief actually authored for a specific PRD. PRDName is the PRD's
+// unique directory name, so it disambiguates same-numbered stories across PRDs.
 type StoryRef struct {
-	ID    string
-	Title string
+	PRDName string
+	ID      string
+	Title   string
 }
 
 // CommitLogForStories returns a one-line-per-commit log (`<short-hash> <subject>`)
 // of the commits chief authored for the given stories, in the order the stories
-// are passed (PRD order, oldest first). Each commit is matched by its exact
-// "feat: <ID> - <Title>" subject, so the result contains only this PRD's work and
-// excludes unrelated commits sitting on the same branch — including same-numbered
-// stories from other PRDs, since the title must match too. Stories with no
-// matching commit are skipped. Returns an empty string (no error) when none match.
+// are passed (PRD order, oldest first). Each commit is matched by its
+// "feat: <PRDName>/<ID> - " subject prefix, so the result contains only this
+// PRD's work and excludes unrelated commits sitting on the same branch —
+// including same-numbered stories from other PRDs, which carry a different
+// PRDName. Stories with no matching commit are skipped. Returns an empty string
+// (no error) when none match.
 //
 // When sinceRef is non-empty the match is scoped to sinceRef..HEAD, so a followup
 // run's summary describes only the stories that run completed and not the ones an
@@ -214,7 +241,7 @@ type StoryRef struct {
 func CommitLogForStories(repoDir string, stories []StoryRef, sinceRef string) (string, error) {
 	var hashes []string
 	for _, s := range stories {
-		hash, err := FindCommitForStory(repoDir, s.ID, s.Title, sinceRef)
+		hash, err := FindCommitForStory(repoDir, s.PRDName, s.ID, s.Title, sinceRef)
 		if err != nil {
 			return "", err
 		}

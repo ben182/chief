@@ -76,12 +76,12 @@ Here's what happens in each step:
 
 This isolation is intentional. If something breaks, you know exactly which story caused it. Each commit represents one complete feature.
 
-## Conventional Commits
+## Commit Messages & Story IDs
 
 Every completed story results in a well-formed commit:
 
 ```
-feat: US-003 - Add user authentication
+feat: auth/US-003 - Add user authentication
 
 - Implemented login/logout endpoints
 - Added JWT token validation
@@ -89,6 +89,38 @@ feat: US-003 - Add user authentication
 ```
 
 Your git history becomes a timeline of features, matching 1:1 with your stories.
+
+### The commit subject is PRD-namespaced
+
+The subject follows a fixed shape that Chief both instructs the agent to write and later parses back:
+
+```
+feat: <prd-name>/<story-id> - <story-title>
+```
+
+- **`<prd-name>`** is the PRD's directory name under `.chief/prds/` — the same `<name>` as its `chief/<name>` branch.
+- **`<story-id>`** is the story's ID from `prd.md` (e.g. `US-003`, `AUTH-003`).
+- **`<story-title>`** is the story's title.
+
+### Why the `<prd-name>/` prefix exists
+
+Story IDs are only unique **within** a single PRD, and their numbering restarts per PRD — so two PRDs that both use the generic `US-` prefix each own a `US-001`. Since several PRDs can land commits reachable from the same history, the story ID alone is not a reliable key for "which commit implemented this story".
+
+The `<prd-name>/` prefix fixes that: a PRD's directory name is unique, so **`<prd-name>/<story-id>` is a genuinely unique key** for a story's commit, even across PRDs that reuse the same numbers.
+
+### How Chief uses it
+
+Three places look a story's commit back up by this subject:
+
+- **Completion check** — before trusting a `<chief-done/>` signal, Chief confirms a matching commit actually landed.
+- **Per-story diff** — the TUI shows the diff for the selected story's commit.
+- **Run summary** — the end-of-run summary is scoped to exactly the commits this run authored for the PRD's stories.
+
+All three match on the `feat: <prd-name>/<story-id> - ` **prefix**, independent of the title. That means **editing a story's title in `prd.md` after it was committed no longer loses the commit**, and two PRDs that happen to share both an ID *and* a title are still told apart. Commits authored before this scheme existed (`feat: <story-id> - <title>`, with no namespace) are still found through a legacy fallback that matches the old ID-plus-title subject.
+
+### Choosing story IDs
+
+Because the namespace already guarantees correctness, the ID prefix is purely a **readability** choice. Prefer a short, feature-scoped prefix (`AUTH-`, `BILL-`) over the generic `US-` so IDs read unambiguously across PRDs — see [PRD Format → Use Consistent ID Patterns](/concepts/prd-format#use-consistent-id-patterns). Nothing breaks if two PRDs reuse the same prefix; the commit namespace keeps them distinct regardless.
 
 ## Progress Tracking
 

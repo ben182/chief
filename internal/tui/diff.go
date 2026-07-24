@@ -48,12 +48,13 @@ func (d *DiffViewer) Load() {
 
 // LoadForStory fetches the git diff for a specific story's commit.
 // If no commit is found, it shows a "not committed yet" message.
-func (d *DiffViewer) LoadForStory(storyID, title string) {
+func (d *DiffViewer) LoadForStory(prdName, storyID, title string) {
 	d.storyID = storyID
 
-	// Find the commit for this story (match both ID and title to avoid
-	// false positives from previous PRD runs with the same story IDs)
-	commitHash, err := git.FindCommitForStory(d.baseDir, storyID, title, "")
+	// Find the commit for this story. prdName+storyID namespaces the lookup so a
+	// same-numbered story from another PRD on this branch can't match (see
+	// git.FindCommitForStory); title is only the legacy-format fallback.
+	commitHash, err := git.FindCommitForStory(d.baseDir, prdName, storyID, title, "")
 	if err != nil || commitHash == "" {
 		d.noCommit = true
 		d.offset = 0

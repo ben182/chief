@@ -8,7 +8,7 @@ import (
 func TestGetPrompt(t *testing.T) {
 	progressPath := "/path/to/progress.md"
 	storyContext := `{"id":"US-001","title":"Test Story"}`
-	prompt := GetPrompt(progressPath, storyContext, "US-001", "Test Story")
+	prompt := GetPrompt(progressPath, storyContext, "myprd", "US-001", "Test Story")
 
 	// Verify all placeholders were substituted
 	if strings.Contains(prompt, "{{PROGRESS_PATH}}") {
@@ -24,9 +24,12 @@ func TestGetPrompt(t *testing.T) {
 		t.Error("Expected {{STORY_TITLE}} to be substituted")
 	}
 
-	// Verify the commit message contains the exact story ID and title
-	if !strings.Contains(prompt, "feat: US-001 - Test Story") {
-		t.Error("Expected prompt to contain exact commit message 'feat: US-001 - Test Story'")
+	// Verify the commit message contains the PRD-namespaced story ID and title
+	if !strings.Contains(prompt, "feat: myprd/US-001 - Test Story") {
+		t.Error("Expected prompt to contain exact commit message 'feat: myprd/US-001 - Test Story'")
+	}
+	if strings.Contains(prompt, "{{PRD_NAME}}") {
+		t.Error("Expected {{PRD_NAME}} to be substituted")
 	}
 
 	// Verify the progress path appears in the prompt
@@ -46,7 +49,7 @@ func TestGetPrompt(t *testing.T) {
 }
 
 func TestGetPrompt_NoFileReadInstruction(t *testing.T) {
-	prompt := GetPrompt("/path/progress.md", `{"id":"US-001"}`, "US-001", "Test Story")
+	prompt := GetPrompt("/path/progress.md", `{"id":"US-001"}`, "myprd", "US-001", "Test Story")
 
 	// The prompt should NOT instruct Claude to read the PRD file
 	if strings.Contains(prompt, "Read the PRD") {
@@ -61,7 +64,7 @@ func TestPromptTemplateNotEmpty(t *testing.T) {
 }
 
 func TestGetPrompt_ChiefExclusion(t *testing.T) {
-	prompt := GetPrompt("/path/progress.md", `{"id":"US-001"}`, "US-001", "Test Story")
+	prompt := GetPrompt("/path/progress.md", `{"id":"US-001"}`, "myprd", "US-001", "Test Story")
 
 	// The prompt must instruct Claude to never stage or commit .chief/ files
 	if !strings.Contains(prompt, ".chief/") {
@@ -75,7 +78,7 @@ func TestGetPrompt_ChiefExclusion(t *testing.T) {
 func TestGetPrompt_NoInlineReview(t *testing.T) {
 	// The build-agent prompt no longer carries an inline review step or its
 	// placeholder — review runs as a separate agent instead.
-	prompt := GetPrompt("/p.md", `{"id":"US-001"}`, "US-001", "Test Story")
+	prompt := GetPrompt("/p.md", `{"id":"US-001"}`, "myprd", "US-001", "Test Story")
 	if strings.Contains(prompt, "{{QUALITY_REVIEW}}") {
 		t.Error("Expected no leftover {{QUALITY_REVIEW}} placeholder in the build prompt")
 	}

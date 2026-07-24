@@ -299,11 +299,14 @@ Frame each story as a **vertical slice** (a "tracer bullet"): a narrow but *comp
 
 ### Use Consistent ID Patterns
 
-Story IDs appear in commit messages (`feat: US-001 - User Registration`) and must match the `LETTERS-NUMBERS` pattern. Pick a prefix and stick with it:
+Story IDs appear in commit messages (`feat: <prd-name>/US-001 - User Registration`, where `<prd-name>` is the PRD's directory under `.chief/prds/`) and must match the `LETTERS-NUMBERS` pattern. Pick a prefix and stick with it — and prefer a feature-scoped prefix over the generic `US-` so stories read unambiguously across PRDs:
 
-- `US-001`, `US-002` — generic user stories
-- `AUTH-001`, `AUTH-002` — feature-scoped prefixes
+- `AUTH-001`, `AUTH-002` — feature-scoped prefixes (recommended)
+- `BILL-001`, `BILL-002` — one distinct prefix per PRD/domain
+- `US-001`, `US-002` — generic user stories (fine, but every PRD would reuse it)
 - `BUG-001`, `FIX-001` — for bug fix PRDs
+
+IDs only need to be unique *within* a PRD. Chief prefixes each story's commit with the PRD name, so it never confuses same-numbered stories from different PRDs even when their prefixes collide.
 
 ### Give the Agent Context
 

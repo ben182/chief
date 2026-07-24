@@ -32,9 +32,10 @@ var reviewPromptTemplate string
 // current story context substituted. The storyContext is the JSON of the
 // current story to work on, inlined directly into the prompt so that the
 // agent does not need to read the entire prd.md file.
-func GetPrompt(progressPath, storyContext, storyID, storyTitle string) string {
+func GetPrompt(progressPath, storyContext, prdName, storyID, storyTitle string) string {
 	result := strings.ReplaceAll(promptTemplate, "{{PROGRESS_PATH}}", progressPath)
 	result = strings.ReplaceAll(result, "{{STORY_CONTEXT}}", storyContext)
+	result = strings.ReplaceAll(result, "{{PRD_NAME}}", prdName)
 	result = strings.ReplaceAll(result, "{{STORY_ID}}", storyID)
 	return strings.ReplaceAll(result, "{{STORY_TITLE}}", storyTitle)
 }

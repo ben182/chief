@@ -152,6 +152,14 @@ func NewLoopWithEmbeddedPrompt(prdPath string, maxIter int, provider Provider) *
 	return l
 }
 
+// prdNameFromPath returns the PRD's name — the unique directory that holds its
+// prd.md (".chief/prds/<name>/prd.md" → "<name>"), which is also its branch
+// suffix "chief/<name>". It namespaces story commits ("feat: <name>/<ID> - …")
+// so same-numbered stories from different PRDs never collide.
+func prdNameFromPath(prdPath string) string {
+	return filepath.Base(filepath.Dir(prdPath))
+}
+
 // promptBuilderForPRD returns a function that loads the PRD and builds a prompt
 // with the next story inlined. This is called before each iteration so that
 // newly completed stories are skipped. The returned storyID is stored on the Loop.
@@ -175,7 +183,7 @@ func promptBuilderForPRD(prdPath string) func() (string, string, string, error) 
 
 		storyCtx := p.NextStoryContext()
 
-		prompt := embed.GetPrompt(prd.ProgressPath(prdPath), *storyCtx, story.ID, story.Title)
+		prompt := embed.GetPrompt(prd.ProgressPath(prdPath), *storyCtx, prdNameFromPath(prdPath), story.ID, story.Title)
 		return prompt, story.ID, story.Title, nil
 	}
 }
@@ -724,7 +732,7 @@ func (l *Loop) storyHasCommit(storyID, title string) bool {
 	}
 	// Whole-branch search (no since-ref): a story committed by an earlier run on
 	// this branch is still done, so a followup run must recognize it as complete.
-	hash, _ := git.FindCommitForStory(dir, storyID, title, "")
+	hash, _ := git.FindCommitForStory(dir, prdNameFromPath(l.prdPath), storyID, title, "")
 	return hash != ""
 }
 
@@ -761,7 +769,7 @@ func (l *Loop) commitStoryProgress(storyID, storyTitle string) {
 	if len(paths) == 0 {
 		return
 	}
-	expected := fmt.Sprintf("feat: %s - %s", storyID, storyTitle)
+	expected := fmt.Sprintf("feat: %s/%s - %s", prdNameFromPath(l.prdPath), storyID, storyTitle)
 	if subj, err := git.HeadSubject(dir); err == nil && subj == expected {
 		_ = git.AmendPaths(dir, paths...)
 		return

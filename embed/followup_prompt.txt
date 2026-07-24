@@ -99,9 +99,11 @@ section of `{{PRD_DIR}}/prd.md`, following the PRD's existing format exactly.
 ```
 
 **Rules:**
-- **Use the next available sequential ID.** If the PRD's highest story is US-012,
-  the first follow-up is US-013, then US-014, and so on. Do NOT invent a separate
-  ID range for follow-ups and do NOT renumber or touch existing stories.
+- **Use the next available sequential ID, reusing the PRD's existing prefix.**
+  Match whatever prefix the PRD already uses — if its highest story is `AUTH-012`,
+  the first follow-up is `AUTH-013`, then `AUTH-014`, and so on. Do NOT switch to a
+  different prefix (e.g. `US-`), do NOT invent a separate ID range for follow-ups,
+  and do NOT renumber or touch existing stories.
 - **Every new story starts as `**Status:** todo`.** Never `done`.
 - **Give each a `**Priority:**`** that orders it after the existing stories
   (continue the numbering), unless the user asked for a specific order.

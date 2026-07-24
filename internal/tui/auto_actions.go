@@ -109,7 +109,7 @@ func (a *App) runBackgroundAutoActions(prdName string) tea.Cmd {
 			var stories []git.StoryRef
 			var parked []string
 			if p, err := prd.LoadPRD(prdPath); err == nil {
-				stories = storyRefs(p)
+				stories = storyRefs(prdName, p)
 				parked = parkedStoryLabels(p)
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -242,14 +242,16 @@ func parkedStoryLabels(p *prd.PRD) []string {
 }
 
 // storyRefs maps a PRD's stories to git.StoryRef, in PRD order, so the summary
-// can be scoped to the commits chief authored for exactly these stories.
-func storyRefs(p *prd.PRD) []git.StoryRef {
+// can be scoped to the commits chief authored for exactly these stories. prdName
+// namespaces the commit lookup so same-numbered stories from other PRDs on the
+// branch are excluded.
+func storyRefs(prdName string, p *prd.PRD) []git.StoryRef {
 	if p == nil {
 		return nil
 	}
 	refs := make([]git.StoryRef, 0, len(p.UserStories))
 	for _, s := range p.UserStories {
-		refs = append(refs, git.StoryRef{ID: s.ID, Title: s.Title})
+		refs = append(refs, git.StoryRef{PRDName: prdName, ID: s.ID, Title: s.Title})
 	}
 	return refs
 }
@@ -261,7 +263,7 @@ func (a *App) runAutoSummary(prdName string, showOnScreen, pushAfter bool) tea.C
 	provider := a.provider
 	gitDir := a.completionGitDir(prdName)
 	prdDir := a.summaryDir(prdName, gitDir)
-	stories := storyRefs(a.prd)
+	stories := storyRefs(prdName, a.prd)
 	parked := parkedStoryLabels(a.prd)
 	sinceRef := ""
 	if inst := a.manager.GetInstance(prdName); inst != nil {

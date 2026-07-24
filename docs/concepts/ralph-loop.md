@@ -124,7 +124,7 @@ Here's a simplified version of what the agent receives:
 2. Read `progress.md` if it exists (check Codebase Patterns first)
 3. Implement the assigned user story
 4. Run quality checks (typecheck, lint, test)
-5. If checks pass, commit with message: `feat: <Story ID> - <Story Title>`
+5. If checks pass, commit with message: `feat: <PRD Name>/<Story ID> - <Story Title>`
 6. Output `<chief-done/>` when the story is complete
 7. Append your progress to `progress.md`
 ```
@@ -182,7 +182,7 @@ When the agent finishes working on a story, it outputs a special marker:
 <chief-done/>
 ```
 
-This signal tells Chief that the **current story** is done. Before marking it done, Chief verifies that a matching commit (`feat: <Story ID> - <Story Title>`) actually landed. If it did, Chief marks the story as `**Status:** done` in `prd.md` and selects the next incomplete story. When no stories remain, the loop ends naturally.
+This signal tells Chief that the **current story** is done. Before marking it done, Chief verifies that a matching commit (`feat: <PRD Name>/<Story ID> - <Story Title>`) actually landed. If it did, Chief marks the story as `**Status:** done` in `prd.md` and selects the next incomplete story. When no stories remain, the loop ends naturally.
 
 If the agent emits `<chief-done/>` but **no matching commit exists** — it forgot to commit, a pre-commit hook rejected the change, or it crashed before committing — Chief does not trust the signal. The story is treated as a failed attempt (counting toward the per-story retry budget below) instead of being falsely marked done, so the uncommitted work isn't silently lost when the next fresh-context iteration moves on.
 

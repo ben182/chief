@@ -1307,11 +1307,14 @@ func TestLoop_CommitStoryProgress(t *testing.T) {
 	t.Run("amends into the story commit when it is HEAD", func(t *testing.T) {
 		dir := t.TempDir()
 		gitInit(t, dir)
-		// The agent's story commit is HEAD.
+		// The agent's story commit is HEAD. Its subject is PRD-namespaced
+		// ("feat: <prdName>/<ID> - <title>"), matching what the agent is told to
+		// write, so commitStoryProgress recognizes it and amends into it.
+		storyCommit := "feat: " + filepath.Base(dir) + "/US-001 - Story One"
 		if err := os.WriteFile(filepath.Join(dir, "app.go"), []byte("x"), 0644); err != nil {
 			t.Fatal(err)
 		}
-		for _, args := range [][]string{{"add", "app.go"}, {"commit", "-m", "feat: US-001 - Story One"}} {
+		for _, args := range [][]string{{"add", "app.go"}, {"commit", "-m", storyCommit}} {
 			cmd := exec.Command("git", args...)
 			cmd.Dir = dir
 			if out, err := cmd.CombinedOutput(); err != nil {
@@ -1335,7 +1338,7 @@ func TestLoop_CommitStoryProgress(t *testing.T) {
 		if got := gitHeadCount(t, dir); got != before {
 			t.Errorf("commit count = %d, want %d (should amend, not add)", got, before)
 		}
-		if commitMsgAt(t, dir, "HEAD") != "feat: US-001 - Story One" {
+		if commitMsgAt(t, dir, "HEAD") != storyCommit {
 			t.Error("story commit subject should stay unchanged after amend")
 		}
 		if !gitTracked(t, dir, "prd.md") || !gitTracked(t, dir, "progress.md") {

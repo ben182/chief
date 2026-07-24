@@ -24,6 +24,15 @@ The ID must match the pattern `LETTERS-NUMBERS` (one or more letters, a hyphen, 
 #### US-042: Also works as a level-4 heading
 ```
 
+**Recommended: give each PRD its own prefix.** IDs only need to be unique
+*within* a PRD, and numbering restarts per PRD — so two PRDs that both use the
+generic `US-` prefix will each have a `US-001`. Prefer a short prefix derived from
+the PRD's feature/domain (`AUTH-`, `BILL-`, `PRIO-`) so stories read unambiguously
+across PRDs. This is only a readability convention: Chief already namespaces each
+story's commit as `feat: <prd-name>/<ID> - <title>` (where `<prd-name>` is the
+PRD's directory under `.chief/prds/`), so it never confuses same-numbered stories
+from different PRDs even if the prefixes collide.
+
 ## Story Fields
 
 Below each story heading, Chief recognizes these bold-label fields:

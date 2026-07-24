@@ -503,7 +503,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.diffViewer.SetSize(a.width-4, a.height-headerHeight-footerHeight-2)
 				// Load diff for the selected story's commit
 				if story := a.GetSelectedStory(); story != nil {
-					a.diffViewer.LoadForStory(story.ID, story.Title)
+					a.diffViewer.LoadForStory(a.prdName, story.ID, story.Title)
 				} else {
 					a.diffViewer.Load()
 				}
