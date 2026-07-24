@@ -1061,6 +1061,172 @@ func TestLoop_ReviewAgentRunsAfterCommit(t *testing.T) {
 	})
 }
 
+// TestLoop_ReviewReRunsUntilDone verifies the premature-completion fix: a review
+// agent that ends its turn WITHOUT signalling <chief-done/> is re-run (fresh
+// context) instead of being reported complete, and only the pass that actually
+// signals done ends the review. Without the fix the reviewer runs once, its clean
+// exit is treated as success, and the story is marked done while the review never
+// finished.
+func TestLoop_ReviewReRunsUntilDone(t *testing.T) {
+	dir := t.TempDir()
+	gitInit(t, dir)
+
+	prdPath := createTestPRD(t, dir, false)
+	counterPath := filepath.Join(dir, "counter.txt")
+
+	msg := func(text string) string {
+		return `echo '{"type":"assistant","message":{"content":[{"type":"text","text":"` + text + `"}]}}'`
+	}
+
+	// Mock agent, branching on an invocation counter:
+	//   call 1 (build):            commit + <chief-done/>
+	//   call 2 (review attempt 1): clean exit, NO <chief-done/>  -> must re-run
+	//   call 3 (review attempt 2): <chief-done/>                 -> review done
+	scriptPath := filepath.Join(dir, "mock-claude")
+	script := "#!/bin/bash\n" +
+		"n=$(cat " + counterPath + " 2>/dev/null || echo 0)\n" +
+		"n=$((n+1))\n" +
+		"echo $n > " + counterPath + "\n" +
+		"if [ \"$n\" -eq 1 ]; then\n" +
+		"  echo content > " + filepath.Join(dir, "impl.txt") + "\n" +
+		"  git -C " + dir + " add impl.txt >/dev/null 2>&1\n" +
+		"  git -C " + dir + " commit -m 'feat: US-001 - Test Story' >/dev/null 2>&1\n" +
+		"  " + msg("built <chief-done/>") + "\n" +
+		"elif [ \"$n\" -eq 2 ]; then\n" +
+		"  " + msg("still reviewing, not finished yet") + "\n" +
+		"else\n" +
+		"  " + msg("review done <chief-done/>") + "\n" +
+		"fi\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	l := NewLoopWithWorkDir(prdPath, dir, "", 10, &mockProvider{cliPath: scriptPath})
+	l.buildPrompt = promptBuilderForPRD(prdPath)
+	l.DisableRetry()
+	l.SetReview(false, "", "check the implementation carefully")
+
+	var reviewDoneText string
+	done := make(chan bool)
+	go func() {
+		for e := range l.Events() {
+			if e.Type == EventReviewDone {
+				reviewDoneText = e.Text
+			}
+		}
+		done <- true
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := l.Run(ctx); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	<-done
+
+	data, err := os.ReadFile(counterPath)
+	if err != nil {
+		t.Fatalf("read counter: %v", err)
+	}
+	calls := strings.TrimSpace(string(data))
+	if calls != "3" {
+		t.Errorf("expected 3 agent invocations (build + 2 review passes), got %s", calls)
+	}
+
+	want := "Review complete for US-001"
+	if reviewDoneText != want {
+		t.Errorf("expected review-done text %q once the reviewer signalled done, got %q", want, reviewDoneText)
+	}
+
+	p, err := prd.LoadPRD(prdPath)
+	if err != nil {
+		t.Fatalf("reload prd: %v", err)
+	}
+	if !p.UserStories[0].Passes {
+		t.Error("expected story to be marked done after the review finished")
+	}
+}
+
+// TestLoop_ReviewGivesUpAfterMaxAttempts verifies that a reviewer which never
+// signals <chief-done/> does not spin forever: it is re-run up to maxReviewAttempts
+// and then the review is reported as stopped-without-completion (best-effort — the
+// story is still marked done so a stuck reviewer can't block the loop).
+func TestLoop_ReviewGivesUpAfterMaxAttempts(t *testing.T) {
+	dir := t.TempDir()
+	gitInit(t, dir)
+
+	prdPath := createTestPRD(t, dir, false)
+	counterPath := filepath.Join(dir, "counter.txt")
+
+	msg := func(text string) string {
+		return `echo '{"type":"assistant","message":{"content":[{"type":"text","text":"` + text + `"}]}}'`
+	}
+
+	// call 1 = build (commit + done); every later call = review pass that never
+	// signals <chief-done/>.
+	scriptPath := filepath.Join(dir, "mock-claude")
+	script := "#!/bin/bash\n" +
+		"n=$(cat " + counterPath + " 2>/dev/null || echo 0)\n" +
+		"n=$((n+1))\n" +
+		"echo $n > " + counterPath + "\n" +
+		"if [ \"$n\" -eq 1 ]; then\n" +
+		"  echo content > " + filepath.Join(dir, "impl.txt") + "\n" +
+		"  git -C " + dir + " add impl.txt >/dev/null 2>&1\n" +
+		"  git -C " + dir + " commit -m 'feat: US-001 - Test Story' >/dev/null 2>&1\n" +
+		"  " + msg("built <chief-done/>") + "\n" +
+		"else\n" +
+		"  " + msg("still reviewing, never finishing") + "\n" +
+		"fi\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	l := NewLoopWithWorkDir(prdPath, dir, "", 10, &mockProvider{cliPath: scriptPath})
+	l.buildPrompt = promptBuilderForPRD(prdPath)
+	l.DisableRetry()
+	l.SetReview(false, "", "check the implementation carefully")
+
+	var reviewDoneText string
+	done := make(chan bool)
+	go func() {
+		for e := range l.Events() {
+			if e.Type == EventReviewDone {
+				reviewDoneText = e.Text
+			}
+		}
+		done <- true
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := l.Run(ctx); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	<-done
+
+	data, err := os.ReadFile(counterPath)
+	if err != nil {
+		t.Fatalf("read counter: %v", err)
+	}
+	calls := strings.TrimSpace(string(data))
+	if want := fmt.Sprintf("%d", 1+maxReviewAttempts); calls != want {
+		t.Errorf("expected %s agent invocations (build + %d capped review passes), got %s", want, maxReviewAttempts, calls)
+	}
+
+	if !strings.Contains(reviewDoneText, "without signalling completion") {
+		t.Errorf("expected review-done text to report the unfinished review, got %q", reviewDoneText)
+	}
+
+	// Best-effort: the story is still marked done so a stuck reviewer never stalls.
+	p, err := prd.LoadPRD(prdPath)
+	if err != nil {
+		t.Fatalf("reload prd: %v", err)
+	}
+	if !p.UserStories[0].Passes {
+		t.Error("expected story to still be marked done despite the unfinished review")
+	}
+}
+
 // TestTimestampedLogName verifies per-run log names carry a sortable timestamp.
 func TestTimestampedLogName(t *testing.T) {
 	ts := time.Date(2026, 7, 21, 14, 32, 5, 0, time.UTC)

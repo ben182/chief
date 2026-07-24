@@ -36,6 +36,15 @@ const DefaultWatchdogTimeout = 5 * time.Minute
 // before it is parked for human review and the loop moves on to other stories.
 const DefaultMaxAttemptsPerStory = 5
 
+// maxReviewAttempts caps how many times the review agent is re-run for a single
+// story when it ends its turn without signalling <chief-done/>. Unlike the build
+// agent (whose completion is gated on <chief-done/> + a commit and which retries
+// across the outer Run loop), the reviewer runs inside finalizeStory, so it needs
+// its own bounded retry: a reviewer that stops early gets another fresh-context
+// pass to actually finish. The cap keeps a reviewer that never signals done from
+// blocking the loop, since review is best-effort and must never stall progress.
+const maxReviewAttempts = 3
+
 // DefaultRetryConfig returns the default retry configuration.
 func DefaultRetryConfig() RetryConfig {
 	return RetryConfig{
@@ -800,25 +809,59 @@ func (l *Loop) runReview(ctx context.Context, iteration int, storyID, storyTitle
 	}
 
 	// Swap in the review prompt. buildPrompt rebuilds l.prompt on the next
-	// iteration, so restoring the old prompt is unnecessary; but sawReviewDone
-	// must be reset around the review run. The review agent is selected by passing
-	// modeReview to runIterationWithRetry rather than by a shared flag.
+	// iteration, so restoring the old prompt is unnecessary. The review agent is
+	// selected by passing modeReview to runIterationWithRetry rather than by a
+	// shared flag.
 	l.mu.Lock()
 	l.prompt = prompt
-	l.sawReviewDone = false
 	l.mu.Unlock()
 
-	// A crashed reviewer is retried like any other iteration, but a persistent
-	// failure must not stall the loop, so errors are only logged.
-	runErr := l.runIterationWithRetry(ctx, modeReview)
+	// Re-run the reviewer until it actually signals <chief-done/>, bounded by
+	// maxReviewAttempts. runIterationWithRetry only retries on a crash: a clean
+	// process exit returns nil even when the reviewer ended its turn WITHOUT
+	// signalling done. Reporting "complete" on that clean-but-unfinished exit is
+	// exactly the premature-completion bug — the story gets marked done while the
+	// review never finished. So each pass is gated on sawReviewDone; an unfinished
+	// pass earns a fresh-context re-run, mirroring how the build agent is gated on
+	// its own done signal across the outer Run loop.
+	var runErr error
+	var reviewDone bool
+	for attempt := 0; attempt < maxReviewAttempts; attempt++ {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		l.mu.Lock()
+		if l.stopped || l.paused {
+			l.mu.Unlock()
+			return
+		}
+		l.sawReviewDone = false
+		l.mu.Unlock()
 
-	l.mu.Lock()
-	l.sawReviewDone = false
-	l.mu.Unlock()
+		// A crashed reviewer is retried like any other iteration, but a persistent
+		// failure must not stall the loop, so errors are only surfaced, not fatal.
+		runErr = l.runIterationWithRetry(ctx, modeReview)
+
+		l.mu.Lock()
+		reviewDone = l.sawReviewDone
+		l.sawReviewDone = false
+		l.mu.Unlock()
+
+		// A crash or an actual completion signal both end the review; only a
+		// clean-but-unfinished exit (no error, no done signal) warrants another pass.
+		if runErr != nil || reviewDone || ctx.Err() != nil {
+			break
+		}
+	}
 
 	text := fmt.Sprintf("Review complete for %s", storyID)
-	if runErr != nil && ctx.Err() == nil {
+	switch {
+	case runErr != nil && ctx.Err() == nil:
 		text = fmt.Sprintf("Review of %s did not finish cleanly: %v", storyID, runErr)
+	case !reviewDone && ctx.Err() == nil:
+		text = fmt.Sprintf("Review of %s stopped without signalling completion after %d attempts", storyID, maxReviewAttempts)
 	}
 	l.events <- Event{
 		Type:      EventReviewDone,
