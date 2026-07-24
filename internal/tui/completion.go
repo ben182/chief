@@ -277,7 +277,7 @@ func (c *CompletionScreen) Render() string {
 	}
 
 	// Auto-actions progress or hint
-	if c.pushState != AutoActionIdle || c.prState != AutoActionIdle {
+	if c.summaryState != AutoActionIdle || c.pushState != AutoActionIdle || c.prState != AutoActionIdle {
 		content.WriteString(c.renderAutoActions(innerWidth))
 	} else if !c.hasAutoActions {
 		content.WriteString(fgMuted.Render("Configure auto-push and PR in settings (,)"))
