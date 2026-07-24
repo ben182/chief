@@ -67,7 +67,7 @@ func resolvePRDName(name, baseDir string) string {
 	if err != nil {
 		return name
 	}
-	inferred := prdNameFromBranch(base)
+	inferred := PRDNameFromBranch(base)
 	if inferred == "" {
 		return name
 	}

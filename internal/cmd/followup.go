@@ -53,12 +53,12 @@ func scaffoldFollowupInbox(prdDir string) error {
 	return os.WriteFile(filepath.Join(prdDir, prd.FollowupInboxNames[0]), []byte(followupInboxScaffold), 0644)
 }
 
-// prdNameFromBranch infers a PRD name from the current git branch when it
+// PRDNameFromBranch infers a PRD name from the current git branch when it
 // follows chief's chief/<name> convention (e.g. branch chief/linkedin-post-media
 // -> "linkedin-post-media"). It only returns a name whose prd.md actually exists
 // under baseDir, so a stray chief/ branch without a matching PRD leaves the
 // normal "default" resolution untouched. Returns "" when nothing applies.
-func prdNameFromBranch(baseDir string) string {
+func PRDNameFromBranch(baseDir string) string {
 	if !git.IsGitRepo(baseDir) {
 		return ""
 	}

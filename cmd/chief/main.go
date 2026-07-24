@@ -294,13 +294,20 @@ func runTUIWithOptions(opts *cli.Options) {
 }
 
 // resolvePRDPath determines which prd.md to open. It honours an explicit
-// --prd path, otherwise prefers "default" (falling back to "main" for older
-// setups) or any other existing PRD, and finally runs first-time setup when no
-// PRD exists. The bool is false only when the user cancelled first-time setup,
-// in which case the caller should stop.
+// --prd path, then a PRD inferred from the current chief/<name> branch, otherwise
+// prefers "default" (falling back to "main" for older setups) or any other
+// existing PRD, and finally runs first-time setup when no PRD exists. The bool is
+// false only when the user cancelled first-time setup, in which case the caller
+// should stop.
 func resolvePRDPath(opts *cli.Options, provider loop.Provider) (string, bool) {
 	if opts.PRDPath != "" {
 		return opts.PRDPath, true
+	}
+	// Running bare `chief` from a PRD's own chief/<name> branch opens that PRD,
+	// so you land on the story you're working on instead of "default".
+	if name := cmd.PRDNameFromBranch(""); name != "" {
+		fmt.Printf("Using PRD %q inferred from current branch chief/%s\n", name, name)
+		return prd.PRDPath("", name), true
 	}
 	if defaultPath := prd.PRDPath("", "default"); fileExists(defaultPath) {
 		return defaultPath, true

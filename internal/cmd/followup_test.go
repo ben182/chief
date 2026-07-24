@@ -154,7 +154,7 @@ func TestPrdNameFromBranch(t *testing.T) {
 		initGitRepoOnBranch(t, dir, "chief/linkedin-post-media")
 		writePRD(t, dir, "linkedin-post-media")
 
-		if got := prdNameFromBranch(dir); got != "linkedin-post-media" {
+		if got := PRDNameFromBranch(dir); got != "linkedin-post-media" {
 			t.Errorf("expected %q, got %q", "linkedin-post-media", got)
 		}
 	})
@@ -163,7 +163,7 @@ func TestPrdNameFromBranch(t *testing.T) {
 		dir := t.TempDir()
 		initGitRepoOnBranch(t, dir, "chief/linkedin-post-media")
 		// no PRD written — must not adopt the inferred name
-		if got := prdNameFromBranch(dir); got != "" {
+		if got := PRDNameFromBranch(dir); got != "" {
 			t.Errorf("expected empty (no PRD), got %q", got)
 		}
 	})
@@ -172,14 +172,14 @@ func TestPrdNameFromBranch(t *testing.T) {
 		dir := t.TempDir()
 		initGitRepoOnBranch(t, dir, "main")
 		writePRD(t, dir, "main")
-		if got := prdNameFromBranch(dir); got != "" {
+		if got := PRDNameFromBranch(dir); got != "" {
 			t.Errorf("expected empty (non-chief branch), got %q", got)
 		}
 	})
 
 	t.Run("empty outside a git repo", func(t *testing.T) {
 		dir := t.TempDir()
-		if got := prdNameFromBranch(dir); got != "" {
+		if got := PRDNameFromBranch(dir); got != "" {
 			t.Errorf("expected empty (no git repo), got %q", got)
 		}
 	})

@@ -37,7 +37,7 @@ chief [name]
 
 | Argument | Description |
 |----------|-------------|
-| `name` | PRD name to run (optional, auto-detects if omitted) |
+| `name` | PRD name to run (optional; when omitted, Chief auto-detects — see below) |
 
 **Flags:**
 
@@ -67,8 +67,16 @@ chief auth-system -n 50 --verbose
 This is a global runaway backstop only. Chief primarily limits work **per story** — a story that fails 5 times is parked as `needs-review` and the loop continues with others. When `--max-iterations` is not specified, the global limit is calculated dynamically from the remaining stories and their per-story attempt budget, so it rarely fires first. You can adjust it at runtime with `+`/`-` in the TUI.
 :::
 
-::: tip
-If your project has only one PRD, Chief auto-detects it. Pass a name when you have multiple PRDs.
+::: tip PRD auto-detection
+When you run `chief` without a `name`, it resolves the PRD in this order:
+
+1. An explicit `--prd` path, if given
+2. The PRD matching your current branch — if you're on a `chief/<name>` branch and `.chief/prds/<name>/` exists, that PRD is opened (Chief prints `Using PRD "<name>" inferred from current branch chief/<name>`). Since `chief new` and the loop both work on a `chief/<name>` branch per PRD, running bare `chief` from that branch lands you right back on the PRD you were working on.
+3. A PRD named `default` (or legacy `main`)
+4. The only/first PRD found in `.chief/prds/`
+5. First-time setup, if no PRD exists yet
+
+The same `chief/<name>` branch inference also applies to `chief edit` and `chief followup`.
 :::
 
 ---
