@@ -70,7 +70,7 @@ should be where the item is ambiguous.{{EXPLORE_MODEL}}
 Keep grilling only until the ambiguous items are pinned down. When you believe
 you are done, briefly list the stories you intend to create (one line each) and
 ask the user to confirm before you write anything.
-
+{{PROTOTYPE}}
 ---
 
 ## Step 3: Append the Stories

@@ -209,6 +209,7 @@ func GetInitPrompt(prdDir, context string, nativeQuestions bool) string {
 func GetEditPrompt(prdDir string, nativeQuestions bool) string {
 	result := strings.ReplaceAll(editPromptTemplate, "{{PRD_DIR}}", prdDir)
 	result = strings.ReplaceAll(result, "{{QUESTION_FORMAT}}", questionFormatBatch)
+	result = strings.ReplaceAll(result, "{{PROTOTYPE}}", prototypeBlock(nativeQuestions))
 	return strings.ReplaceAll(result, "{{EXPLORE_MODEL}}", exploreModel(nativeQuestions))
 }
 
@@ -220,6 +221,7 @@ func GetFollowupPrompt(prdDir, inboxPath string, nativeQuestions bool) string {
 	result := strings.ReplaceAll(followupPromptTemplate, "{{PRD_DIR}}", prdDir)
 	result = strings.ReplaceAll(result, "{{INBOX_PATH}}", inboxPath)
 	result = strings.ReplaceAll(result, "{{QUESTION_FORMAT}}", questionFormatBatch)
+	result = strings.ReplaceAll(result, "{{PROTOTYPE}}", prototypeBlock(nativeQuestions))
 	return strings.ReplaceAll(result, "{{EXPLORE_MODEL}}", exploreModel(nativeQuestions))
 }
 

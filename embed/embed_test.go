@@ -240,6 +240,26 @@ func TestGetEditPromptExploreModel(t *testing.T) {
 	}
 }
 
+func TestGetEditPromptPrototype(t *testing.T) {
+	prdDir := "/path/to/.chief/prds/main"
+
+	native := GetEditPrompt(prdDir, true)
+	if !strings.Contains(native, "throwaway HTML prototype") {
+		t.Error("Expected Claude edit prompt to offer building a throwaway HTML prototype")
+	}
+	if strings.Contains(native, "{{PROTOTYPE}}") {
+		t.Error("Expected {{PROTOTYPE}} to be substituted in edit prompt")
+	}
+
+	nonNative := GetEditPrompt(prdDir, false)
+	if strings.Contains(nonNative, "throwaway HTML prototype") {
+		t.Error("Expected non-Claude edit prompt to omit the prototype instruction")
+	}
+	if strings.Contains(nonNative, "{{PROTOTYPE}}") {
+		t.Error("Expected {{PROTOTYPE}} to be substituted (empty) in edit prompt")
+	}
+}
+
 func TestGetEditPrompt(t *testing.T) {
 	prompt := GetEditPrompt("/test/path/prds/main", false)
 	if prompt == "" {
@@ -267,7 +287,7 @@ func TestGetFollowupPrompt(t *testing.T) {
 	if prompt == "" {
 		t.Fatal("Expected GetFollowupPrompt() to return non-empty prompt")
 	}
-	for _, placeholder := range []string{"{{PRD_DIR}}", "{{INBOX_PATH}}", "{{QUESTION_FORMAT}}", "{{EXPLORE_MODEL}}"} {
+	for _, placeholder := range []string{"{{PRD_DIR}}", "{{INBOX_PATH}}", "{{QUESTION_FORMAT}}", "{{PROTOTYPE}}", "{{EXPLORE_MODEL}}"} {
 		if strings.Contains(prompt, placeholder) {
 			t.Errorf("Expected %s to be substituted", placeholder)
 		}
@@ -285,6 +305,27 @@ func TestGetFollowupPrompt(t *testing.T) {
 	// Claude gets the Opus exploration block; other providers get none.
 	if !strings.Contains(GetFollowupPrompt(prdDir, inbox, true), "Explore the codebase on Opus") {
 		t.Error("Expected Claude follow-up prompt to pin exploration to Opus")
+	}
+}
+
+func TestGetFollowupPromptPrototype(t *testing.T) {
+	prdDir := "/proj/.chief/prds/feature"
+	inbox := prdDir + "/todos.md"
+
+	native := GetFollowupPrompt(prdDir, inbox, true)
+	if !strings.Contains(native, "throwaway HTML prototype") {
+		t.Error("Expected Claude follow-up prompt to offer building a throwaway HTML prototype")
+	}
+	if strings.Contains(native, "{{PROTOTYPE}}") {
+		t.Error("Expected {{PROTOTYPE}} to be substituted in follow-up prompt")
+	}
+
+	nonNative := GetFollowupPrompt(prdDir, inbox, false)
+	if strings.Contains(nonNative, "throwaway HTML prototype") {
+		t.Error("Expected non-Claude follow-up prompt to omit the prototype instruction")
+	}
+	if strings.Contains(nonNative, "{{PROTOTYPE}}") {
+		t.Error("Expected {{PROTOTYPE}} to be substituted (empty) in follow-up prompt")
 	}
 }
 

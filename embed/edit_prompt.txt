@@ -51,7 +51,7 @@ should never hit an unresolved "what should happen when...?". If the user says
 "you decide", make the decision explicit and carry it into the PRD. When you
 believe you're done, briefly summarize the intended changes and ask the user to
 confirm before you edit anything.
-
+{{PROTOTYPE}}
 ---
 
 ## Step 3: Edit the PRD
