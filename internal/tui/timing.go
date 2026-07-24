@@ -171,5 +171,22 @@ func (a *App) GetETA() (time.Duration, bool) {
 	// ponytail: plain mean; switch to a recency-weighted average if early
 	// exploration stories skew the estimate too high in practice.
 	avg := total / time.Duration(len(timings))
-	return avg * time.Duration(remaining), true
+	eta := avg * time.Duration(remaining)
+
+	// The story currently in progress already counts as one of the remaining
+	// stories, so it contributes a full avg above. Subtract the time already
+	// spent on it so the ETA counts down each second instead of staying frozen
+	// between story completions. Cap the subtraction at one avg so a story that
+	// overruns the average doesn't start eating into the other stories' budget.
+	if start := a.currentStoryStart[a.prdName]; !start.IsZero() {
+		spent := time.Since(start)
+		if spent > avg {
+			spent = avg
+		}
+		eta -= spent
+	}
+	if eta < 0 {
+		eta = 0
+	}
+	return eta, true
 }
