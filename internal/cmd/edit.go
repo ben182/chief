@@ -6,7 +6,6 @@ import (
 
 	"github.com/ben182/chief/embed"
 	"github.com/ben182/chief/internal/loop"
-	"github.com/ben182/chief/internal/prd"
 )
 
 // EditOptions contains configuration for the edit command.
@@ -18,6 +17,11 @@ type EditOptions struct {
 
 // RunEdit edits an existing PRD by launching an interactive Claude session.
 func RunEdit(opts EditOptions) error {
+	// When no PRD name is given explicitly, infer it from the current git branch
+	// (chief/<name>) so running `chief edit` from within a PRD's own branch edits
+	// that PRD instead of silently falling back to "default".
+	opts.Name = resolvePRDName(opts.Name, opts.BaseDir)
+
 	name, baseDir, prdDir, prdMdPath, err := preparePRDPaths(opts.Name, opts.BaseDir)
 	if err != nil {
 		return err
@@ -48,9 +52,7 @@ func RunEdit(opts EditOptions) error {
 	fmt.Println("\nPRD editing complete!")
 
 	// Validate the edited prd.md can be parsed
-	if _, err := prd.ParseMarkdownPRD(prdMdPath); err != nil {
-		fmt.Printf("Warning: prd.md could not be parsed: %v\n", err)
-	}
+	warnIfPRDUnparsable(prdMdPath)
 
 	fmt.Printf("\nYour PRD is updated! Run 'chief' or 'chief %s' to continue working on it.\n", opts.Name)
 	return nil

@@ -51,6 +51,21 @@ should never hit an unresolved "what should happen when...?". If the user says
 "you decide", make the decision explicit and carry it into the PRD. When you
 believe you're done, briefly summarize the intended changes and ask the user to
 confirm before you edit anything.
+
+**When the change touches a UI, grill the frontend as hard as the behavior** —
+screens/views affected, the states each one needs (empty, loading, error,
+success), which existing components to reuse vs. build new, interaction
+(click/hover/focus/keyboard, confirm vs. undo), and visual direction. Bake those
+decisions into the affected stories' acceptance criteria (named components,
+visible states, key interaction), not just a design section — the implementer
+sees only one story at a time.
+
+**When the change adds or alters testable logic, sketch and confirm the test
+*seams*** the way you confirm frontend decisions — the public boundary where
+behavior is observed without reaching inside, preferring EXISTING seams, the
+HIGHEST seam, and the FEWEST of them. Which framework the repo uses and how its
+tests look are facts to look up, not ask. Update the Testing Decisions section
+accordingly.
 {{PROTOTYPE}}
 ---
 
@@ -166,6 +181,7 @@ Before saving the edited PRD, verify:
 - [ ] Acceptance criteria describe observable outcomes, not code steps — no file paths, function names, or column names unless the user decided them
 - [ ] No generic quality gates ("Typecheck passes", "tests pass") listed as criteria — they are enforced automatically
 - [ ] Acceptance criteria are still verifiable (not vague)
+- [ ] If the change touches UI, the frontend was grilled and its decisions baked into the affected stories' acceptance criteria (states, named components, interaction)
 - [ ] Testing Decisions preserved (and updated if the change adds testable logic) — seams at existing/highest/fewest
 - [ ] Functional requirements are numbered and unambiguous
 - [ ] Non-goals updated if scope changed

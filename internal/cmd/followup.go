@@ -81,18 +81,10 @@ func prdNameFromBranch(baseDir string) string {
 // The PRD must already exist and carry an inbox file; new stories are appended
 // as `todo` so the normal loop picks them up next.
 func RunFollowup(opts FollowupOptions) error {
-	// When no PRD name is given explicitly, try to infer it from the current git
-	// branch. Chief branches follow the chief/<name> convention (see RunNew), so
-	// running `chief followup` from within a PRD's own branch picks up that PRD
-	// instead of silently falling back to "default".
-	if opts.Name == "" {
-		if base, err := resolveBaseDir(opts.BaseDir); err == nil {
-			if inferred := prdNameFromBranch(base); inferred != "" {
-				fmt.Printf("Using PRD %q inferred from current branch chief/%s\n", inferred, inferred)
-				opts.Name = inferred
-			}
-		}
-	}
+	// When no PRD name is given explicitly, infer it from the current git branch
+	// (chief/<name>) so running `chief followup` from within a PRD's own branch
+	// picks up that PRD instead of silently falling back to "default".
+	opts.Name = resolvePRDName(opts.Name, opts.BaseDir)
 
 	name, baseDir, prdDir, prdMdPath, err := preparePRDPaths(opts.Name, opts.BaseDir)
 	if err != nil {
@@ -128,9 +120,7 @@ func RunFollowup(opts FollowupOptions) error {
 	fmt.Println("\nFollow-up ingest complete!")
 
 	// Validate the edited prd.md can still be parsed
-	if _, err := prd.ParseMarkdownPRD(prdMdPath); err != nil {
-		fmt.Printf("Warning: prd.md could not be parsed: %v\n", err)
-	}
+	warnIfPRDUnparsable(prdMdPath)
 
 	fmt.Printf("\nFollow-ups added! Run 'chief' or 'chief %s' to work through them.\n", opts.Name)
 	return nil

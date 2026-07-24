@@ -154,7 +154,11 @@ func exploreModel(nativeQuestions bool) string {
 // injected only for Claude; other providers (which may lack subagents) get
 // nothing. The prototype lands in the PRD directory, which sits under .chief/ and
 // is never committed, so it never pollutes the repo. The block leads with a
-// newline so it reads as its own paragraph after the frontend-grill bullets.
+// newline so it reads as its own paragraph after the grill guidance that
+// precedes it. It is shared by new/edit/followup, so it is deliberately
+// section-neutral: it points the resolved decision at the stories' acceptance
+// criteria and "the PRD's design section if it has one" rather than naming a
+// section that only exists in the new prompt.
 const prototypeBlockClaude = `
 **Prototype a design question by showing it instead of describing it.** When a UI,
 layout, or interaction decision would be quicker to settle by seeing it than by
@@ -173,9 +177,10 @@ same folder as ` + "`prd.md`" + `, which lives under ` + "`.chief/`" + ` and is 
 committed, so the prototype never pollutes the repo. Tell the user to open it, and
 use their reaction to resolve the decision.
 
-Once the decision is made, **capture the decision itself in the PRD** — in the
-Design & Frontend section and the relevant stories' acceptance criteria. That is
-the durable artifact, not the HTML. The prototype is then disposable: throw it
+Once the decision is made, **capture the decision itself in the PRD** — write it
+into the relevant stories' acceptance criteria, and into the PRD's design/frontend
+section if it has one. That is the
+durable artifact, not the HTML. The prototype is then disposable: throw it
 away, or keep it and reference it from the PRD if it is worth showing an
 implementer later. Either way the PRD must stand on its own without it. And never
 start building the actual feature — a prototype answers a question, it is not the

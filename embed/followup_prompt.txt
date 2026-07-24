@@ -70,6 +70,13 @@ should be where the item is ambiguous.{{EXPLORE_MODEL}}
 Keep grilling only until the ambiguous items are pinned down. When you believe
 you are done, briefly list the stories you intend to create (one line each) and
 ask the user to confirm before you write anything.
+
+Most follow-ups are small, but two kinds still deserve a moment: **when an item
+touches a UI**, pin down the states, the component to reuse, and the key
+interaction so they can go into the new story's acceptance criteria; **when an
+item adds testable logic**, note the *seam* it should be tested at (prefer an
+EXISTING one). How the repo's UI and tests already look are facts to look up, not
+ask.
 {{PROTOTYPE}}
 ---
 
@@ -116,6 +123,13 @@ section of `{{PRD_DIR}}/prd.md`, following the PRD's existing format exactly.
   user explicitly decided them.
 - **Outcome-focused still means verifiable, not vague.** "Works correctly" is bad;
   "The Media card is hidden when the post has no media attached" is good.
+- **Bake UI decisions into the story's acceptance criteria.** When a follow-up
+  touches the UI, write the visible states, the exact existing component to reuse
+  (named), and the key interaction directly into its criteria — the implementer
+  sees only this story, never a separate design section.
+- **Name the test seam for follow-ups with testable logic.** Point the story at
+  the public boundary its behavior is observed at (prefer an existing seam,
+  mirroring the repo's existing tests) rather than leaving it implicit.
 - **Do not list generic quality gates as criteria.** "Typecheck passes", "tests
   pass", and "lint clean" apply to every story and are enforced automatically on
   every commit — do not add them.
@@ -158,6 +172,8 @@ Before finishing, verify:
 - [ ] `**Blocked by:**` set to the originating done story where there is one, omitted otherwise
 - [ ] No `done` story was reopened or edited
 - [ ] Acceptance criteria describe observable outcomes, not code steps — no file paths or function names unless the user decided them
+- [ ] UI follow-ups have their states, named components, and interaction baked into the story's acceptance criteria
+- [ ] Follow-ups with testable logic name the seam they should be tested at (prefer existing)
 - [ ] No generic quality gates listed as criteria
 - [ ] The rest of prd.md is unchanged (only appended)
 - [ ] Converted inbox items flipped to `- [x]` with their story ID appended

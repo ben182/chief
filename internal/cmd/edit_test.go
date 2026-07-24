@@ -109,6 +109,25 @@ func TestRunEditRequiresProvider(t *testing.T) {
 	}
 }
 
+// TestRunEditInfersNameFromBranch checks that RunEdit, given no explicit name,
+// picks up the PRD matching the current chief/<name> branch rather than falling
+// back to "default".
+func TestRunEditInfersNameFromBranch(t *testing.T) {
+	dir := t.TempDir()
+	initGitRepoOnBranch(t, dir, "chief/feature")
+	writePRD(t, dir, "feature")
+
+	// No Name given: it must resolve to "feature" (from the branch) and get past
+	// the PRD-exists check, failing only on the missing Provider.
+	err := RunEdit(EditOptions{BaseDir: dir})
+	if err == nil {
+		t.Fatal("expected provider validation error")
+	}
+	if !contains(err.Error(), "Provider") {
+		t.Fatalf("expected to reach Provider check (name inferred from branch), got: %v", err)
+	}
+}
+
 // Helper function to check if a string contains a substring
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))

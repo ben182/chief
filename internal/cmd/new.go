@@ -54,6 +54,36 @@ func preparePRDPaths(name, baseDir string) (resolvedName, resolvedBase, prdDir, 
 	return name, baseDir, prdDir, filepath.Join(prdDir, "prd.md"), nil
 }
 
+// resolvePRDName applies branch-based PRD inference: when name is empty and the
+// current git branch follows chief's chief/<name> convention with a matching
+// PRD, it returns that name (and notes it on stdout); otherwise it returns name
+// unchanged. Shared by RunEdit and RunFollowup so running either from a PRD's own
+// branch targets that PRD instead of silently falling back to "default".
+func resolvePRDName(name, baseDir string) string {
+	if name != "" {
+		return name
+	}
+	base, err := resolveBaseDir(baseDir)
+	if err != nil {
+		return name
+	}
+	inferred := prdNameFromBranch(base)
+	if inferred == "" {
+		return name
+	}
+	fmt.Printf("Using PRD %q inferred from current branch chief/%s\n", inferred, inferred)
+	return inferred
+}
+
+// warnIfPRDUnparsable re-parses prd.md after an interactive edit/followup session
+// and warns if it no longer parses. Best-effort validation only — the session has
+// already written the file, so a parse failure warns rather than fails.
+func warnIfPRDUnparsable(prdMdPath string) {
+	if _, err := prd.ParseMarkdownPRD(prdMdPath); err != nil {
+		fmt.Printf("Warning: prd.md could not be parsed: %v\n", err)
+	}
+}
+
 // RunNew creates a new PRD by launching an interactive agent session.
 func RunNew(opts NewOptions) error {
 	name, baseDir, prdDir, prdMdPath, err := preparePRDPaths(opts.Name, opts.BaseDir)
