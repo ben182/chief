@@ -135,6 +135,58 @@ func TestGetReviewPrompt(t *testing.T) {
 	}
 }
 
+func TestGetConsolidatePrompt(t *testing.T) {
+	progressPath := "/path/to/progress.md"
+	commits := "abc123 feat: myprd/US-001 - add a\ndef456 feat: myprd/US-002 - add b"
+	sinceSpec := "abc000..HEAD"
+
+	prompt := GetConsolidatePrompt(progressPath, commits, sinceSpec, "myprd", "/code-quality", "one HTTP client only")
+	for _, ph := range []string{"{{PROGRESS_PATH}}", "{{COMMITS}}", "{{SINCE_SPEC}}", "{{PRD_NAME}}", "{{CONSOLIDATE_SKILL}}", "{{CONSOLIDATE_INSTRUCTIONS}}"} {
+		if strings.Contains(prompt, ph) {
+			t.Errorf("Expected placeholder %s to be substituted", ph)
+		}
+	}
+	if !strings.Contains(prompt, commits) {
+		t.Error("Expected consolidation prompt to inline this run's commit log")
+	}
+	if !strings.Contains(prompt, sinceSpec) {
+		t.Error("Expected consolidation prompt to offer the run-scoped diff range")
+	}
+	if !strings.Contains(prompt, progressPath) {
+		t.Error("Expected consolidation prompt to contain the progress path")
+	}
+	if !strings.Contains(prompt, "chief-done") {
+		t.Error("Expected consolidation prompt to contain the chief-done stop condition")
+	}
+	if !strings.Contains(prompt, "refactor: consolidate myprd run") {
+		t.Error("Expected consolidation prompt to specify the PRD-named commit subject")
+	}
+	if !strings.Contains(prompt, "/code-quality") {
+		t.Error("Expected consolidation prompt to reference the configured skill")
+	}
+	if !strings.Contains(prompt, "one HTTP client only") {
+		t.Error("Expected consolidation prompt to include the free-form instructions")
+	}
+
+	// The two guardrails that keep an end-of-run refactor safe must always be
+	// present, since chief itself never verifies the resulting commit still builds:
+	// behavior may not change, and tests may not be bent to pass.
+	if !strings.Contains(prompt, "behavior must not change") {
+		t.Error("Expected consolidation prompt to state the behavior-preservation rule")
+	}
+	if !strings.Contains(prompt, `"adjust" a test`) {
+		t.Error("Expected consolidation prompt to forbid weakening tests")
+	}
+
+	bare := GetConsolidatePrompt(progressPath, commits, sinceSpec, "myprd", "", "")
+	if strings.Contains(bare, "{{CONSOLIDATE_SKILL}}") || strings.Contains(bare, "{{CONSOLIDATE_INSTRUCTIONS}}") {
+		t.Error("Expected optional consolidation blocks to be substituted away when empty")
+	}
+	if strings.Contains(bare, "Run the `") {
+		t.Error("Expected no skill line when skill is empty")
+	}
+}
+
 func TestReviewPromptTemplateNotEmpty(t *testing.T) {
 	if reviewPromptTemplate == "" {
 		t.Error("Expected reviewPromptTemplate to be embedded and non-empty")

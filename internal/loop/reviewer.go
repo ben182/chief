@@ -20,13 +20,24 @@ func (r reviewer) active() bool {
 		strings.TrimSpace(r.instructions) != ""
 }
 
-// iterationMode distinguishes the build agent (the default that implements a
-// story) from the review agent that runs afterwards. It is threaded explicitly
-// through runIterationWithRetry -> runIteration -> processOutput so a
-// <chief-done/> can be attributed to the right agent without a shared mode flag.
+// iterationMode distinguishes the agents an iteration can run: the build agent
+// (the default that implements a story), the review agent that runs after each
+// story commits, and the consolidation agent that runs once at the end of the
+// run. It is threaded explicitly through runIterationWithRetry -> runIteration ->
+// processOutput so a <chief-done/> can be attributed to the right agent without a
+// shared mode flag.
 type iterationMode int
 
 const (
 	modeBuild iterationMode = iota
 	modeReview
+	modeConsolidate
 )
+
+// isStoryAgent reports whether the mode runs the build agent, whose
+// <chief-done/> is the story-completion signal the loop gates on. The review and
+// consolidation agents signal their own completion on separate flags, and theirs
+// must not be forwarded as a story-done event.
+func (m iterationMode) isStoryAgent() bool {
+	return m == modeBuild
+}

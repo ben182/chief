@@ -87,7 +87,8 @@ func (l *LogViewer) AddEvent(event loop.Event) {
 	switch event.Type {
 	case loop.EventAssistantText, loop.EventToolStart, loop.EventToolResult,
 		loop.EventStoryDone, loop.EventStoryNeedsReview, loop.EventStoryNoCommit, loop.EventComplete, loop.EventError, loop.EventRetrying,
-		loop.EventWatchdogTimeout, loop.EventNoGitRepo, loop.EventReviewStart, loop.EventReviewDone:
+		loop.EventWatchdogTimeout, loop.EventNoGitRepo, loop.EventReviewStart, loop.EventReviewDone,
+		loop.EventConsolidateStart, loop.EventConsolidateDone:
 		// Pre-render and cache lines
 		if l.width > 0 {
 			entry.cachedLines = l.renderEntry(entry)
@@ -372,6 +373,8 @@ func (l *LogViewer) renderEntry(entry LogEntry) []string {
 		return l.renderStoryDone(entry)
 	case loop.EventReviewStart, loop.EventReviewDone:
 		return l.renderReview(entry)
+	case loop.EventConsolidateStart, loop.EventConsolidateDone:
+		return l.renderConsolidate(entry)
 	case loop.EventComplete:
 		return l.renderComplete(entry)
 	case loop.EventError:
@@ -623,6 +626,33 @@ func (l *LogViewer) renderReview(entry LogEntry) []string {
 	return []string{
 		"",
 		reviewStyle.Render(icon + " " + text),
+	}
+}
+
+// renderConsolidate renders the end-of-run consolidation pass's start/finish
+// markers, so the refactor phase reads as its own step between the last story and
+// the run's completion rather than as more story work.
+func (l *LogViewer) renderConsolidate(entry LogEntry) []string {
+	color := PrimaryColor
+	icon := glyph("🧹", "[consolidate]")
+	text := entry.Text
+	if entry.Type == loop.EventConsolidateDone {
+		color = SuccessColor
+		icon = glyph("✓", "[x]")
+		if text == "" {
+			text = "Consolidation complete"
+		}
+	} else if text == "" {
+		text = "Consolidating this run's commits"
+	}
+
+	consolidateStyle := lipgloss.NewStyle().
+		Foreground(color).
+		Bold(true).
+		Padding(0, 1)
+	return []string{
+		"",
+		consolidateStyle.Render(icon + " " + text),
 	}
 }
 

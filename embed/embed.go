@@ -28,6 +28,9 @@ var summaryPromptTemplate string
 //go:embed review_prompt.txt
 var reviewPromptTemplate string
 
+//go:embed consolidate_prompt.txt
+var consolidatePromptTemplate string
+
 // GetPrompt returns the agent prompt with the progress path and
 // current story context substituted. The storyContext is the JSON of the
 // current story to work on, inlined directly into the prompt so that the
@@ -57,8 +60,30 @@ func GetReviewPrompt(progressPath, storyContext, storyID, storyTitle, skill, ins
 	return strings.ReplaceAll(result, "{{REVIEW_INSTRUCTIONS}}", reviewInstructionsBlock(instructions))
 }
 
+// GetConsolidatePrompt returns the prompt for the consolidation agent that runs
+// once at the end of a run, after every story has been built and reviewed. It
+// looks for the damage that only appears between stories — parallel
+// implementations, competing patterns, leftovers from abandoned approaches —
+// because each story was built by a separate agent with a fresh context.
+//
+// commits is the commit log of *this run only* (StartRef..HEAD), so an earlier
+// run's already-shipped work is never dragged into the refactor. sinceSpec is the
+// git range the agent can diff to see the whole run at once (e.g.
+// "abc123..HEAD"), or "HEAD" when the run has no start ref to scope to. prdName
+// names the run in the commit subject. skill and instructions are optional, the
+// same way the review agent's are.
+func GetConsolidatePrompt(progressPath, commits, sinceSpec, prdName, skill, instructions string) string {
+	result := strings.ReplaceAll(consolidatePromptTemplate, "{{PROGRESS_PATH}}", progressPath)
+	result = strings.ReplaceAll(result, "{{COMMITS}}", commits)
+	result = strings.ReplaceAll(result, "{{SINCE_SPEC}}", sinceSpec)
+	result = strings.ReplaceAll(result, "{{PRD_NAME}}", prdName)
+	result = strings.ReplaceAll(result, "{{CONSOLIDATE_SKILL}}", reviewSkillBlock(skill))
+	return strings.ReplaceAll(result, "{{CONSOLIDATE_INSTRUCTIONS}}", reviewInstructionsBlock(instructions))
+}
+
 // reviewSkillBlock renders the optional "run this skill" instruction, or an
-// empty string when no skill is configured.
+// empty string when no skill is configured. Shared by the review and
+// consolidation prompts, which take the same optional skill/instructions pair.
 func reviewSkillBlock(skill string) string {
 	skill = strings.TrimSpace(skill)
 	if skill == "" {

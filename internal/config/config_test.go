@@ -101,6 +101,65 @@ func TestReviewConfigRoundTrip(t *testing.T) {
 	}
 }
 
+func TestConsolidateConfigEnabled(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  ConsolidateConfig
+		want bool
+	}{
+		{"empty", ConsolidateConfig{}, false},
+		{"enabled flag only", ConsolidateConfig{Enabled: true}, true},
+		{"skill only", ConsolidateConfig{Skill: "/code-quality"}, true},
+		{"instructions only", ConsolidateConfig{Instructions: "one HTTP client"}, true},
+		{"both", ConsolidateConfig{Skill: "/cq", Instructions: "x"}, true},
+		{"whitespace only", ConsolidateConfig{Skill: "  ", Instructions: "\n\t"}, false},
+		{"disabled flag, whitespace fields", ConsolidateConfig{Enabled: false, Skill: "  "}, false},
+	}
+	for _, tt := range tests {
+		if got := tt.cfg.Active(); got != tt.want {
+			t.Errorf("%s: Active() = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
+// TestConsolidateDefaultsOff verifies the consolidation pass is opt-in: it
+// refactors already-committed, already-reviewed code, so it must never turn itself
+// on for a project that didn't ask for it.
+func TestConsolidateDefaultsOff(t *testing.T) {
+	if Default().Consolidate.Active() {
+		t.Error("consolidation must be off by default")
+	}
+	dir := t.TempDir()
+	loaded, err := Load(dir) // no config file at all
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if loaded.Consolidate.Active() {
+		t.Error("consolidation must be off when there is no config file")
+	}
+}
+
+func TestConsolidateConfigRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{Consolidate: ConsolidateConfig{Enabled: true, Skill: "/code-quality", Instructions: "one HTTP client only"}}
+	if err := Save(dir, cfg); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if !loaded.Consolidate.Enabled {
+		t.Error("expected Enabled to round-trip")
+	}
+	if loaded.Consolidate.Skill != "/code-quality" {
+		t.Errorf("expected skill to round-trip, got %q", loaded.Consolidate.Skill)
+	}
+	if loaded.Consolidate.Instructions != "one HTTP client only" {
+		t.Errorf("expected instructions to round-trip, got %q", loaded.Consolidate.Instructions)
+	}
+}
+
 func TestExists(t *testing.T) {
 	dir := t.TempDir()
 

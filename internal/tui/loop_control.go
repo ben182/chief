@@ -301,6 +301,14 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 		// duration now (see EventStoryDone) and drop the reviewing tag.
 		a.finalizeStoryTiming(prdName)
 		delete(a.reviewingStoryID, prdName)
+	case loop.EventConsolidateStart, loop.EventConsolidateDone:
+		// The end-of-run consolidation pass belongs to no single story, so there is
+		// no story timing or selection to adjust — it just needs to be visible as the
+		// current activity while it runs, since it sits between the last story and
+		// the completion screen.
+		if isCurrentPRD {
+			a.lastActivity = event.Text
+		}
 	case loop.EventComplete:
 		// Finalize the last story's timing for any PRD that completes.
 		a.finalizeStoryTiming(prdName)

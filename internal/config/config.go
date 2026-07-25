@@ -12,11 +12,48 @@ const configFile = ".chief/config.yaml"
 
 // Config holds project-level settings for Chief.
 type Config struct {
-	Worktree   WorktreeConfig   `yaml:"worktree"`
-	OnComplete OnCompleteConfig `yaml:"onComplete"`
-	Agent      AgentConfig      `yaml:"agent"`
-	Loop       LoopConfig       `yaml:"loop"`
-	Review     ReviewConfig     `yaml:"review"`
+	Worktree    WorktreeConfig    `yaml:"worktree"`
+	OnComplete  OnCompleteConfig  `yaml:"onComplete"`
+	Agent       AgentConfig       `yaml:"agent"`
+	Loop        LoopConfig        `yaml:"loop"`
+	Review      ReviewConfig      `yaml:"review"`
+	Consolidate ConsolidateConfig `yaml:"consolidate"`
+}
+
+// ConsolidateConfig holds the consolidation pass that runs once at the end of a
+// run, after every story has been built and reviewed.
+//
+// The review agent judges one story at a time and never sees the others. That
+// leaves a blind spot no per-story check can cover: because each story is built
+// by a separate agent with a fresh context, two stories can each grow their own
+// helper for the same job, or introduce competing patterns for one concern, and
+// both commits still look correct in isolation. The consolidation agent is the
+// only one that ever sees the whole run — it refactors those seams away in a
+// single separate commit, scoped strictly to this run's commits (StartRef..HEAD)
+// so an earlier run's shipped work is never touched. It is a pure refactor:
+// behavior must not change.
+type ConsolidateConfig struct {
+	// Enabled turns the consolidation pass on with just the built-in prompt, no
+	// extra config. A non-empty Skill or Instructions also enables it on its own,
+	// so this flag is only needed to run the bare baseline with neither of those set.
+	Enabled bool `yaml:"enabled"`
+	// Skill is the name of a project skill the consolidation agent should run as
+	// part of its pass (e.g. "/code-quality"). Claude-specific; other providers
+	// ignore it. Optional — setting it also enables the pass.
+	Skill string `yaml:"skill"`
+	// Instructions is free-form guidance for the consolidation agent (e.g. "we
+	// keep all HTTP clients in internal/transport"). Works with any provider.
+	// Optional — setting it also enables the pass.
+	Instructions string `yaml:"instructions"`
+}
+
+// Active reports whether the consolidation pass should run at the end of a run:
+// true when explicitly enabled, or when a skill or free-form instructions are
+// configured (either of which enables it on its own).
+func (c ConsolidateConfig) Active() bool {
+	return c.Enabled ||
+		strings.TrimSpace(c.Skill) != "" ||
+		strings.TrimSpace(c.Instructions) != ""
 }
 
 // ReviewConfig holds the per-project code review that runs after a story's

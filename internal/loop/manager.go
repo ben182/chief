@@ -248,6 +248,7 @@ func (m *Manager) Start(name string) error {
 	instance.Loop.buildPrompt = promptBuilderForPRD(instance.PRDPath)
 	if cfg != nil {
 		instance.Loop.SetReview(cfg.Review.Enabled, cfg.Review.Skill, cfg.Review.Instructions)
+		instance.Loop.SetConsolidate(cfg.Consolidate.Enabled, cfg.Consolidate.Skill, cfg.Consolidate.Instructions)
 	}
 	instance.Loop.SetRetryConfig(retryConfig)
 	if cfg != nil && cfg.Loop.WatchdogTimeoutSeconds > 0 {
@@ -259,6 +260,10 @@ func (m *Manager) Start(name string) error {
 	// stories are excluded. Best-effort: an unborn branch leaves it empty, which
 	// falls back to summarizing every matching story commit on the branch.
 	instance.StartRef, _ = git.HeadHash(workDir)
+	// Hand the loop the same ref, so the end-of-run consolidation pass refactors
+	// exactly the window the summary describes — this run's commits, never an
+	// earlier run's already-shipped work.
+	instance.Loop.SetStartRef(instance.StartRef)
 	instance.ctx, instance.cancel = context.WithCancel(context.Background())
 	instance.State = LoopStateRunning
 	instance.StartTime = time.Now()

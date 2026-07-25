@@ -172,6 +172,46 @@ Without a review configured, you get the familiar single green `✓ Story done`.
 - **Runs on every story.** The review runs once per completed story, so it adds
   an agent invocation (and cost) per story. Factor that in on large PRDs.
 
+## The blind spot: what a per-story review cannot see
+
+Reviewing one story at a time is the right scope for "is this story correct?" — and
+structurally the wrong scope for "is the result coherent?".
+
+Every story is built by a separate agent with a fresh context. Story 3 does not know
+that story 7 will need the same date helper, and story 7 cannot see the one story 3
+already wrote. Both agents do something reasonable; both commits pass their own
+review; and the run ends with two helpers for one job. Repeat that across forty
+stories and the run leaves forty locally-clean commits on top of an incoherent
+whole — two competing error-handling styles, three near-identical validators, dead
+code from an approach a later story abandoned.
+
+No per-story reviewer can catch this, because at the moment it reviews story 3, the
+duplicate does not exist yet.
+
+### The consolidation pass
+
+Enabling `consolidate` adds a **second, differently-scoped** quality agent that runs
+**once**, after the last story:
+
+|  | Review agent | Consolidation agent |
+|---|---|---|
+| Scope | One story | The whole run (`StartRef..HEAD`) |
+| Runs | After every story commit | Once, after the last story |
+| Asks | "Does this story do what it promised, well?" | "Is the run's work coherent?" |
+| Commits | Amends the story's commit | One separate `refactor:` commit |
+| May change behavior | Yes — it fixes bugs | **No** — pure refactor |
+
+The two are complementary, not alternatives: the reviewer keeps each story honest,
+the consolidation pass keeps the run from fragmenting. Run both, or either alone.
+
+The most valuable thing the pass produces may not be the refactor at all. It is the
+only agent that ever sees the whole run, so its `progress.md` note records the
+pattern the run *should* have followed from the start — which is exactly what the
+next run's fresh-context agents read before they start diverging again.
+
+See [Configuration → consolidate](/reference/configuration) for the config keys and
+the safety properties (run scoping, behavior preservation, best-effort).
+
 ## See also
 
 - [Configuration → review](/reference/configuration) — the config keys.

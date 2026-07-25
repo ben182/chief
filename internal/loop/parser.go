@@ -48,6 +48,13 @@ const (
 	// EventReviewDone is emitted when the review agent has finished (and committed
 	// any fixes it made).
 	EventReviewDone
+	// EventConsolidateStart is emitted when the consolidation agent starts its
+	// end-of-run pass over all the commits this run landed.
+	EventConsolidateStart
+	// EventConsolidateDone is emitted when the consolidation pass has finished
+	// (and committed any refactor it made), was skipped, or gave up. It is always
+	// emitted once a pass was started, so the UI never shows a hanging pass.
+	EventConsolidateDone
 	// EventUsage carries token usage (and derived cost) for an assistant message
 	// that produced no other surfaced event, so per-story totals stay accurate.
 	EventUsage
@@ -88,6 +95,10 @@ func (e EventType) String() string {
 		return "ReviewStart"
 	case EventReviewDone:
 		return "ReviewDone"
+	case EventConsolidateStart:
+		return "ConsolidateStart"
+	case EventConsolidateDone:
+		return "ConsolidateDone"
 	case EventUsage:
 		return "Usage"
 	default:

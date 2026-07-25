@@ -45,6 +45,14 @@ const DefaultMaxAttemptsPerStory = 5
 // blocking the loop, since review is best-effort and must never stall progress.
 const maxReviewAttempts = 3
 
+// maxConsolidateAttempts caps how many times the end-of-run consolidation pass is
+// re-run when it ends its turn without signalling <chief-done/>. It is lower than
+// maxReviewAttempts because the pass reads the whole run's diff, making each
+// attempt expensive, and because it is the most optional thing chief does: the
+// stories are already built, reviewed and committed, so giving up early costs
+// nothing but a bit of tidiness.
+const maxConsolidateAttempts = 2
+
 // DefaultRetryConfig returns the default retry configuration.
 func DefaultRetryConfig() RetryConfig {
 	return RetryConfig{
@@ -107,6 +115,20 @@ type Loop struct {
 	// records that the reviewer signalled <chief-done/> for the current iteration.
 	review        reviewer
 	sawReviewDone bool
+
+	// consolidate configures the optional end-of-run consolidation pass, which
+	// refactors away the seams between stories that no per-story review can see.
+	// sawConsolidateDone records that it signalled <chief-done/>.
+	consolidate        consolidator
+	sawConsolidateDone bool
+	// startRef is the branch HEAD captured before this run made any commits. It
+	// scopes the consolidation pass to StartRef..HEAD — this run's commits only —
+	// so a followup run never refactors work an earlier run already shipped. The
+	// Manager sets it from the same value it hands the run summary, so both see an
+	// identical window; Run() falls back to capturing it itself for a Loop used
+	// directly. Empty means "no scoping possible" and the pass is skipped rather
+	// than let loose on the whole branch.
+	startRef string
 }
 
 // maxStderrTail is how many trailing stderr lines are kept to surface on a crash.
@@ -205,6 +227,37 @@ func (l *Loop) reviewEnabled() bool {
 	return l.review.active()
 }
 
+// SetConsolidate configures the end-of-run consolidation pass. When enabled is
+// true or either skill or instructions is non-empty, a single agent runs once the
+// run finishes: it looks across every commit the run landed for the seams no
+// per-story review can see (parallel implementations of the same thing, competing
+// patterns, leftovers from abandoned approaches) and refactors them away in one
+// separate commit. All unset disables the pass.
+func (l *Loop) SetConsolidate(enabled bool, skill, instructions string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.consolidate = consolidator{enabled: enabled, skill: skill, instructions: instructions}
+}
+
+// consolidateEnabled reports whether the consolidation pass should run at the end
+// of the run.
+func (l *Loop) consolidateEnabled() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.consolidate.active()
+}
+
+// SetStartRef records the branch HEAD captured before this run made any commits,
+// scoping the consolidation pass to this run's commits (startRef..HEAD). Callers
+// that already capture this for the run summary should pass the same value so
+// both features describe an identical window. When it is never set, Run()
+// captures it itself at startup.
+func (l *Loop) SetStartRef(ref string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.startRef = ref
+}
+
 // Events returns the channel for receiving events from the loop.
 func (l *Loop) Events() <-chan Event {
 	return l.events
@@ -237,6 +290,20 @@ func (l *Loop) Run(ctx context.Context) error {
 	defer l.logFile.Close()
 	defer close(l.events)
 
+	// Capture the branch HEAD before the first iteration commits anything, so the
+	// end-of-run consolidation pass can be scoped to this run's commits. A caller
+	// that already captured it (the Manager, which hands the same value to the run
+	// summary) wins, so both features see an identical window.
+	l.mu.Lock()
+	needStartRef := l.startRef == ""
+	l.mu.Unlock()
+	if needStartRef {
+		ref, _ := git.HeadHash(l.effectiveWorkDir())
+		l.mu.Lock()
+		l.startRef = ref
+		l.mu.Unlock()
+	}
+
 	for {
 		l.mu.Lock()
 		if l.stopped {
@@ -253,6 +320,11 @@ func (l *Loop) Run(ctx context.Context) error {
 
 		// Check if max iterations reached
 		if currentIter > l.maxIter {
+			// The run is over, even though stories remain. Consolidate what it did
+			// land before handing off to the summary/push, exactly as on a full
+			// completion — a run cut short by the iteration cap still leaves seams
+			// between the stories it finished.
+			l.runConsolidation(ctx, currentIter-1)
 			l.events <- Event{
 				Type:      EventMaxIterationsReached,
 				Iteration: currentIter - 1,
@@ -264,6 +336,11 @@ func (l *Loop) Run(ctx context.Context) error {
 		if l.buildPrompt != nil {
 			prompt, storyID, storyTitle, err := l.buildPrompt()
 			if err != nil {
+				// No actionable stories left: the run is done. Consolidate before
+				// announcing completion, so the refactor lands *before* the TUI's
+				// post-completion actions run — the summary then describes the
+				// consolidated result and the push/PR carries it.
+				l.runConsolidation(ctx, currentIter)
 				l.events <- Event{
 					Type:      EventComplete,
 					Iteration: currentIter,
@@ -494,10 +571,10 @@ func (l *Loop) runIteration(ctx context.Context, mode iterationMode) error {
 		}
 		// Check if we killed the process ourselves after <chief-done/>.
 		// That's a graceful end of the iteration, not a crash, so don't retry.
-		// Covers both the build agent (sawStoryDone) and the review agent
-		// (sawReviewDone).
+		// Covers the build agent (sawStoryDone), the review agent (sawReviewDone)
+		// and the end-of-run consolidation pass (sawConsolidateDone).
 		l.mu.Lock()
-		saw := l.sawStoryDone || l.sawReviewDone
+		saw := l.sawStoryDone || l.sawReviewDone || l.sawConsolidateDone
 		l.mu.Unlock()
 		if saw {
 			return nil
@@ -602,19 +679,24 @@ func (l *Loop) processOutput(r io.Reader, mode iterationMode) {
 				// now so the iteration ends immediately. runIteration treats a Wait
 				// error as success when the corresponding done flag is set, so this
 				// is not a crash.
-				if mode == modeReview {
+				switch mode {
+				case modeReview:
 					l.sawReviewDone = true
-				} else {
+				case modeConsolidate:
+					l.sawConsolidateDone = true
+				default:
 					l.sawStoryDone = true
 				}
 				if l.agentCmd != nil {
 					killProcessGroup(l.agentCmd.Process)
 				}
 				l.mu.Unlock()
-				// Swallow the reviewer's <chief-done/> so the TUI doesn't render a
-				// second "story done" for the same story; the build agent's done
-				// was already forwarded.
-				if mode == modeReview {
+				// Swallow the review and consolidation agents' <chief-done/> so the
+				// TUI doesn't render a spurious "story done" for them: only the build
+				// agent's done signals story completion, and it was already forwarded.
+				// Their own completion is reported via EventReviewDone /
+				// EventConsolidateDone instead.
+				if !mode.isStoryAgent() {
 					continue
 				}
 				l.events <- *event
@@ -877,6 +959,156 @@ func (l *Loop) runReview(ctx context.Context, iteration int, storyID, storyTitle
 		StoryID:   storyID,
 		Text:      text,
 	}
+}
+
+// runConsolidation spawns a single agent, once, at the end of the run: it looks
+// across every commit the run landed and refactors away the seams that no
+// per-story review can see — two stories that each grew their own helper for the
+// same job, competing patterns for one concern, leftovers from an abandoned
+// approach. Each story was built with a fresh context, so those only become
+// visible when someone finally looks at the whole run.
+//
+// It reuses runIteration for the process plumbing by running in modeConsolidate,
+// swapping in the consolidation prompt. Like the reviewer it is best-effort: a
+// crash or a pass that never signals done is surfaced as an event but never fails
+// the run — the stories are already built, committed and reviewed, and an
+// unconsolidated run is a far better outcome than a blocked one.
+//
+// It is a no-op when the pass is disabled, when the run is being stopped or
+// paused, or when the run landed no story commits to consolidate.
+func (l *Loop) runConsolidation(ctx context.Context, iteration int) {
+	if !l.consolidateEnabled() {
+		return
+	}
+	// Skip cleanly if we're already shutting down.
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+	l.mu.Lock()
+	if l.stopped || l.paused {
+		l.mu.Unlock()
+		return
+	}
+	l.mu.Unlock()
+
+	prompt, err := l.buildConsolidatePrompt()
+	if err != nil {
+		l.events <- Event{
+			Type:      EventConsolidateDone,
+			Iteration: iteration,
+			Text:      fmt.Sprintf("Consolidation skipped: %v", err),
+		}
+		return
+	}
+
+	l.events <- Event{
+		Type:      EventConsolidateStart,
+		Iteration: iteration,
+		Text:      "Consolidating this run's commits",
+	}
+
+	l.mu.Lock()
+	l.prompt = prompt
+	l.mu.Unlock()
+
+	// Re-run until the pass actually signals <chief-done/>, bounded by
+	// maxConsolidateAttempts, for the same reason the reviewer is: a clean process
+	// exit returns nil even when the agent ended its turn *without* finishing, and
+	// reporting that as success would claim a consolidation that never happened.
+	var runErr error
+	var done bool
+	for attempt := 0; attempt < maxConsolidateAttempts; attempt++ {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		l.mu.Lock()
+		if l.stopped || l.paused {
+			l.mu.Unlock()
+			return
+		}
+		l.sawConsolidateDone = false
+		l.mu.Unlock()
+
+		runErr = l.runIterationWithRetry(ctx, modeConsolidate)
+
+		l.mu.Lock()
+		done = l.sawConsolidateDone
+		l.sawConsolidateDone = false
+		l.mu.Unlock()
+
+		// A crash or an actual completion signal both end the pass; only a
+		// clean-but-unfinished exit warrants another fresh-context attempt.
+		if runErr != nil || done || ctx.Err() != nil {
+			break
+		}
+	}
+
+	text := "Consolidation complete"
+	switch {
+	case runErr != nil && ctx.Err() == nil:
+		text = fmt.Sprintf("Consolidation did not finish cleanly: %v", runErr)
+	case !done && ctx.Err() == nil:
+		text = fmt.Sprintf("Consolidation stopped without signalling completion after %d attempts", maxConsolidateAttempts)
+	}
+	l.events <- Event{
+		Type:      EventConsolidateDone,
+		Iteration: iteration,
+		Text:      text,
+	}
+}
+
+// buildConsolidatePrompt builds the consolidation-agent prompt, inlining the log
+// of the commits *this run* landed.
+//
+// The run scoping is the point: the agent is handed startRef..HEAD, so a followup
+// run consolidates only its own stories and never reopens work an earlier run
+// already summarized, pushed or shipped. It returns an error — which the caller
+// turns into a clean skip — when the run has nothing to consolidate:
+//
+//   - not a git repo, so commits can't be identified at all;
+//   - no start ref (unborn branch), which would leave the pass unscoped and let it
+//     loose on the entire branch history;
+//   - no story commits in this run's window (every story was already done, or the
+//     run landed nothing).
+func (l *Loop) buildConsolidatePrompt() (string, error) {
+	l.mu.Lock()
+	skill := l.consolidate.skill
+	instructions := l.consolidate.instructions
+	startRef := l.startRef
+	l.mu.Unlock()
+
+	dir := l.effectiveWorkDir()
+	if !git.IsGitRepo(dir) {
+		return "", fmt.Errorf("%s is not a git repo", dir)
+	}
+	if startRef == "" {
+		return "", fmt.Errorf("no run start ref to scope this run's commits to")
+	}
+
+	p, err := prd.LoadPRD(l.prdPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to load PRD for consolidation: %w", err)
+	}
+	prdName := prdNameFromPath(l.prdPath)
+
+	refs := make([]git.StoryRef, 0, len(p.UserStories))
+	for _, s := range p.UserStories {
+		refs = append(refs, git.StoryRef{PRDName: prdName, ID: s.ID, Title: s.Title})
+	}
+	commits, err := git.CommitLogForStories(dir, refs, startRef)
+	if err != nil {
+		return "", fmt.Errorf("failed to collect this run's commits: %w", err)
+	}
+	if strings.TrimSpace(commits) == "" {
+		return "", fmt.Errorf("this run landed no story commits")
+	}
+
+	sinceSpec := startRef + "..HEAD"
+	return embed.GetConsolidatePrompt(prd.ProgressPath(l.prdPath), commits, sinceSpec, prdName, skill, instructions), nil
 }
 
 // buildReviewPrompt loads the PRD and builds the review-agent prompt for the

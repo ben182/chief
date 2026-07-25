@@ -31,6 +31,11 @@ review:
   skill: "/code-quality"        # optional project skill the review agent runs (Claude only)
   instructions: |               # optional free-form guidance for the review agent
     Watch for N+1 queries and make sure new behavior has tests.
+consolidate:
+  enabled: true                 # one refactor pass over the whole run, after the last story
+  skill: "/code-quality"        # optional project skill the consolidation agent runs (Claude only)
+  instructions: |               # optional free-form guidance for the consolidation agent
+    We keep all HTTP clients in internal/transport.
 ```
 
 ### Config Keys
@@ -53,6 +58,30 @@ review:
 When `review.enabled` is true, or either `review.skill` or `review.instructions` is set, Chief spawns a **separate agent with a fresh context** after each story's build agent has committed. It never sees the build agent's reasoning, so it reviews the committed changes adversarially — like a colleague reviewing a PR rather than the author re-checking their own work. It fixes anything it finds and amends the story's commit (keeping one commit per story). The review is best-effort: a review crash is logged but does not un-complete the story.
 
 See [The Review Agent](/concepts/code-review) for the full picture — why it's a separate agent, how it slots into the loop, and how the review prompt is assembled from your `skill`/`instructions`.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `consolidate.enabled` | bool | `false` | Run one **consolidation pass** over the whole run after the last story finishes: a single agent looks across every commit the run landed and refactors away the seams that no per-story review can see. Setting `consolidate.skill` or `consolidate.instructions` also enables it on its own. |
+| `consolidate.skill` | string | `""` | Name of a project skill (e.g. `/code-quality`) the consolidation agent runs as part of its pass. Claude-specific; other providers ignore it. Optional — setting it also enables the pass. |
+| `consolidate.instructions` | string | `""` | Free-form guidance for the consolidation agent (e.g. "we keep all HTTP clients in `internal/transport`"). Works with any provider. Optional — setting it also enables the pass. |
+
+The review agent judges **one story at a time**, which leaves a blind spot no per-story check can cover. Because every story is built by a separate agent with a fresh context, two stories can each grow their own helper for the same job, or introduce competing patterns for one concern — and both commits still look correct in isolation. The damage only becomes visible when someone finally looks at the whole run.
+
+The consolidation agent is that someone. It runs **once**, after the last story, and is the only agent that ever sees the entire run. What it looks for:
+
+- parallel implementations of the same thing in different stories,
+- competing patterns for one concern (two ways to handle errors, name things, access data),
+- near-duplicate code that wants one abstraction,
+- leftovers from abandoned approaches (dead code, unused helpers, debug output),
+- drift from the codebase's own conventions.
+
+Three properties keep it safe:
+
+- **Scoped to this run.** The pass only ever sees `StartRef..HEAD` — the commits *this* run landed. A followup run never reopens work an earlier run already reviewed, summarized or pushed. When the run landed no commits, or the window can't be determined, the pass is skipped rather than let loose on the whole branch.
+- **Pure refactor, own commit.** Behavior must not change, tests may not be bent to pass, and the work lands as one separate `refactor: consolidate <name> run` commit — never amended into a story commit — so it can be reviewed and reverted on its own. The prompt instructs the agent to run your project's checks and to **revert rather than commit** if it can't get them green.
+- **Never blocks the run.** Like the review, it's best-effort: a crash or an unfinished pass is surfaced as an event, but the stories stay done. It runs *before* the run summary and push, so the summary describes the consolidated result and the PR carries it.
+
+It's off by default, deliberately: it edits code that already worked and was already signed off.
 
 ### Example Configurations
 
