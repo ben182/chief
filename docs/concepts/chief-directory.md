@@ -88,6 +88,8 @@ A typical entry looks like:
 
 The `Codebase Patterns` section at the top of this file consolidates reusable patterns discovered across iterations — things like naming conventions, file locations, and architectural decisions that future iterations should follow.
 
+Two optional agents append their own entry types here. A configured review agent adds a `## <date> - US-003 (review)` note recording what it checked and changed. The [consolidation pass](/concepts/code-review#the-consolidation-pass), if enabled, appends one `## <date> - consolidation` entry at the end of the run — what it consolidated, out-of-scope findings it deliberately left for a human, and the pattern the run *should* have followed from the start. That last part matters more than it looks: it's written by the only agent that ever saw the whole run, and it's read by the next run's fresh-context agents before they start diverging again.
+
 ### `todos.md` (optional)
 
 A **follow-up inbox** you fill in by hand. `chief new` scaffolds an empty one
