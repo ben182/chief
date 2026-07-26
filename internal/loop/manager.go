@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ben182/chief/internal/awake"
 	"github.com/ben182/chief/internal/config"
 	"github.com/ben182/chief/internal/git"
 	"github.com/ben182/chief/internal/prd"
@@ -78,6 +79,7 @@ type Manager struct {
 	provider       Provider
 	baseDir        string         // Project root directory (for CLAUDE.md etc.)
 	config         *config.Config // Project config for post-completion actions
+	awake          *awake.Guard   // Keeps the machine from sleeping while loops run
 	mu             sync.RWMutex
 	wg             sync.WaitGroup
 	onComplete     func(prdName string)                  // Callback when a PRD completes
@@ -92,6 +94,7 @@ func NewManager(maxIter int, provider Provider) *Manager {
 		maxIter:     maxIter,
 		retryConfig: DefaultRetryConfig(),
 		provider:    provider,
+		awake:       awake.NewGuard(),
 	}
 }
 
@@ -280,6 +283,16 @@ func (m *Manager) Start(name string) error {
 // runLoop runs a loop instance and forwards events.
 func (m *Manager) runLoop(instance *LoopInstance) {
 	defer m.wg.Done()
+
+	// Hold the machine awake for as long as this loop runs. Nobody is at the
+	// keyboard during a run, so without this the OS idle-sleeps mid-story and the
+	// agent is frozen until someone comes back. The guard is reference counted, so
+	// parallel PRDs share one assertion and the machine is released when the last
+	// loop ends.
+	if cfg := m.Config(); cfg != nil && cfg.Loop.KeepAwake {
+		m.awake.Acquire()
+		defer m.awake.Release()
+	}
 
 	// Start event forwarding goroutine
 	done := make(chan struct{})

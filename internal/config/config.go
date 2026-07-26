@@ -92,6 +92,12 @@ type LoopConfig struct {
 	// killed. <= 0 uses the built-in default. Raise it when the agent runs long
 	// silent builds/tests that would otherwise trip the watchdog.
 	WatchdogTimeoutSeconds int `yaml:"watchdogTimeoutSeconds"`
+	// KeepAwake stops the machine from going to sleep while a loop is running.
+	// A run is a walk-away workflow, so nobody touches the keyboard for an hour
+	// and the OS suspends the machine mid-story. Currently macOS only
+	// (caffeinate); a no-op elsewhere. Takes effect when a loop starts, so
+	// toggling it mid-run applies from the next start onwards.
+	KeepAwake bool `yaml:"keepAwake"`
 }
 
 // AgentConfig holds agent CLI settings (Claude, Codex, OpenCode, or Cursor).
@@ -120,13 +126,15 @@ type OnCompleteConfig struct {
 	Summary bool `yaml:"summary"`
 }
 
-// Default returns a Config with default values. Notify and Summary default to
-// true so a walk-away run both pings the user and leaves a summary when it
-// finishes; yaml.Unmarshal only overrides keys that are present, so an explicit
-// `notify: false` / `summary: false` still disables them.
+// Default returns a Config with default values. Notify, Summary and KeepAwake
+// default to true so a walk-away run keeps the machine up while it works, then
+// pings the user and leaves a summary when it finishes; yaml.Unmarshal only
+// overrides keys that are present, so an explicit `notify: false` /
+// `summary: false` / `keepAwake: false` still disables them.
 func Default() *Config {
 	return &Config{
 		OnComplete: OnCompleteConfig{Notify: true, Summary: true},
+		Loop:       LoopConfig{KeepAwake: true},
 	}
 }
 

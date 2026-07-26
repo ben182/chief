@@ -62,6 +62,7 @@ func (s *SettingsOverlay) LoadFromConfig(cfg *config.Config) {
 		{Section: "On Complete", Label: "Create pull request", Key: "onComplete.createPR", Type: SettingsItemBool, BoolVal: cfg.OnComplete.CreatePR},
 		{Section: "On Complete", Label: "Write run summary", Key: "onComplete.summary", Type: SettingsItemBool, BoolVal: cfg.OnComplete.Summary},
 		{Section: "On Complete", Label: "Desktop notification", Key: "onComplete.notify", Type: SettingsItemBool, BoolVal: cfg.OnComplete.Notify},
+		{Section: "Loop", Label: "Keep machine awake", Key: "loop.keepAwake", Type: SettingsItemBool, BoolVal: cfg.Loop.KeepAwake},
 	}
 	s.selectedIndex = 0
 	s.editing = false
@@ -84,6 +85,8 @@ func (s *SettingsOverlay) ApplyToConfig(cfg *config.Config) {
 			cfg.OnComplete.Summary = item.BoolVal
 		case "onComplete.notify":
 			cfg.OnComplete.Notify = item.BoolVal
+		case "loop.keepAwake":
+			cfg.Loop.KeepAwake = item.BoolVal
 		}
 	}
 }

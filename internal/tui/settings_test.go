@@ -20,8 +20,8 @@ func TestSettingsOverlay_LoadFromConfig(t *testing.T) {
 	}
 	s.LoadFromConfig(cfg)
 
-	if len(s.items) != 5 {
-		t.Fatalf("expected 5 items, got %d", len(s.items))
+	if len(s.items) != 6 {
+		t.Fatalf("expected 6 items, got %d", len(s.items))
 	}
 	if s.items[0].Key != "worktree.setup" || s.items[0].StringVal != "npm install" {
 		t.Errorf("worktree.setup item: got key=%s val=%s", s.items[0].Key, s.items[0].StringVal)
@@ -37,6 +37,9 @@ func TestSettingsOverlay_LoadFromConfig(t *testing.T) {
 	}
 	if s.items[4].Key != "onComplete.notify" {
 		t.Errorf("onComplete.notify item: got key=%s", s.items[4].Key)
+	}
+	if s.items[5].Key != "loop.keepAwake" {
+		t.Errorf("loop.keepAwake item: got key=%s", s.items[5].Key)
 	}
 	if s.selectedIndex != 0 {
 		t.Errorf("expected selectedIndex=0, got %d", s.selectedIndex)
@@ -90,25 +93,26 @@ func TestSettingsOverlay_Navigation(t *testing.T) {
 		t.Errorf("expected index=3 after third MoveDown, got %d", s.selectedIndex)
 	}
 
-	s.MoveDown()
-	if s.selectedIndex != 4 {
-		t.Errorf("expected index=4 after fourth MoveDown, got %d", s.selectedIndex)
+	// Walk to the last item, then one past it: the selection must clamp. Expressed
+	// against len(items) so adding a setting doesn't break this test.
+	last := len(s.items) - 1
+	for s.selectedIndex < last {
+		s.MoveDown()
 	}
-
-	// Can't go beyond last item (5 items → last index 4)
 	s.MoveDown()
-	if s.selectedIndex != 4 {
-		t.Errorf("expected index=4 (clamped), got %d", s.selectedIndex)
+	if s.selectedIndex != last {
+		t.Errorf("expected index=%d (clamped), got %d", last, s.selectedIndex)
 	}
 
 	s.MoveUp()
-	if s.selectedIndex != 3 {
-		t.Errorf("expected index=3 after MoveUp, got %d", s.selectedIndex)
+	if s.selectedIndex != last-1 {
+		t.Errorf("expected index=%d after MoveUp, got %d", last-1, s.selectedIndex)
 	}
 
 	// Can't go before first item
-	s.MoveUp()
-	s.MoveUp()
+	for s.selectedIndex > 0 {
+		s.MoveUp()
+	}
 	s.MoveUp()
 	if s.selectedIndex != 0 {
 		t.Errorf("expected index=0 (clamped), got %d", s.selectedIndex)

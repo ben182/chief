@@ -174,6 +174,7 @@ onComplete:
   notify: true       # desktop notification when a run finishes
 loop:
   watchdogTimeoutSeconds: 0   # 0 = built-in default (5 min)
+  keepAwake: true     # stop the machine from sleeping while a loop runs (macOS)
 review:
   instructions: ""   # optional guidance to enable the separate review agent
 ```
