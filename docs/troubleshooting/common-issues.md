@@ -315,6 +315,28 @@ Chief automatically prunes git's internal worktree tracking on startup, but does
 
 See [Configuration → Appearance](/reference/configuration#appearance) for details.
 
+## The Machine Fell Asleep Mid-Run
+
+**Symptom:** You start a run, walk away, and come back to a loop that made far less progress than the elapsed time suggests — as if it only worked while you were sitting there.
+
+**Cause:** Nobody touches the keyboard during a run, so the OS counts the machine as idle and puts it to sleep mid-story. The agent is suspended along with it and only picks up again when you wake the machine.
+
+**Solution:**
+
+Chief holds a sleep assertion for the duration of a run, so this shouldn't happen with the default settings. If it does:
+
+- Confirm the setting is on — `,` → **Loop** → **Keep machine awake**, or `loop.keepAwake` in `.chief/config.yaml`. It's applied when a loop starts, so toggling it mid-run only takes effect from the next start.
+- Verify the assertion is actually held while a loop runs:
+  ```bash
+  pmset -g assertions | grep caffeinate
+  ```
+  You should see a `caffeinate` process `asserting on behalf of` Chief's PID.
+- **On a MacBook, open the lid.** A closed lid with no external display sleeps the machine regardless — no assertion can override that.
+- Only the machine is held awake, not the display: a screen that goes dark is expected and doesn't stop the loop.
+- Non-macOS platforms: Chief can't hold the assertion yet, so configure this at the OS level (e.g. `systemd-inhibit`, or your power settings).
+
+See [Configuration → `loop.keepAwake`](/reference/configuration#config-keys) for the full behavior.
+
 ## Still Stuck?
 
 If none of these solutions help:
