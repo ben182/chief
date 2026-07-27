@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ben182/chief/internal/git"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -15,6 +16,7 @@ const (
 	BranchOptionCreateBranch                              // Create branch only (no worktree)
 	BranchOptionContinue                                  // Continue on current branch / run in same directory
 	BranchOptionCancel                                    // Cancel
+	BranchOptionSyncWithRemote                            // Reconcile the branch with origin, then run
 )
 
 // DialogContext determines which set of options to show.
@@ -27,6 +29,9 @@ const (
 	DialogAnotherPRDRunning
 	// DialogNoConflicts: not protected, nothing else running in same dir
 	DialogNoConflicts
+	// DialogBranchBehindRemote: the branch this run would commit to is behind
+	// origin, so the run's push would be rejected hours later
+	DialogBranchBehindRemote
 )
 
 // dialogOption represents a single option in the dialog.
@@ -49,6 +54,7 @@ type BranchWarning struct {
 	branchName    string // The current branch name (editable)
 	context       DialogContext
 	options       []dialogOption
+	sync          git.BranchSync // Only meaningful for DialogBranchBehindRemote
 }
 
 // NewBranchWarning creates a new branch warning dialog.
@@ -76,6 +82,17 @@ func (b *BranchWarning) SetContext(currentBranch, prdName, worktreePath string) 
 func (b *BranchWarning) SetDialogContext(ctx DialogContext) {
 	b.context = ctx
 	b.buildOptions()
+}
+
+// SetSyncState records how the branch relates to origin and points the dialog at
+// the branch in question, which for this context is the branch the loop will
+// commit to rather than one derived from the PRD name. Call before
+// SetDialogContext(DialogBranchBehindRemote) so the options can reflect whether
+// reconciling is a fast-forward or a rebase.
+func (b *BranchWarning) SetSyncState(branch string, sync git.BranchSync) {
+	b.branchName = branch
+	b.currentBranch = branch
+	b.sync = sync
 }
 
 // buildOptions creates the option list based on the dialog context.
@@ -140,6 +157,34 @@ func (b *BranchWarning) buildOptions() {
 				option: BranchOptionCancel,
 			},
 		}
+
+	case DialogBranchBehindRemote:
+		// A fast-forward just moves the branch onto the remote tip; with local
+		// commits of our own it takes a rebase, which can conflict. Name which one
+		// it will be so the user knows what they're agreeing to.
+		syncLabel := fmt.Sprintf("Rebase onto origin/%s", b.branchName)
+		syncHint := "replays your local commits on top"
+		if b.sync.FastForwardable() {
+			syncLabel = fmt.Sprintf("Fast-forward to origin/%s", b.branchName)
+			syncHint = "no local commits to replay"
+		}
+		b.options = []dialogOption{
+			{
+				label:       syncLabel,
+				hint:        syncHint,
+				recommended: true,
+				option:      BranchOptionSyncWithRemote,
+			},
+			{
+				label:  "Start anyway",
+				hint:   "the push at the end will be rejected",
+				option: BranchOptionContinue,
+			},
+			{
+				label:  "Cancel",
+				option: BranchOptionCancel,
+			},
+		}
 	}
 }
 
@@ -175,11 +220,15 @@ func (b *BranchWarning) GetDialogContext() DialogContext {
 	return b.context
 }
 
-// Reset resets the dialog state.
+// Reset resets the dialog state. The branch name is only re-derived from the PRD
+// name for contexts where it is a suggestion the user may edit — when warning
+// about divergence it names an existing branch, which must survive the reset.
 func (b *BranchWarning) Reset() {
 	b.selectedIndex = 0
 	b.editMode = false
-	b.branchName = fmt.Sprintf("chief/%s", b.prdName)
+	if b.context != DialogBranchBehindRemote {
+		b.branchName = fmt.Sprintf("chief/%s", b.prdName)
+	}
 }
 
 // IsEditMode returns true if the branch name is being edited.
@@ -244,15 +293,20 @@ func (b *BranchWarning) Render() string {
 	content.WriteString("\n")
 
 	footerStyle := lipgloss.NewStyle().Foreground(MutedColor)
-	if b.editMode {
+	switch {
+	case b.editMode:
 		content.WriteString(footerStyle.Render("Enter: confirm  Esc: cancel edit"))
-	} else {
+	case b.context == DialogBranchBehindRemote:
+		// No option here creates a branch, so offering to edit its name would only
+		// mislead.
+		content.WriteString(footerStyle.Render("↑/↓: Navigate  Enter: Select  Esc: Cancel"))
+	default:
 		content.WriteString(footerStyle.Render("↑/↓: Navigate  Enter: Select  e: Edit branch  Esc: Cancel"))
 	}
 
-	// Modal box style - use warning color for protected branch, primary for others
+	// Modal box style - warning color where we're flagging a hazard, primary otherwise
 	borderColor := PrimaryColor
-	if b.context == DialogProtectedBranch {
+	if b.context == DialogProtectedBranch || b.context == DialogBranchBehindRemote {
 		borderColor = WarningColor
 	}
 
@@ -302,7 +356,34 @@ func (b *BranchWarning) renderHeader(content *strings.Builder, modalWidth int) {
 		messageStyle := lipgloss.NewStyle().Foreground(TextColor)
 		content.WriteString(messageStyle.Render("Choose where Claude should work:"))
 		content.WriteString("\n\n")
+
+	case DialogBranchBehindRemote:
+		content.WriteString(titleStyle.Foreground(WarningColor).Render("⚠️  Branch Behind Remote"))
+		content.WriteString("\n")
+		content.WriteString(dividerLine(modalWidth))
+		content.WriteString("\n\n")
+
+		messageStyle := lipgloss.NewStyle().Foreground(TextColor)
+		content.WriteString(messageStyle.Render(fmt.Sprintf(
+			"origin has %s this branch doesn't.", pluralCommits(b.sync.Behind))))
+		content.WriteString("\n")
+		if b.sync.Ahead > 0 {
+			content.WriteString(messageStyle.Render(fmt.Sprintf(
+				"You have %s it hasn't.", pluralCommits(b.sync.Ahead))))
+			content.WriteString("\n")
+		}
+		content.WriteString(messageStyle.Render("Pushing this run would be rejected."))
+		content.WriteString("\n\n")
 	}
+}
+
+// pluralCommits renders a commit count with the right noun, for prose like
+// "origin has 1 commit this branch doesn't".
+func pluralCommits(n int) string {
+	if n == 1 {
+		return "1 commit"
+	}
+	return fmt.Sprintf("%d commits", n)
 }
 
 // renderBranchName renders the branch name display/editor.

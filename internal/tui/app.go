@@ -73,6 +73,7 @@ type App struct {
 	branchWarning       *BranchWarning
 	pendingStartPRD     string // PRD name waiting to start after branch decision
 	pendingWorktreePath string // Absolute worktree path for pending PRD
+	pendingSyncBranch   string // Branch awaiting reconciliation with origin, for DialogBranchBehindRemote
 
 	// Worktree setup spinner
 	worktreeSpinner *WorktreeSpinner
@@ -94,6 +95,11 @@ type App struct {
 	// "Reviewing" tag instead of advancing to the next story.
 	reviewingStoryID map[string]string
 	totalCost        float64 // cumulative cost across all stories this run
+
+	// branchSyncChecked records which PRDs have had their branch compared against
+	// origin, so the check (which fetches, and may raise a dialog) runs once per
+	// start rather than re-firing when the interrupted start resumes.
+	branchSyncChecked map[string]bool
 
 	// Settings overlay
 	settingsOverlay *SettingsOverlay
@@ -233,6 +239,7 @@ func NewAppWithOptions(prdPath string, maxIter int, provider loop.Provider) (*Ap
 		currentStoryCost:   make(map[string]float64),
 		currentStoryTokens: make(map[string]TokenUsage),
 		reviewingStoryID:   make(map[string]string),
+		branchSyncChecked:  make(map[string]bool),
 	}
 	// Signal in the story-done marker that a review still follows, so the reader
 	// knows the build agent's <chief-done/> isn't the final word on the story.
@@ -352,6 +359,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case summaryResultMsg:
 		return a.handleSummaryResult(msg)
+
+	case branchSyncCheckMsg:
+		return a.handleBranchSyncCheck(msg)
+
+	case branchSyncResultMsg:
+		return a.handleBranchSyncResult(msg)
 
 	case backgroundAutoActionResultMsg:
 		return a.handleBackgroundAutoAction(msg)
@@ -755,6 +768,7 @@ func (a App) handleBranchWarningKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.viewMode = ViewDashboard
 		a.pendingStartPRD = ""
 		a.pendingWorktreePath = ""
+		a.pendingSyncBranch = ""
 		a.lastActivity = "Cancelled"
 		return a, nil
 
@@ -777,11 +791,17 @@ func (a App) handleBranchWarningKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		prdName := a.pendingStartPRD
 		prdDir := prd.PRDDir(a.baseDir, prdName)
+		syncBranch := a.pendingSyncBranch
 		a.pendingStartPRD = ""
 		a.pendingWorktreePath = ""
+		a.pendingSyncBranch = ""
 		a.viewMode = ViewDashboard
 
 		switch a.branchWarning.GetSelectedOption() {
+		case BranchOptionSyncWithRemote:
+			a.lastActivity = "Syncing " + syncBranch + " with origin..."
+			return a, a.runBranchSync(prdName, prdDir, syncBranch)
+
 		case BranchOptionCreateWorktree:
 			branchName := a.branchWarning.GetSuggestedBranch()
 			worktreePath := git.WorktreePathForPRD(a.baseDir, prdName)

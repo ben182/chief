@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"github.com/ben182/chief/internal/git"
 	"github.com/ben182/chief/internal/loop"
 	"github.com/ben182/chief/internal/prd"
 )
@@ -111,6 +112,25 @@ type worktreeStepResultMsg struct {
 
 // worktreeSpinnerTickMsg is sent to animate the worktree setup spinner.
 type worktreeSpinnerTickMsg struct{}
+
+// branchSyncCheckMsg carries the result of the pre-run check comparing the branch
+// a loop is about to commit to against origin. prdDir is carried through so the
+// handler can resume the start it interrupted.
+type branchSyncCheckMsg struct {
+	prdName string
+	prdDir  string
+	branch  string
+	sync    git.BranchSync
+}
+
+// branchSyncResultMsg is sent when reconciling a diverged branch with origin
+// finishes, so the interrupted start can resume (or report why it can't).
+type branchSyncResultMsg struct {
+	prdName string
+	prdDir  string
+	branch  string
+	err     error
+}
 
 // elapsedTickMsg is sent every second to update the elapsed time display.
 type elapsedTickMsg struct{}

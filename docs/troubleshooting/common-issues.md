@@ -263,6 +263,32 @@ tail -100 .chief/prds/your-prd/claude-*.log
 
 5. Auto-PR can be disabled in Settings (`,`) — push-only mode still works
 
+## Push Rejected: Branch Behind Remote
+
+**Symptom:** A finished run reports `Push failed: ... ! [rejected] chief/<name> -> chief/<name> (non-fast-forward)` on the completion screen, with a hint that the branch "is behind its remote counterpart".
+
+**Cause:** `origin/chief/<name>` has commits the local branch doesn't. The usual routes there are cleaning the local branch after it had already been pushed (so it gets recreated from the default branch), or running the same PRD on a second machine that pushed first.
+
+Nothing is lost when this happens — every story commit is still on the local branch. Only the push was refused.
+
+**Solution:**
+
+Chief now checks for this *before* a run starts, so you normally see a "Branch Behind Remote" dialog instead of a failed push hours later. It offers to fast-forward (when the branch has no local commits of its own) or rebase onto `origin/<branch>` (when it does), and names which one it will do. "Start anyway" runs regardless and the push will still be rejected at the end.
+
+To recover a run that already finished this way:
+
+```bash
+git fetch origin chief/<prd-name>
+git rebase FETCH_HEAD          # or: git merge --ff-only FETCH_HEAD
+git push -u origin chief/<prd-name>
+```
+
+If the rebase conflicts, resolve it and `git rebase --continue`, or `git rebase --abort` to get back to where you were.
+
+Do **not** reach for `git push --force` here: the remote commits are ones your branch doesn't have, so forcing would discard them.
+
+The preflight check needs to reach `origin`. When it can't — offline, no remote, or a branch the remote has never seen — the run starts normally rather than being blocked. Worktree runs and protected branches (`main`/`master`) are skipped, since neither is a branch Chief auto-pushes into an existing remote history.
+
 ## Orphaned Worktrees
 
 **Symptom:** The picker shows entries marked `[orphaned]` or `[orphaned worktree]`.

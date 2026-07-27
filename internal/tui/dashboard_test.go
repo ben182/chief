@@ -23,6 +23,7 @@ func newTestApp(stories []prd.UserStory, width, height int) *App {
 		currentStoryCost:   make(map[string]float64),
 		currentStoryTokens: make(map[string]TokenUsage),
 		reviewingStoryID:   make(map[string]string),
+		branchSyncChecked:  make(map[string]bool),
 	}
 }
 

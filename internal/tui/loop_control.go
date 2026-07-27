@@ -86,6 +86,12 @@ func (a *App) isAnotherPRDRunningInSameDir(prdName string) bool {
 
 // doStartLoop actually starts the loop (after branch check).
 func (a App) doStartLoop(prdName, prdDir string) (tea.Model, tea.Cmd) {
+	// Every start path funnels through here, so this is where the branch gets its
+	// last look before hours of work land on it.
+	if cmd := a.branchSyncPreflight(prdName, prdDir); cmd != nil {
+		return a, cmd
+	}
+
 	// Check if this PRD is registered, if not register it
 	if instance := a.manager.GetInstance(prdName); instance == nil {
 		// Find the PRD path, preferring the already-known one (handles the legacy
