@@ -36,7 +36,21 @@ func ProgressPath(prdPath string) string {
 	return filepath.Join(filepath.Dir(prdPath), "progress.md")
 }
 
-var storyHeaderRegex = regexp.MustCompile(`^## (\d{4}-\d{2}-\d{2}) - (.+)$`)
+// storyHeaderRegex matches a progress section heading. The prompt asks for
+// "## [Date/Time] - [Story ID]" and leaves both halves free-form, so agents
+// write local date formats, append a time, or tag the section "(review)".
+// Insisting on an ISO date dropped whole runs on the floor: everything the
+// agent wrote after the first section was parsed as body text of no story, and
+// the dashboard showed no progress notes at all. Split at the first " - "
+// instead and let normalizeStoryID sort out the right-hand side. A heading
+// without that separator ("## Codebase Patterns") is not a story section.
+var storyHeaderRegex = regexp.MustCompile(`^##\s+(.+?)\s+-\s+(.+?)\s*$`)
+
+// storyIDPrefixRegex pulls the bare ID out of a heading's right-hand side, so
+// "IMAX-008 (review)" and "US-001 - Login flow" both file under the story they
+// belong to. Headings that carry no such ID (e.g. "consolidation") keep their
+// text as the key and simply match no story.
+var storyIDPrefixRegex = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9_]*-\d+)\b`)
 
 // timingCommentRegex matches a chief-owned timing record. It is written as an
 // HTML comment so it stays invisible in rendered markdown, and is stripped from
@@ -108,7 +122,7 @@ func ParseProgressFile(path string) (map[string][]ProgressEntry, []Timing, error
 			flush()
 			current = &ProgressEntry{
 				Date:    matches[1],
-				StoryID: matches[2],
+				StoryID: normalizeStoryID(matches[2]),
 			}
 			continue
 		}
@@ -126,6 +140,19 @@ func ParseProgressFile(path string) (map[string][]ProgressEntry, []Timing, error
 		return entries, timings, err
 	}
 	return entries, timings, nil
+}
+
+// normalizeStoryID reduces the right-hand side of a progress heading to the
+// story ID progress entries are keyed by. Everything after the ID — "(review)",
+// a repeated title, a colon and a summary — is decoration from the agent and
+// would otherwise split one story's notes across several keys, none of which
+// match the story in prd.md.
+func normalizeStoryID(s string) string {
+	s = strings.TrimSpace(s)
+	if m := storyIDPrefixRegex.FindStringSubmatch(s); m != nil {
+		return m[1]
+	}
+	return s
 }
 
 // ParseProgress reads and parses a progress.md file.

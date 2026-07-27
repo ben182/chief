@@ -332,3 +332,63 @@ func TestParseTimings_LatestWinsPerStory(t *testing.T) {
 		t.Errorf("expected US-002 with duration 500, got %+v", got[1])
 	}
 }
+
+// TestParseProgress_HeadingVariants covers the headings agents actually write.
+// The prompt only asks for "## [Date/Time] - [Story ID]", so the date half is
+// whatever the agent's locale suggests and the ID half often carries a "(review)"
+// tag or a repeated title. All of them are progress for the story they name.
+func TestParseProgress_HeadingVariants(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "progress.md")
+
+	content := `## Codebase Patterns
+- Tests run through the CLI edge
+---
+
+## 2026-02-20 - US-001
+- Built the thing
+---
+
+## 20.02.2026 22:15 - US-001 (review)
+- Reviewed the thing
+---
+
+## 21.02.2026 - US-002 - Login flow
+- Built the other thing
+---
+
+## 2026-02-21 - consolidation
+- Merged two helpers
+---
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	entries, err := ParseProgress(path)
+	if err != nil {
+		t.Fatalf("ParseProgress failed: %v", err)
+	}
+
+	// Build and review notes belong to the same story.
+	if got := len(entries["US-001"]); got != 2 {
+		t.Fatalf("expected 2 entries for US-001 (build + review), got %d", got)
+	}
+	if !strings.Contains(entries["US-001"][1].Content, "Reviewed the thing") {
+		t.Errorf("review notes did not land on US-001: %q", entries["US-001"][1].Content)
+	}
+	if date := entries["US-001"][1].Date; date != "20.02.2026 22:15" {
+		t.Errorf("expected the heading's date half kept verbatim, got %q", date)
+	}
+	// A title appended after the ID must not create a second key.
+	if got := len(entries["US-002"]); got != 1 {
+		t.Fatalf("expected 1 entry for US-002, got %d", got)
+	}
+	// A heading without " - " is a document section, not a story.
+	if _, ok := entries["Codebase Patterns"]; ok {
+		t.Errorf("plain section heading was parsed as a story")
+	}
+	if !strings.Contains(entries["consolidation"][0].Content, "Merged two helpers") {
+		t.Errorf("non-story heading lost its content")
+	}
+}
