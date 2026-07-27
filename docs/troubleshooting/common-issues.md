@@ -347,6 +347,8 @@ See [Configuration → Appearance](/reference/configuration#appearance) for deta
 
 **Cause:** Nobody touches the keyboard during a run, so the OS counts the machine as idle and puts it to sleep mid-story. The agent is suspended along with it and only picks up again when you wake the machine.
 
+**How to confirm:** The completion screen adds a line like `Mac slept 56m00s during the run` whenever it detected a nap. Every duration Chief shows — per-story times, `Completed in`, the ETA — is working time and stops with the machine, so that line is what accounts for the difference against the clock on the wall. No line means no sleep was detected. The figure isn't saved anywhere: a restarted Chief starts counting again from zero.
+
 **Solution:**
 
 Chief holds a sleep assertion for the duration of a run, so this shouldn't happen with the default settings. It also warns you before a run starts when it can see the risk up front — on battery, or with `loop.keepAwake` switched off — with a **Mac May Fall Asleep Mid-Run** dialog offering *Start anyway* / *Cancel*. The dialog asks again on every start, and stays out of the way when the power source can't be determined. If a run still slept through:

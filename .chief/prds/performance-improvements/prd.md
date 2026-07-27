@@ -97,28 +97,29 @@ nicht erst nach Stunden merke, dass der Run 56 Minuten lang geschlafen hat.
       wie die Branch-Warnung
 
 ### PERF-003: Geschlafene Zeit im Abschluss-Screen
+**Status:** done
 **Priority:** 3
 **Description:** Als Ben möchte ich nach einem Run sehen, ob und wie lange der
 Mac währenddessen geschlafen hat, damit ich verstehe, warum die Wanduhrzeit von
 der angezeigten Arbeitszeit abweicht.
 
 **Acceptance Criteria:**
-- [ ] chief erkennt Systemschlaf während eines Runs durch periodischen Vergleich
+- [x] chief erkennt Systemschlaf während eines Runs durch periodischen Vergleich
       von Wanduhr und monotoner Uhr; eine Lücke von mehr als 1 Minute zählt als
       Schlaf
-- [ ] Mehrere Schlafphasen innerhalb eines Runs werden aufsummiert
-- [ ] Hat der Mac während des Runs geschlafen, zeigt der bestehende
+- [x] Mehrere Schlafphasen innerhalb eines Runs werden aufsummiert
+- [x] Hat der Mac während des Runs geschlafen, zeigt der bestehende
       Abschluss-Screen (Completion-Modal) eine zusätzliche Zeile im Stil
       „Mac schlief 56m während des Runs" unterhalb der „Completed in …"-Zeile;
       die Modal-Höhe wächst entsprechend mit
-- [ ] Ohne erkannten Schlaf erscheint keine solche Zeile und der
+- [x] Ohne erkannten Schlaf erscheint keine solche Zeile und der
       Abschluss-Screen sieht aus wie heute
-- [ ] Während des Runs erscheint keine Live-Warnung; Dashboard und Log bleiben
+- [x] Während des Runs erscheint keine Live-Warnung; Dashboard und Log bleiben
       unverändert
-- [ ] Angezeigte Story-Zeiten, Gesamtzeit und ETA bleiben reine Arbeitszeit
+- [x] Angezeigte Story-Zeiten, Gesamtzeit und ETA bleiben reine Arbeitszeit
       (monotone Messung wie heute); die geschlafene Zeit wird separat
       ausgewiesen, nicht eingerechnet
-- [ ] Die geschlafene Zeit wird nicht persistiert; nach einem chief-Neustart
+- [x] Die geschlafene Zeit wird nicht persistiert; nach einem chief-Neustart
       beginnt die Zählung bei null
 
 ### PERF-004: Build-Agent liest progress.md gezielt statt komplett

@@ -42,7 +42,7 @@ func (a *App) showCompletionScreen(prdName string) tea.Cmd {
 	hasAutoActions := a.config != nil && (a.config.OnComplete.Push || a.config.OnComplete.CreatePR)
 
 	totalDuration := a.GetElapsedTime()
-	a.completionScreen.Configure(prdName, completed, total, branch, commitCount, hasAutoActions, totalDuration, a.storyTimings[prdName], a.totalCost)
+	a.completionScreen.Configure(prdName, completed, total, branch, commitCount, hasAutoActions, totalDuration, a.sleptDuringRun(), a.storyTimings[prdName], a.totalCost)
 	a.completionScreen.SetSize(a.width, a.height)
 	a.viewMode = ViewCompletion
 

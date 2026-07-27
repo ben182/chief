@@ -3,13 +3,14 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ben182/chief/internal/git"
 )
 
 func TestCompletionScreen_Configure(t *testing.T) {
 	cs := NewCompletionScreen()
-	cs.Configure("auth", 8, 10, "chief/auth", 5, true, 0, nil, 0)
+	cs.Configure("auth", 8, 10, "chief/auth", 5, true, 0, 0, nil, 0)
 
 	if cs.PRDName() != "auth" {
 		t.Errorf("expected prdName 'auth', got '%s'", cs.PRDName())
@@ -24,7 +25,7 @@ func TestCompletionScreen_Configure(t *testing.T) {
 
 func TestCompletionScreen_NoBranch(t *testing.T) {
 	cs := NewCompletionScreen()
-	cs.Configure("auth", 8, 8, "", 0, false, 0, nil, 0)
+	cs.Configure("auth", 8, 8, "", 0, false, 0, 0, nil, 0)
 
 	if cs.HasBranch() {
 		t.Error("expected HasBranch() to be false when branch is empty")
@@ -33,7 +34,7 @@ func TestCompletionScreen_NoBranch(t *testing.T) {
 
 func TestCompletionScreen_RenderHeader(t *testing.T) {
 	cs := NewCompletionScreen()
-	cs.Configure("auth", 8, 10, "chief/auth", 5, true, 0, nil, 0)
+	cs.Configure("auth", 8, 10, "chief/auth", 5, true, 0, 0, nil, 0)
 	cs.SetSize(80, 40)
 
 	rendered := cs.Render()
@@ -50,7 +51,7 @@ func TestCompletionScreen_RenderHeader(t *testing.T) {
 
 func TestCompletionScreen_RenderBranchInfo(t *testing.T) {
 	cs := NewCompletionScreen()
-	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, nil, 0)
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, 0, nil, 0)
 	cs.SetSize(80, 40)
 
 	rendered := cs.Render()
@@ -64,7 +65,7 @@ func TestCompletionScreen_RenderBranchInfo(t *testing.T) {
 
 func TestCompletionScreen_RenderSingleCommit(t *testing.T) {
 	cs := NewCompletionScreen()
-	cs.Configure("auth", 1, 1, "chief/auth", 1, false, 0, nil, 0)
+	cs.Configure("auth", 1, 1, "chief/auth", 1, false, 0, 0, nil, 0)
 	cs.SetSize(80, 40)
 
 	rendered := cs.Render()
@@ -75,7 +76,7 @@ func TestCompletionScreen_RenderSingleCommit(t *testing.T) {
 
 func TestCompletionScreen_RenderNoBranch(t *testing.T) {
 	cs := NewCompletionScreen()
-	cs.Configure("auth", 8, 8, "", 0, false, 0, nil, 0)
+	cs.Configure("auth", 8, 8, "", 0, false, 0, 0, nil, 0)
 	cs.SetSize(80, 40)
 
 	rendered := cs.Render()
@@ -89,7 +90,7 @@ func TestCompletionScreen_RenderNoBranch(t *testing.T) {
 
 func TestCompletionScreen_RenderNoAutoActions(t *testing.T) {
 	cs := NewCompletionScreen()
-	cs.Configure("auth", 8, 8, "chief/auth", 5, false, 0, nil, 0)
+	cs.Configure("auth", 8, 8, "chief/auth", 5, false, 0, 0, nil, 0)
 	cs.SetSize(80, 40)
 
 	rendered := cs.Render()
@@ -100,7 +101,7 @@ func TestCompletionScreen_RenderNoAutoActions(t *testing.T) {
 
 func TestCompletionScreen_RenderWithAutoActions(t *testing.T) {
 	cs := NewCompletionScreen()
-	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, nil, 0)
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, 0, nil, 0)
 	cs.SetSize(80, 40)
 
 	rendered := cs.Render()
@@ -111,7 +112,7 @@ func TestCompletionScreen_RenderWithAutoActions(t *testing.T) {
 
 func TestCompletionScreen_RenderFooterWithBranch(t *testing.T) {
 	cs := NewCompletionScreen()
-	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, nil, 0)
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, 0, nil, 0)
 	cs.SetSize(80, 40)
 
 	rendered := cs.Render()
@@ -131,7 +132,7 @@ func TestCompletionScreen_RenderFooterWithBranch(t *testing.T) {
 
 func TestCompletionScreen_RenderFooterNoBranch(t *testing.T) {
 	cs := NewCompletionScreen()
-	cs.Configure("auth", 8, 8, "", 0, false, 0, nil, 0)
+	cs.Configure("auth", 8, 8, "", 0, false, 0, 0, nil, 0)
 	cs.SetSize(80, 40)
 
 	rendered := cs.Render()
@@ -151,7 +152,7 @@ func TestCompletionScreen_RenderFooterNoBranch(t *testing.T) {
 
 func TestCompletionScreen_PushInProgress(t *testing.T) {
 	cs := NewCompletionScreen()
-	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, nil, 0)
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, 0, nil, 0)
 	cs.SetPushInProgress()
 	cs.SetSize(80, 40)
 
@@ -169,7 +170,7 @@ func TestCompletionScreen_PushInProgress(t *testing.T) {
 
 func TestCompletionScreen_PushSuccess(t *testing.T) {
 	cs := NewCompletionScreen()
-	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, nil, 0)
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, 0, nil, 0)
 	cs.SetPushSuccess()
 	cs.SetSize(80, 40)
 
@@ -185,7 +186,7 @@ func TestCompletionScreen_PushSuccess(t *testing.T) {
 
 func TestCompletionScreen_PushError(t *testing.T) {
 	cs := NewCompletionScreen()
-	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, nil, 0)
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, 0, nil, 0)
 	cs.SetPushError("authentication failed")
 	cs.SetSize(80, 40)
 
@@ -200,7 +201,7 @@ func TestCompletionScreen_PushError(t *testing.T) {
 
 func TestCompletionScreen_PRInProgress(t *testing.T) {
 	cs := NewCompletionScreen()
-	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, nil, 0)
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, 0, nil, 0)
 	cs.SetPushSuccess()
 	cs.SetPRInProgress()
 	cs.SetSize(80, 40)
@@ -216,7 +217,7 @@ func TestCompletionScreen_PRInProgress(t *testing.T) {
 
 func TestCompletionScreen_PRSuccess(t *testing.T) {
 	cs := NewCompletionScreen()
-	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, nil, 0)
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, 0, nil, 0)
 	cs.SetPushSuccess()
 	cs.SetPRSuccess(git.PR{
 		URL:   "https://github.com/org/repo/pull/42",
@@ -247,7 +248,7 @@ func TestCompletionScreen_PRSuccess(t *testing.T) {
 // to say so rather than claim it opened a second one.
 func TestCompletionScreen_PRAlreadyOpen(t *testing.T) {
 	cs := NewCompletionScreen()
-	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, nil, 0)
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, 0, nil, 0)
 	cs.SetPushSuccess()
 	cs.SetPRSuccess(git.PR{
 		URL:            "https://github.com/org/repo/pull/42",
@@ -271,7 +272,7 @@ func TestCompletionScreen_PRAlreadyOpen(t *testing.T) {
 
 func TestCompletionScreen_PRError(t *testing.T) {
 	cs := NewCompletionScreen()
-	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, nil, 0)
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, 0, nil, 0)
 	cs.SetPushSuccess()
 	cs.SetPRError("gh not found, Install: https://cli.github.com")
 	cs.SetSize(80, 40)
@@ -287,12 +288,12 @@ func TestCompletionScreen_PRError(t *testing.T) {
 
 func TestCompletionScreen_ConfigureResetsAutoActions(t *testing.T) {
 	cs := NewCompletionScreen()
-	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, nil, 0)
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, 0, nil, 0)
 	cs.SetPushSuccess()
 	cs.SetPRSuccess(git.PR{URL: "https://example.com", Title: "title"})
 
 	// Reconfigure should reset
-	cs.Configure("payments", 3, 5, "chief/payments", 2, false, 0, nil, 0)
+	cs.Configure("payments", 3, 5, "chief/payments", 2, false, 0, 0, nil, 0)
 
 	if cs.pushState != AutoActionIdle {
 		t.Error("expected push state to be reset after Configure")
@@ -307,7 +308,7 @@ func TestCompletionScreen_ConfigureResetsAutoActions(t *testing.T) {
 
 func TestCompletionScreen_Tick(t *testing.T) {
 	cs := NewCompletionScreen()
-	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, nil, 0)
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, 0, nil, 0)
 	cs.SetPushInProgress()
 
 	initial := cs.spinnerFrame
@@ -319,7 +320,7 @@ func TestCompletionScreen_Tick(t *testing.T) {
 
 func TestCompletionScreen_PushErrorNonBlocking(t *testing.T) {
 	cs := NewCompletionScreen()
-	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, nil, 0)
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, 0, nil, 0)
 	cs.SetPushError("network error")
 	cs.SetSize(80, 40)
 
@@ -330,6 +331,52 @@ func TestCompletionScreen_PushErrorNonBlocking(t *testing.T) {
 	}
 	if !strings.Contains(rendered, "q: quit") {
 		t.Error("expected 'q: quit' in footer after error")
+	}
+}
+
+// A run whose machine dozed off has to say so, otherwise the working time on
+// screen silently contradicts the clock on the wall.
+func TestCompletionScreen_RendersSleptTime(t *testing.T) {
+	cs := NewCompletionScreen()
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 2*time.Hour+53*time.Minute, 56*time.Minute, nil, 0)
+	cs.SetSize(80, 40)
+
+	rendered := cs.Render()
+	if !strings.Contains(rendered, "Mac slept 56m00s during the run") {
+		t.Errorf("expected the slept-time line in render output, got:\n%s", rendered)
+	}
+	// The run's own duration stays working time — the nap is reported beside it,
+	// not folded into it.
+	if !strings.Contains(rendered, "Completed in 2h53m00s") {
+		t.Errorf("expected the working time to be unchanged by sleep, got:\n%s", rendered)
+	}
+}
+
+func TestCompletionScreen_NoSleptTimeLineWithoutSleep(t *testing.T) {
+	cs := NewCompletionScreen()
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 2*time.Hour, 0, nil, 0)
+	cs.SetSize(80, 40)
+
+	rendered := cs.Render()
+	if strings.Contains(rendered, "slept") {
+		t.Errorf("expected no slept-time line when nothing was detected, got:\n%s", rendered)
+	}
+}
+
+// The line needs a row of its own, or it pushes the footer out of the box.
+func TestCompletionScreen_SleptTimeGrowsModal(t *testing.T) {
+	timings := []StoryTiming{{StoryID: "AUTH-1", Title: "Login", Duration: time.Minute}}
+
+	awake := NewCompletionScreen()
+	awake.Configure("auth", 8, 8, "chief/auth", 5, true, 2*time.Hour, 0, timings, 0)
+	awake.SetSize(80, 40)
+
+	slept := NewCompletionScreen()
+	slept.Configure("auth", 8, 8, "chief/auth", 5, true, 2*time.Hour, 56*time.Minute, timings, 0)
+	slept.SetSize(80, 40)
+
+	if got, want := slept.calculateModalHeight(), awake.calculateModalHeight()+1; got != want {
+		t.Errorf("modal height with slept line = %d, want %d", got, want)
 	}
 }
 

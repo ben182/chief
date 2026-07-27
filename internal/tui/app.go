@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ben182/chief/internal/awake"
 	"github.com/ben182/chief/internal/config"
 	"github.com/ben182/chief/internal/git"
 	"github.com/ben182/chief/internal/loop"
@@ -83,6 +84,13 @@ type App struct {
 	// the developer's power state or operating system. Nil means "don't ask", which
 	// is the same fail-open answer as a probe that can't tell.
 	sleepCheck sleepCheck
+
+	// sleepTracker notices when the machine was suspended mid-run, so the
+	// completion screen can account for the difference between the run's working
+	// time and the clock on the wall. An interface rather than the concrete
+	// tracker so tests can drive the wiring without staging a real suspend. Nil in
+	// hand-built App literals, which then simply report no sleep.
+	sleepTracker sleepTracker
 
 	// Worktree setup spinner
 	worktreeSpinner *WorktreeSpinner
@@ -239,6 +247,7 @@ func NewAppWithOptions(prdPath string, maxIter int, provider loop.Provider) (*Ap
 		branchWarning:    NewBranchWarning(),
 		sleepWarning:     NewSleepWarning(),
 		sleepCheck:       systemSleepCheck,
+		sleepTracker:     awake.NewSleepTracker(),
 		worktreeSpinner:  NewWorktreeSpinner(),
 		completionScreen: NewCompletionScreen(),
 		settingsOverlay:  NewSettingsOverlay(),
@@ -399,6 +408,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case elapsedTickMsg:
 		if a.state == StateRunning {
+			// The wall clock runs on while the machine is suspended and the monotonic
+			// clock does not, so this per-second heartbeat is where a nap shows up. No
+			// live warning comes of it — the finding is only reported once the run is
+			// over, since there is nothing the user can do about it mid-run anyway.
+			if a.sleepTracker != nil {
+				a.sleepTracker.Sample()
+			}
 			return a, tickElapsed()
 		}
 		return a, nil

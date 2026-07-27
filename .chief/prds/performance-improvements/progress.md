@@ -33,6 +33,23 @@
   über einen injizierbaren Funktions-Seam als Feld am `App`/Struct (Muster:
   `App.sleepCheck`, `awake.Guard.newCmd`). Nil-Seam = fail open, dann müssen
   bestehende Tests mit handgebauten Struct-Literalen nicht angefasst werden.
+  Soll der Test *Aufrufe zählen* (nicht nur eine Antwort liefern), reicht ein
+  Funktions-Seam nicht — dann ein kleines Interface als Feld (Muster:
+  `tui.sleepTracker` mit `Sample`/`SleptSince`), und am Aufrufort auf nil prüfen,
+  weil ein nil-Interface beim Methodenaufruf panict.
+- **Fragen parametrisieren statt Zwischenstand beim Aufrufer halten:** braucht ein
+  Wert einen Bezugspunkt, gibt man ihn als Argument mit (`SleptSince(ref)`) statt
+  den Aufrufer einen Baseline-Snapshot verwalten zu lassen. Das erspart einen
+  Verdrahtungs-Hop in `launchLoop`/`Manager.Start` — genau die Hops, die hier
+  regelmäßig vergessen werden und im `tui`-Paket kaum testbar sind, weil `Start`
+  mit nil-Provider vorher abbricht.
+- **Alle chief-Zeiten sind monoton** (`time.Since`), also reine Arbeitszeit:
+  Systemschlaf ist darin nicht enthalten. Wer Wanduhrzeit braucht, muss den
+  monotonen Anteil per `t.Round(0)` abstreifen (Muster: `awake.SleepTracker`).
+- **Signaturen mit vielen positionalen Parametern:** `CompletionScreen.Configure`
+  hat 10 — vor dem elften auf ein Options-Struct umstellen. Jede Erweiterung
+  kostet ~21 Call-Sites in `completion_test.go`, produktiv aber nur eine
+  (`auto_actions.go:showCompletionScreen`).
 - **Docs-Pflicht:** jede Config-Option gehört in `docs/reference/configuration.md`
   an *zwei* Stellen: den YAML-Beispielblock **und** die Key-Tabelle der jeweiligen
   Sektion.
@@ -166,3 +183,80 @@
 
 ---
 <!-- chief-timing story="PERF-002" duration_ms=729368 cost=22.239082 in=32347 out=1441 cache_create=293015 cache_read=10767847 -->
+
+
+## 2026-07-27 - PERF-003: Geschlafene Zeit im Abschluss-Screen
+
+**Implementiert**
+- `awake.SleepTracker`: vergleicht Wanduhr gegen monotone Uhr, Lücken > 1 Minute
+  (`awake.SleepThreshold`) gelten als Schlaf, kleinere als Jitter. Gesampelt wird
+  im bestehenden Sekunden-Tick (`elapsedTickMsg`) — kein neuer Timer, keine
+  Live-Warnung.
+- `SleptSince(ref)` statt eines laufenden Gesamtwerts: die Antwort ist auf den
+  Run-Start (`App.startTime`) verankert. Damit erbt ein zweiter Run in derselben
+  Session nicht die Naps des ersten, und Schlaf *vor* dem Run — den erst das erste
+  Sample nach dem Start entdeckt — wird auf den Run-Start geklippt.
+- Abschluss-Screen: eine Zeile `Mac slept 56m00s during the run` direkt unter
+  „Completed in …", Modal-Höhe wächst um eine Zeile. Ohne Schlaf keine Zeile.
+- Nichts wird persistiert (nur Speicher, `prd.Timing` unangetastet); Story-Zeiten,
+  Gesamtzeit und ETA bleiben unverändert monoton = reine Arbeitszeit.
+
+**Dateien**
+- `internal/awake/detect.go` (+ `_test.go`, neu): `SleepTracker`, `SleepThreshold`,
+  `Sample`, `SleptSince`, injizierbarer `clockReader`.
+- `internal/tui/sleep_detect.go` (+ `_test.go`, neu): Interface `sleepTracker`,
+  `App.sleptDuringRun()`.
+- `internal/tui/completion.go` (+ `_test.go`): `slept` an `Configure` (Parameter
+  #8) + Render + `calculateModalHeight`.
+- `internal/tui/app.go`: Feld `sleepTracker`, `awake.NewSleepTracker()` in
+  `NewAppWithOptions`, Sampling im `elapsedTickMsg`-Handler.
+- `internal/tui/auto_actions.go`: `a.sleptDuringRun()` an `Configure`.
+- `docs/troubleshooting/common-issues.md`.
+
+**Learnings for future iterations**
+- **Monotone Uhr in Go stoppt bei Systemschlaf (macOS), Wanduhr nicht.** Das ist
+  der ganze Trick: `time.Now()` trägt beide Werte, `t.Round(0)` streift den
+  monotonen Anteil ab, also ist `now.Round(0).Sub(prev.Round(0))` die Wanduhr-
+  Differenz und `now.Sub(prev)` die monotone. Die Differenz der Differenzen ist
+  der Schlaf. Nebeneffekt: alle bestehenden chief-Zeiten (`time.Since`) waren
+  schon immer reine Arbeitszeit — dafür war nichts zu tun.
+- **Ein Zeitstempel-Anker schlägt einen Baseline-Hop.** Erster Entwurf war
+  „Tracker liefert Gesamtsumme + `App` merkt sich den Wert bei Run-Start in einer
+  Map". Das hätte einen neuen Verdrahtungs-Hop in `launchLoop` gebraucht, der
+  hinter `manager.Start` liegt und im `tui`-Paket praktisch untestbar ist (nil
+  Provider ⇒ `Start` bricht vorher ab). `SleptSince(ref)` verlagert die Logik in
+  das Paket, das sie testen kann, und kommt ohne neuen State in `App` aus.
+- **Zwei-Uhren-Logik braucht einen Clock-Seam, nicht `runtime.GOOS`.** Wie bei
+  PERF-002: `newSleepTracker(clockReader)` als unexportierter Konstruktor, echte
+  Uhren nur in `NewSleepTracker()`. Der `fakeClock` im Test hat zwei Methoden,
+  `run(d)` (beide Uhren) und `suspend(d)` (nur Wanduhr) — damit liest sich jedes
+  Szenario wie das, was es modelliert.
+- **`App`-Felder, die Tests injizieren, als Interface statt konkretem Typ**, wenn
+  der Test *Aufrufe zählen* will (`Sample()`): ein Funktions-Seam reicht nur für
+  reine Abfragen. Achtung: nil-Interface ⇒ `a.sleepTracker.Sample()` panict, also
+  entweder am Aufrufort prüfen (so gemacht) oder nil-Receiver-Methoden am
+  konkreten Typ (`SleepTracker` hat beides).
+- **Sampling-Intervall = Auflösungsgrenze.** Ein Test, der exakt „20m" von einem
+  Schlaf erwartet, der eine Sample-Grenze überschreitet, ist zu präzise: die
+  Arbeitssekunde nach dem Aufwachen ist nicht vom Schlaf zu trennen. Statt
+  Toleranzen einzubauen habe ich den Test auf das *erreichbare* Szenario
+  umgeschrieben (Schlaf im Idle, dann Run-Start) und dort die harte Schranke
+  „höchstens ein Sample-Intervall darf durchsickern" behauptet — der Test wurde
+  dadurch schärfer, nicht weicher.
+- **`CompletionScreen.Configure` hat jetzt 10 positionale Parameter.** Wer den
+  elften braucht, sollte vorher auf ein Options-Struct umstellen; das Ändern der
+  Signatur kostet ~21 Call-Sites in `completion_test.go` (perl-Ersetzung auf
+  `..., 0, nil, 0)` ging problemlos). Alle Aufrufe kommen aus genau einer Stelle
+  in `auto_actions.go:showCompletionScreen`.
+- **Bekannte Grenze:** `elapsedTickMsg` feuert nur weiter, solange die *betrachtete*
+  PRD `StateRunning` ist. Läuft nur eine Hintergrund-PRD, wird nicht gesampelt.
+  Dieselbe Einschränkung hat die angezeigte Gesamtzeit (`App.startTime`) schon
+  vorher; wer echtes Multi-PRD-Timing will, braucht einen globalen Herzschlag.
+- **`gofmt -l internal/tui/app.go` meldet die Datei weiterhin** — vorbestehende
+  Ausrichtung im `App`-Struct-Kopf, verifiziert per `git stash` gegen HEAD. Nicht
+  „nebenbei" mitformatieren, das bläht jeden Story-Diff auf.
+- **Mutationsprobe zahlt sich aus:** fünf Mutationen (`sleptDuringRun` → 0,
+  `Sample()` entfernt, Threshold → 0, Ref-Clipping entfernt, `sleepLine` → 0)
+  wurden von je genau einem Test gefangen.
+---
+<!-- chief-timing story="PERF-003" duration_ms=810560 cost=21.883248 in=228 out=2062 cache_create=308034 cache_read=10633027 -->

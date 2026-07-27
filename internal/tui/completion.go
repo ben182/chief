@@ -78,8 +78,13 @@ type CompletionScreen struct {
 
 	// Duration data
 	totalDuration time.Duration
-	storyTimings  []StoryTiming
-	totalCost     float64 // cumulative cost across the run (0 when unavailable)
+	// slept is how long the machine was suspended during the run. Reported next
+	// to the total rather than added to it: totalDuration and the per-story
+	// timings are monotonic, so they are working time and this is the rest of the
+	// wall clock. Zero means no sleep was detected and nothing is shown.
+	slept        time.Duration
+	storyTimings []StoryTiming
+	totalCost    float64 // cumulative cost across the run (0 when unavailable)
 
 	// Confetti animation
 	confetti *Confetti
@@ -102,7 +107,7 @@ func NewCompletionScreen() *CompletionScreen {
 }
 
 // Configure sets up the completion screen with PRD completion data.
-func (c *CompletionScreen) Configure(prdName string, completed, total int, branch string, commitCount int, hasAutoActions bool, totalDuration time.Duration, storyTimings []StoryTiming, totalCost float64) {
+func (c *CompletionScreen) Configure(prdName string, completed, total int, branch string, commitCount int, hasAutoActions bool, totalDuration, slept time.Duration, storyTimings []StoryTiming, totalCost float64) {
 	c.prdName = prdName
 	c.completed = completed
 	c.total = total
@@ -110,6 +115,7 @@ func (c *CompletionScreen) Configure(prdName string, completed, total int, branc
 	c.commitCount = commitCount
 	c.hasAutoActions = hasAutoActions
 	c.totalDuration = totalDuration
+	c.slept = slept
 	c.storyTimings = storyTimings
 	c.totalCost = totalCost
 	// Reset auto-action state
@@ -276,6 +282,16 @@ func (c *CompletionScreen) Render() string {
 		content.WriteString("\n")
 	}
 
+	// Time the machine spent suspended, which is missing from every duration
+	// above — those are monotonic and stop with the machine.
+	if c.slept > 0 {
+		if c.totalDuration == 0 {
+			content.WriteString("\n")
+		}
+		content.WriteString(fgMuted.Render(fmt.Sprintf("Mac slept %s during the run", formatDuration(c.slept))))
+		content.WriteString("\n")
+	}
+
 	// Per-story timings
 	if len(c.storyTimings) > 0 {
 		content.WriteString("\n")
@@ -372,7 +388,17 @@ func (c *CompletionScreen) calculateModalHeight() int {
 		durationLine = 2 // blank + duration text
 	}
 
-	calculated := base + storyLines + autoLines + durationLine
+	// Slept-time line, when there was any sleep to report. Without a duration line
+	// above it, it brings its own blank separator (see Render).
+	sleepLine := 0
+	if c.slept > 0 {
+		sleepLine = 1
+		if durationLine == 0 {
+			sleepLine = 2
+		}
+	}
+
+	calculated := base + storyLines + autoLines + durationLine + sleepLine
 	maxHeight := c.height - 4
 	if maxHeight < 10 {
 		maxHeight = 10
