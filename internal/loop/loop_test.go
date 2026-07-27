@@ -18,9 +18,10 @@ import (
 
 // mockProvider implements Provider for tests without importing agent (avoids import cycle).
 type mockProvider struct {
-	cliPath string    // if set, used as CLI path; otherwise "claude"
-	model   string    // the model this provider runs on; set by WithModel, like the Claude provider's --model
-	models  *modelLog // if set, records the model of every invocation; shared with clones
+	cliPath string     // if set, used as CLI path; otherwise "claude"
+	model   string     // the model this provider runs on; set by WithModel, like the Claude provider's --model
+	models  *modelLog  // if set, records the model of every invocation; shared with clones
+	prompts *promptLog // if set, records the prompt of every invocation; shared with clones
 }
 
 // modelLog records the model each agent invocation ran on, so a test can observe
@@ -65,9 +66,12 @@ func (m *mockProvider) path() string {
 	return "claude"
 }
 
-func (m *mockProvider) LoopCommand(ctx context.Context, _, workDir string) *exec.Cmd {
+func (m *mockProvider) LoopCommand(ctx context.Context, prompt, workDir string) *exec.Cmd {
 	if m.models != nil {
 		m.models.record(m.model)
+	}
+	if m.prompts != nil {
+		m.prompts.record(prompt)
 	}
 	p := m.path()
 	cmd := exec.CommandContext(ctx, p)

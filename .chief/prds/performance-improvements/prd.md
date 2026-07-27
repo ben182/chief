@@ -123,6 +123,7 @@ der angezeigten Arbeitszeit abweicht.
       beginnt die Zählung bei null
 
 ### PERF-004: Build-Agent liest progress.md gezielt statt komplett
+**Status:** done
 **Priority:** 4
 **Description:** Als Ben möchte ich, dass der Build-Agent aus `progress.md` nur
 die „Codebase Patterns"-Sektion und die letzten Einträge liest, damit nicht
@@ -130,16 +131,16 @@ die „Codebase Patterns"-Sektion und die letzten Einträge liest, damit nicht
 werden.
 
 **Acceptance Criteria:**
-- [ ] Der Build-Prompt weist den Agenten an, aus `progress.md` gezielt die
+- [x] Der Build-Prompt weist den Agenten an, aus `progress.md` gezielt die
       „Codebase Patterns"-Sektion und die letzten ein bis zwei Story-Einträge
       zu lesen — und ausdrücklich **nicht** die gesamte Datei
-- [ ] Die Anweisung, den eigenen Bericht an `progress.md` **anzuhängen** (nie zu
+- [x] Die Anweisung, den eigenen Bericht an `progress.md` **anzuhängen** (nie zu
       ersetzen), bleibt unverändert bestehen
-- [ ] Die Anweisung, die „Codebase Patterns"-Sektion zu pflegen, bleibt
+- [x] Die Anweisung, die „Codebase Patterns"-Sektion zu pflegen, bleibt
       unverändert bestehen
-- [ ] chief selbst parst und inlined weiterhin nichts aus `progress.md` in den
+- [x] chief selbst parst und inlined weiterhin nichts aus `progress.md` in den
       Prompt; es ändert sich nur der Prompt-Text
-- [ ] Der Fall „`progress.md` existiert noch nicht" verhält sich wie heute
+- [x] Der Fall „`progress.md` existiert noch nicht" verhält sich wie heute
       (Anweisung gilt nur, wenn die Datei existiert)
 
 ### PERF-005: Recherche-Delegation im Build-Prompt

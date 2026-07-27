@@ -113,7 +113,8 @@ Chief constructs a prompt that tells the agent exactly what to do. The prompt in
 
 - **The user story**: ID, title, description, and acceptance criteria
 - **Instructions**: Read the PRD, implement the story, run checks, commit
-- **Progress context**: Any patterns or learnings from `progress.md`
+- **Progress context**: The path to `progress.md` — Chief inlines nothing from it;
+  the agent reads the parts it needs (Codebase Patterns and the last entries)
 
 Here's a simplified version of what the agent receives:
 
@@ -121,7 +122,8 @@ Here's a simplified version of what the agent receives:
 ## Your Task
 
 1. Read the PRD at `.chief/prds/your-prd/prd.md`
-2. Read `progress.md` if it exists (check Codebase Patterns first)
+2. Read `progress.md` selectively if it exists: Codebase Patterns plus the last
+   one or two entries — not the whole file
 3. Implement the assigned user story
 4. Run quality checks (typecheck, lint, test)
 5. If checks pass, commit with message: `feat: <PRD Name>/<Story ID> - <Story Title>`

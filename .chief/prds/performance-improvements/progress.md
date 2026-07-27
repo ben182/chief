@@ -19,6 +19,31 @@
   alles, was den Agenten-Aufruf betrifft; ein Bash-Mock-Script (`echo` von
   stream-json + `git commit`) fährt echte Runs durch `l.Run(ctx)`. Ein Run mit
   offener Story + aktivem Consolidate durchläuft in einem Rutsch alle drei Phasen.
+  Er protokolliert auf Wunsch Modell *und* Prompt jeder Invocation (`models`,
+  `prompts`; Muster `modelLog`/`promptLog` — Pointer-Feld, damit `WithModel`-Clones
+  denselben Log teilen). Wiederverwendbar für neue Loop-Tests: `phaseModelPRD`
+  (Ein-Story-PRD) + `runPhases(t, l)` (ganzer Run inkl. Event-Drain) — nur das
+  Platten-Setup gehört in einen eigenen Konstruktor.
+- **Prompt-Änderungen brauchen zwei Ebenen:** den Content-Guard in
+  `embed/embed_test.go` für den Wortlaut (Muster:
+  `TestGetPrompt_TargetedProgressRead`, `TestGetPrompt_NoFileReadInstruction`) und
+  — wenn die Aussage lautet „chief selbst tut X *nicht*" — einen Test am
+  Loop-Seam, wo echte Dateien auf der Platte liegen (Muster:
+  `TestBuildPrompt_DoesNotInlineProgress`). Der Wortlaut-Test allein kann nur
+  „Text ist da" behaupten.
+- **Bei ACs der Form „bleibt unverändert" ist der Guard das Deliverable:** rot-grün
+  gibt es nicht, also Test schreiben *und* per kurzzeitiger Mutation im
+  Produktionscode beweisen, dass er anschlagen würde. Ohne diese Probe ist so ein
+  Test nicht von einem wertlosen zu unterscheiden.
+- **Nach dem Anfügen eines Struct-Felds `gofmt -l` laufen lassen:** ein längerer
+  Feldname richtet die Kommentarspalte der ganzen Struct neu aus; `go vet` merkt
+  das nicht. Verfügbare Checks hier sind `gofmt -l`, `go vet ./...`,
+  `go build ./...`, `go test ./...` — `golangci-lint` (via `make lint`) ist
+  **nicht** installiert.
+- **`ralph/PROMPT.md` ist nicht chiefs Build-Prompt.** Der ausgelieferte Prompt ist
+  `embed/prompt.txt` (via `embed.GetPrompt`); `ralph/` ist die eigenständige
+  Vorlage mit `progress.txt` und driftet absichtlich auseinander. Prompt-Stories
+  ändern `embed/`, nicht `ralph/`.
 - **Config → Loop:** die Verdrahtung passiert in `Manager.Start`
   (`internal/loop/manager.go`, ~Zeile 250). Neue Config-Optionen müssen dort
   gesetzt werden, sonst kommen sie nie am Loop an — dieser Hop ist leicht zu
@@ -260,3 +285,65 @@
   wurden von je genau einem Test gefangen.
 ---
 <!-- chief-timing story="PERF-003" duration_ms=810560 cost=21.883248 in=228 out=2062 cache_create=308034 cache_read=10633027 -->
+
+## 2026-07-27 - PERF-004
+Der Build-Prompt (`embed/prompt.txt`) weist den Agenten jetzt an, `progress.md`
+gezielt zu lesen: `## Codebase Patterns` oben plus die letzten ein bis zwei
+Story-Einträge, ausdrücklich **nicht** die ganze Datei. Begründung steht im
+Prompt selbst mit drin (die Datei wächst pro Story um einen Bericht, das Alte
+ist in Patterns konsolidiert), damit der Agent die Anweisung nicht als
+willkürlich verwirft. Der Schluss-Hinweis unter „Important" trägt die
+Einschränkung nun ebenfalls.
+
+Unverändert geblieben (ist jeweils per Test festgenagelt): die
+Append-Anweisung („never replace, always append"), die Patterns-Pflege
+(`## Codebase Patterns` section at the TOP), und dass chief selbst nichts aus
+`progress.md` in den Prompt inlined — `promptBuilderForPRD` übergibt weiter nur
+`prd.ProgressPath(...)`. Kein Produktionscode angefasst außer dem Prompt-Text.
+
+**Dateien**
+- `embed/prompt.txt`: Schritt 1 umformuliert, „Important"-Bullet ergänzt.
+- `embed/embed_test.go`: `TestGetPrompt_TargetedProgressRead` (Content-Guard:
+  gezielt-lesen + Verbot + Append/Patterns überleben + Bedingtheit).
+- `internal/loop/progress_prompt_test.go` (neu): `promptLog`,
+  `newProgressPromptLoop`, `TestBuildPrompt_DoesNotInlineProgress`,
+  `TestBuildPrompt_NoProgressFileYet`.
+- `internal/loop/loop_test.go`: Feld `prompts *promptLog` am `mockProvider`,
+  `LoopCommand` zeichnet den Prompt auf.
+- `docs/concepts/ralph-loop.md`: „What the agent receives" nachgezogen.
+
+**Learnings for future iterations**
+- **Der `mockProvider` kann jetzt auch Prompts beobachten, nicht nur Modelle.**
+  `promptLog` ist nach dem Muster von `modelLog` gebaut (Mutex + `record`/`all`,
+  als Pointer-Feld, damit `WithModel`-Clones denselben Log teilen). Wer künftig
+  prüfen will, *was* eine Phase dem Agenten übergibt, braucht keinen neuen Seam:
+  `&mockProvider{cliPath: ..., prompts: &promptLog{}}` und `got[0]` ist der
+  Build-Prompt, `got[1]` der Review-, `got[2]` der Consolidate-Prompt.
+- **Prompt-Änderungen brauchen zwei Testebenen.** Der Content-Guard in
+  `embed/` prüft den Wortlaut (billig, aber tautologiegefährdet — er kann nur
+  „Text ist da" sagen). Die Verhaltensaussage „chief inlined nichts" gehört an
+  den Loop-Seam, weil nur dort eine echte `progress.md` auf der Platte liegt.
+  Der Loop-Test hat sich per Mutation als scharf erwiesen (Inlining in
+  `promptBuilderForPRD` eingebaut ⇒ beide Marker-Checks schlagen an).
+- **Grüne Tests für „bleibt wie heute" sind hier der Punkt, nicht ein Versäumnis.**
+  Bei einer Story, deren halbe AC-Liste „X bleibt unverändert" lautet, ist
+  test-first nicht rot-grün, sondern „Guard schreiben, per Mutation beweisen,
+  dass er greifen würde". Ohne die Mutationsprobe wäre der Test wertlos gewesen.
+- **`phaseModelPRD` (aus `phase_model_test.go`) ist die wiederverwendbare
+  Ein-Story-PRD für Loop-Tests**, und `runPhases(t, l)` fährt einen ganzen Run
+  inkl. Event-Drain. Neue Loop-Tests sollten beide nutzen statt eigene
+  Harness-Kopien zu bauen; nur das Setup (was vorher auf der Platte liegt)
+  gehört in den eigenen Konstruktor.
+- **`gofmt` nach dem Anfügen eines Struct-Felds mitlaufen lassen:** ein längerer
+  Feldname (`prompts *promptLog`) richtet die Kommentarspalte der *ganzen*
+  Struct neu aus. `go vet` merkt das nicht, `gofmt -l` schon.
+- **`golangci-lint` ist in dieser Umgebung nicht installiert** (`make lint`
+  bricht mit „No such file or directory" ab). Verfügbare Checks sind
+  `gofmt -l`, `go vet ./...`, `go build ./...` und `go test ./...` — die laufen
+  alle grün durch (~2 min für die volle Suite).
+- **Berührt: `ralph/PROMPT.md` bewusst nicht.** Das ist die eigenständige
+  Ralph-Loop-Vorlage mit `progress.txt`, nicht der von `embed.GetPrompt`
+  ausgelieferte Build-Prompt. Wer dort etwas ändert, ändert nicht chiefs
+  Verhalten — die beiden driften absichtlich auseinander.
+---
+<!-- chief-timing story="PERF-004" duration_ms=365140 cost=9.280738 in=160 out=1720 cache_create=152499 cache_read=4193321 -->

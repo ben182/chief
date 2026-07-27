@@ -9,7 +9,10 @@ Your current story:
 {{STORY_CONTEXT}}
 </story>
 
-1. Read `{{PROGRESS_PATH}}` if it exists (check Codebase Patterns section first)
+1. If `{{PROGRESS_PATH}}` exists, read it selectively: the `## Codebase Patterns`
+   section at the top, then the last one or two story entries at the end. Do
+   **NOT read the whole file** — it grows by one report per story, and everything
+   still worth knowing from the older entries is in Codebase Patterns already.
 2. Implement the user story above — test-first, in vertical slices (see Testing below)
 3. Run quality checks (e.g., typecheck, lint, test - use whatever your project requires)
 4. If checks pass, commit changes with message: `feat: {{PRD_NAME}}/{{STORY_ID}} - {{STORY_TITLE}}`
@@ -82,4 +85,5 @@ After implementing the story:
 - Work on ONE story per iteration
 - Commit frequently
 - Keep CI green
-- Read the Codebase Patterns section in `{{PROGRESS_PATH}}` before starting
+- Read the Codebase Patterns section in `{{PROGRESS_PATH}}` before starting — that
+  section and the last entries, not the whole file

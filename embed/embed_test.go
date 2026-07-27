@@ -57,6 +57,43 @@ func TestGetPrompt_NoFileReadInstruction(t *testing.T) {
 	}
 }
 
+// TestGetPrompt_TargetedProgressRead pins down the progress.md diet: the build
+// agent is told to read the Codebase Patterns section and the last entries, and
+// explicitly not the whole file, which grows by one report per story and was
+// dragged through every turn of every agent.
+func TestGetPrompt_TargetedProgressRead(t *testing.T) {
+	prompt := GetPrompt("/path/progress.md", `{"id":"US-001"}`, "myprd", "US-001", "Test Story")
+
+	// Targeted read: the patterns section plus the last one or two entries.
+	if !strings.Contains(prompt, "Codebase Patterns") {
+		t.Error("Expected prompt to point the agent at the Codebase Patterns section")
+	}
+	if !strings.Contains(prompt, "last one or two") {
+		t.Error("Expected prompt to limit the read to the last one or two story entries")
+	}
+
+	// And an explicit prohibition, because "read it if it exists" invites a full read.
+	if !strings.Contains(prompt, "NOT read the whole file") {
+		t.Error("Expected prompt to explicitly forbid reading the whole progress file")
+	}
+
+	// The instruction stays conditional: a project without a progress.md yet
+	// behaves as before.
+	if !strings.Contains(prompt, "if `/path/progress.md` exists") &&
+		!strings.Contains(prompt, "If `/path/progress.md` exists") {
+		t.Error("Expected the progress read to stay conditional on the file existing")
+	}
+
+	// The write side is untouched: append, never replace.
+	if !strings.Contains(prompt, "never replace, always append") {
+		t.Error("Expected the append-only progress instruction to survive")
+	}
+	// As is the instruction to maintain the patterns section.
+	if !strings.Contains(prompt, "## Codebase Patterns` section at the TOP") {
+		t.Error("Expected the Codebase Patterns maintenance instruction to survive")
+	}
+}
+
 func TestPromptTemplateNotEmpty(t *testing.T) {
 	if promptTemplate == "" {
 		t.Error("Expected promptTemplate to be embedded and non-empty")
