@@ -256,6 +256,20 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 			// Start this story's cost/token counters fresh.
 			a.currentStoryCost[prdName] = 0
 			a.currentStoryTokens[prdName] = TokenUsage{}
+			// Whatever the previous story's review was doing, it is over once the
+			// next story starts building. runReview returns without emitting
+			// EventReviewDone when the loop is paused, stopped or cancelled
+			// mid-review, and the tag outranks everything in selectInProgressStory
+			// — so without this the selection stays pinned to that story for the
+			// rest of the run.
+			delete(a.reviewingStoryID, prdName)
+			// Move the selection with the loop. The prd.md watcher does this too,
+			// but it is a single point of failure: one missed or dropped file
+			// event and the UI sits on the previous story while timings, costs and
+			// the log all move on. The loop knows which story it just started.
+			if isCurrentPRD {
+				a.selectStoryByID(event.StoryID)
+			}
 		}
 	case loop.EventAssistantText:
 		if isCurrentPRD {
