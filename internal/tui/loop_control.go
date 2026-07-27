@@ -84,7 +84,8 @@ func (a *App) isAnotherPRDRunningInSameDir(prdName string) bool {
 	return false
 }
 
-// doStartLoop actually starts the loop (after branch check).
+// doStartLoop runs the pre-run checks and starts the loop once they pass (or
+// hands off to a dialog when one of them needs the user's decision).
 func (a App) doStartLoop(prdName, prdDir string) (tea.Model, tea.Cmd) {
 	// Every start path funnels through here, so this is where the branch gets its
 	// last look before hours of work land on it.
@@ -92,6 +93,19 @@ func (a App) doStartLoop(prdName, prdDir string) (tea.Model, tea.Cmd) {
 		return a, cmd
 	}
 
+	// ...and the same for the machine itself: an unattended run is only unattended
+	// as long as the Mac stays awake.
+	if a.sleepWarningPreflight(prdName) {
+		return a, nil
+	}
+
+	return a.launchLoop(prdName, prdDir)
+}
+
+// launchLoop starts the loop, past every pre-run check. Callers that resume an
+// interrupted start come in here rather than through doStartLoop, so a question
+// the user has already answered isn't asked again.
+func (a App) launchLoop(prdName, prdDir string) (tea.Model, tea.Cmd) {
 	// Check if this PRD is registered, if not register it
 	if instance := a.manager.GetInstance(prdName); instance == nil {
 		// Find the PRD path, preferring the already-known one (handles the legacy

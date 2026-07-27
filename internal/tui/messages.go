@@ -161,6 +161,7 @@ const (
 	ViewPicker
 	ViewHelp
 	ViewBranchWarning
+	ViewSleepWarning
 	ViewWorktreeSpinner
 	ViewCompletion
 	ViewSettings

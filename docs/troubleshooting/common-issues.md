@@ -349,7 +349,7 @@ See [Configuration → Appearance](/reference/configuration#appearance) for deta
 
 **Solution:**
 
-Chief holds a sleep assertion for the duration of a run, so this shouldn't happen with the default settings. If it does:
+Chief holds a sleep assertion for the duration of a run, so this shouldn't happen with the default settings. It also warns you before a run starts when it can see the risk up front — on battery, or with `loop.keepAwake` switched off — with a **Mac May Fall Asleep Mid-Run** dialog offering *Start anyway* / *Cancel*. The dialog asks again on every start, and stays out of the way when the power source can't be determined. If a run still slept through:
 
 - Confirm the setting is on — `,` → **Loop** → **Keep machine awake**, or `loop.keepAwake` in `.chief/config.yaml`. It's applied when a loop starts, so toggling it mid-run only takes effect from the next start.
 - Verify the assertion is actually held while a loop runs:

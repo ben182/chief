@@ -75,6 +75,15 @@ type App struct {
 	pendingWorktreePath string // Absolute worktree path for pending PRD
 	pendingSyncBranch   string // Branch awaiting reconciliation with origin, for DialogBranchBehindRemote
 
+	// Pre-run sleep warning dialog
+	sleepWarning *SleepWarning
+	// sleepCheck answers what the warning needs to know about this machine: how it
+	// is powered, and whether chief can keep the platform awake at all. A field
+	// rather than a direct call so tests can drive the dialog without depending on
+	// the developer's power state or operating system. Nil means "don't ask", which
+	// is the same fail-open answer as a probe that can't tell.
+	sleepCheck sleepCheck
+
 	// Worktree setup spinner
 	worktreeSpinner *WorktreeSpinner
 
@@ -228,6 +237,8 @@ func NewAppWithOptions(prdPath string, maxIter int, provider loop.Provider) (*Ap
 		config:           cfg,
 		helpOverlay:      NewHelpOverlay(),
 		branchWarning:    NewBranchWarning(),
+		sleepWarning:     NewSleepWarning(),
+		sleepCheck:       systemSleepCheck,
 		worktreeSpinner:  NewWorktreeSpinner(),
 		completionScreen: NewCompletionScreen(),
 		settingsOverlay:  NewSettingsOverlay(),
@@ -475,6 +486,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a.handleBranchWarningKeys(msg)
 		}
 
+		// Handle sleep warning view
+		if a.viewMode == ViewSleepWarning {
+			return a.handleSleepWarningKeys(msg)
+		}
+
 		// Handle worktree spinner view - only Esc is active
 		if a.viewMode == ViewWorktreeSpinner {
 			return a.handleWorktreeSpinnerKeys(msg)
@@ -719,6 +735,8 @@ func (a App) View() string {
 		return a.renderHelpView()
 	case ViewBranchWarning:
 		return a.renderBranchWarningView()
+	case ViewSleepWarning:
+		return a.renderSleepWarningView()
 	case ViewWorktreeSpinner:
 		return a.renderWorktreeSpinnerView()
 	case ViewCompletion:

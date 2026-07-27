@@ -65,34 +65,35 @@ Build-Qualität zu berühren.
       Default
 
 ### PERF-002: Warnung vor dem Run, wenn der Mac einschlafen kann
+**Status:** done
 **Priority:** 2
 **Description:** Als Ben möchte ich vor dem Start eines Runs gewarnt werden,
 wenn mein Mac auf Batterie läuft oder `keepAwake` deaktiviert ist, damit ich
 nicht erst nach Stunden merke, dass der Run 56 Minuten lang geschlafen hat.
 
 **Acceptance Criteria:**
-- [ ] Läuft der Mac beim Run-Start auf Batterie, erscheint vor dem Start ein
+- [x] Läuft der Mac beim Run-Start auf Batterie, erscheint vor dem Start ein
       blockierender Dialog im Stil der bestehenden Branch-Warnung
       (`BranchWarning`-Muster) mit den Optionen „Trotzdem starten" und
       „Abbrechen"
-- [ ] Der Dialogtext bei Batteriebetrieb erklärt, dass der Mac bei geschlossenem
+- [x] Der Dialogtext bei Batteriebetrieb erklärt, dass der Mac bei geschlossenem
       Deckel trotz `keepAwake` einschläft (Clamshell-Sleep ist auf Apple Silicon
       nicht verhinderbar) und nennt Abhilfe: Netzteil anschließen oder Deckel
       offen lassen
-- [ ] Ist `loop.keepAwake` explizit auf `false` gesetzt, erscheint derselbe
+- [x] Ist `loop.keepAwake` explizit auf `false` gesetzt, erscheint derselbe
       Dialog mit angepasstem Text (Schlafschutz ist ausgeschaltet)
-- [ ] Treffen beide Bedingungen zu, erscheint **ein** Dialog, der beide Gründe
+- [x] Treffen beide Bedingungen zu, erscheint **ein** Dialog, der beide Gründe
       nennt
-- [ ] „Abbrechen" startet den Run nicht und kehrt zur vorherigen Ansicht zurück;
+- [x] „Abbrechen" startet den Run nicht und kehrt zur vorherigen Ansicht zurück;
       „Trotzdem starten" startet ihn normal
-- [ ] Am Netzteil mit aktivem `keepAwake` erscheint kein Dialog; der Run startet
+- [x] Am Netzteil mit aktivem `keepAwake` erscheint kein Dialog; der Run startet
       wie bisher ohne zusätzlichen Schritt
-- [ ] Lässt sich der Batteriestatus nicht ermitteln, erscheint kein Dialog
+- [x] Lässt sich der Batteriestatus nicht ermitteln, erscheint kein Dialog
       (fail open)
-- [ ] Auf Nicht-macOS-Systemen erscheint der Dialog nie
-- [ ] Der Dialog erscheint bei jedem Run-Start erneut (keine
+- [x] Auf Nicht-macOS-Systemen erscheint der Dialog nie
+- [x] Der Dialog erscheint bei jedem Run-Start erneut (keine
       „Nicht mehr anzeigen"-Persistenz)
-- [ ] Der Dialog ist per Tastatur bedienbar (Auswahl wechseln + bestätigen),
+- [x] Der Dialog ist per Tastatur bedienbar (Auswahl wechseln + bestätigen),
       wie die Branch-Warnung
 
 ### PERF-003: Geschlafene Zeit im Abschluss-Screen
