@@ -79,7 +79,7 @@ func newPhaseModelLoop(t *testing.T) (*Loop, *modelLog) {
 
 	models := &modelLog{}
 	l := NewLoopWithWorkDir(prdPath, dir, "", 10, &mockProvider{cliPath: scriptPath, models: models})
-	l.buildPrompt = promptBuilderForPRD(prdPath)
+	l.buildPrompt = promptBuilderForPRD(prdPath, false)
 	l.DisableRetry()
 	return l, models
 }

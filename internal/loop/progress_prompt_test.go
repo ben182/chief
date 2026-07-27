@@ -64,7 +64,7 @@ func newProgressPromptLoop(t *testing.T, progressContent string) (*Loop, *prompt
 
 	prompts := &promptLog{}
 	l := NewLoopWithWorkDir(prdPath, dir, "", 10, &mockProvider{cliPath: scriptPath, prompts: prompts})
-	l.buildPrompt = promptBuilderForPRD(prdPath)
+	l.buildPrompt = promptBuilderForPRD(prdPath, false)
 	l.DisableRetry()
 	return l, prompts
 }

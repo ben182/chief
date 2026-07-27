@@ -22,6 +22,7 @@ type mockProvider struct {
 	model   string     // the model this provider runs on; set by WithModel, like the Claude provider's --model
 	models  *modelLog  // if set, records the model of every invocation; shared with clones
 	prompts *promptLog // if set, records the prompt of every invocation; shared with clones
+	native  bool       // whether the provider looks like Claude (subagents, native questions); default false
 }
 
 // modelLog records the model each agent invocation ran on, so a test can observe
@@ -55,7 +56,7 @@ func (m *mockProvider) WithModel(model string) Provider {
 func (m *mockProvider) Name() string                             { return "Test" }
 func (m *mockProvider) CLIPath() string                          { return m.path() }
 func (m *mockProvider) InteractiveCommand(_, _ string) *exec.Cmd { return exec.Command("true") }
-func (m *mockProvider) SupportsInteractiveQuestions() bool       { return false }
+func (m *mockProvider) SupportsInteractiveQuestions() bool       { return m.native }
 func (m *mockProvider) ParseLine(line string) *Event             { return ParseLine(line) }
 func (m *mockProvider) LogFileName() string                      { return "claude.log" }
 
@@ -491,7 +492,7 @@ func TestLoop_ParksStoryAfterMaxAttempts(t *testing.T) {
 	}
 
 	l := NewLoopWithWorkDir(prdPath, dir, "", 50, &mockProvider{cliPath: scriptPath})
-	l.buildPrompt = promptBuilderForPRD(prdPath)
+	l.buildPrompt = promptBuilderForPRD(prdPath, false)
 	l.SetMaxAttemptsPerStory(2)
 	l.DisableRetry()
 
@@ -937,7 +938,7 @@ func TestLoop_DoneWithoutCommitIsNotTrusted(t *testing.T) {
 	}
 
 	l := NewLoopWithWorkDir(prdPath, dir, "", 20, &mockProvider{cliPath: scriptPath})
-	l.buildPrompt = promptBuilderForPRD(prdPath)
+	l.buildPrompt = promptBuilderForPRD(prdPath, false)
 	l.SetMaxAttemptsPerStory(1)
 	l.DisableRetry()
 
@@ -1028,7 +1029,7 @@ func TestLoop_ReviewAgentRunsAfterCommit(t *testing.T) {
 		}
 
 		l := NewLoopWithWorkDir(prdPath, dir, "", 10, &mockProvider{cliPath: scriptPath})
-		l.buildPrompt = promptBuilderForPRD(prdPath)
+		l.buildPrompt = promptBuilderForPRD(prdPath, false)
 		l.DisableRetry()
 		if withReview {
 			l.SetReview(true, "", "check the implementation carefully")
@@ -1137,7 +1138,7 @@ func TestLoop_ReviewReRunsUntilDone(t *testing.T) {
 	}
 
 	l := NewLoopWithWorkDir(prdPath, dir, "", 10, &mockProvider{cliPath: scriptPath})
-	l.buildPrompt = promptBuilderForPRD(prdPath)
+	l.buildPrompt = promptBuilderForPRD(prdPath, false)
 	l.DisableRetry()
 	l.SetReview(true, "", "check the implementation carefully")
 
@@ -1217,7 +1218,7 @@ func TestLoop_ReviewGivesUpAfterMaxAttempts(t *testing.T) {
 	}
 
 	l := NewLoopWithWorkDir(prdPath, dir, "", 10, &mockProvider{cliPath: scriptPath})
-	l.buildPrompt = promptBuilderForPRD(prdPath)
+	l.buildPrompt = promptBuilderForPRD(prdPath, false)
 	l.DisableRetry()
 	l.SetReview(true, "", "check the implementation carefully")
 

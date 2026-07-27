@@ -8,7 +8,7 @@ import (
 func TestGetPrompt(t *testing.T) {
 	progressPath := "/path/to/progress.md"
 	storyContext := `{"id":"US-001","title":"Test Story"}`
-	prompt := GetPrompt(progressPath, storyContext, "myprd", "US-001", "Test Story")
+	prompt := GetPrompt(progressPath, storyContext, "myprd", "US-001", "Test Story", true)
 
 	// Verify all placeholders were substituted
 	if strings.Contains(prompt, "{{PROGRESS_PATH}}") {
@@ -49,7 +49,7 @@ func TestGetPrompt(t *testing.T) {
 }
 
 func TestGetPrompt_NoFileReadInstruction(t *testing.T) {
-	prompt := GetPrompt("/path/progress.md", `{"id":"US-001"}`, "myprd", "US-001", "Test Story")
+	prompt := GetPrompt("/path/progress.md", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
 
 	// The prompt should NOT instruct Claude to read the PRD file
 	if strings.Contains(prompt, "Read the PRD") {
@@ -62,7 +62,7 @@ func TestGetPrompt_NoFileReadInstruction(t *testing.T) {
 // explicitly not the whole file, which grows by one report per story and was
 // dragged through every turn of every agent.
 func TestGetPrompt_TargetedProgressRead(t *testing.T) {
-	prompt := GetPrompt("/path/progress.md", `{"id":"US-001"}`, "myprd", "US-001", "Test Story")
+	prompt := GetPrompt("/path/progress.md", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
 
 	// Targeted read: the patterns section plus the last one or two entries.
 	if !strings.Contains(prompt, "Codebase Patterns") {
@@ -94,6 +94,75 @@ func TestGetPrompt_TargetedProgressRead(t *testing.T) {
 	}
 }
 
+// TestGetPrompt_ResearchDelegation pins down the research-delegation block: the
+// Claude build agent is told to hand broad codebase research to a subagent and to
+// read files with the Read tool, and the block is gated on Claude the same way the
+// interactive prompts' explore block is.
+func TestGetPrompt_ResearchDelegation(t *testing.T) {
+	claude := GetPrompt("/path/progress.md", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
+
+	// Delegate broad research instead of crawling the repo inline.
+	if !strings.Contains(claude, "Delegate broad codebase research to a subagent") {
+		t.Error("Expected the Claude build prompt to delegate broad codebase research to a subagent")
+	}
+	if !strings.Contains(claude, "Explore agent") {
+		t.Error("Expected the block to name the Explore agent as the delegate")
+	}
+
+	// Read tool over shell read commands.
+	if !strings.Contains(claude, "Read tool") {
+		t.Error("Expected the block to point at the Read tool for reading files")
+	}
+	for _, shellCmd := range []string{"`cat`", "`sed`", "`head`", "`tail`"} {
+		if !strings.Contains(claude, shellCmd) {
+			t.Errorf("Expected the block to name %s as the thing to stop using", shellCmd)
+		}
+	}
+
+	if strings.Contains(claude, "{{RESEARCH}}") {
+		t.Error("Expected {{RESEARCH}} to be substituted")
+	}
+
+	// Gating: every other provider gets a build prompt without the block.
+	other := GetPrompt("/path/progress.md", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", false)
+	if strings.Contains(other, "Delegate broad codebase research to a subagent") {
+		t.Error("Expected the non-Claude build prompt to omit the research-delegation block")
+	}
+	if strings.Contains(other, "Read tool") {
+		t.Error("Expected the non-Claude build prompt to omit the Read-tool instruction")
+	}
+	if strings.Contains(other, "{{RESEARCH}}") {
+		t.Error("Expected {{RESEARCH}} to be substituted (empty) for non-Claude")
+	}
+
+	// Everything outside the block is identical for both providers, so the story
+	// gets built the same way regardless of who builds it.
+	if strings.Contains(claude, "{{") || strings.Contains(other, "{{") {
+		t.Error("Expected no leftover placeholders in either build prompt")
+	}
+}
+
+// TestReviewAndConsolidatePrompts_NoResearchBlock guards the other half of the
+// story: only the build prompt gains the block. The review prompt already scopes
+// itself to the diff, and neither review nor consolidation should start spawning
+// research subagents.
+func TestReviewAndConsolidatePrompts_NoResearchBlock(t *testing.T) {
+	review := GetReviewPrompt("/p.md", `{"id":"US-001"}`, "US-001", "Test Story", "", "")
+	consolidate := GetConsolidatePrompt("/p.md", "abc123 feat: x", "abc..HEAD", "myprd", "", "")
+
+	for name, prompt := range map[string]string{"review": review, "consolidate": consolidate} {
+		if strings.Contains(prompt, "Delegate broad codebase research to a subagent") {
+			t.Errorf("Expected the %s prompt to stay free of the research-delegation block", name)
+		}
+	}
+
+	// The review prompt keeps scoping itself to the diff — that is why it needs no
+	// research instruction in the first place.
+	if !strings.Contains(review, "the diff") {
+		t.Error("Expected the review prompt to keep scoping the review to the diff")
+	}
+}
+
 func TestPromptTemplateNotEmpty(t *testing.T) {
 	if promptTemplate == "" {
 		t.Error("Expected promptTemplate to be embedded and non-empty")
@@ -101,7 +170,7 @@ func TestPromptTemplateNotEmpty(t *testing.T) {
 }
 
 func TestGetPrompt_ChiefExclusion(t *testing.T) {
-	prompt := GetPrompt("/path/progress.md", `{"id":"US-001"}`, "myprd", "US-001", "Test Story")
+	prompt := GetPrompt("/path/progress.md", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
 
 	// The prompt must instruct Claude to never stage or commit .chief/ files
 	if !strings.Contains(prompt, ".chief/") {
@@ -115,7 +184,7 @@ func TestGetPrompt_ChiefExclusion(t *testing.T) {
 func TestGetPrompt_NoInlineReview(t *testing.T) {
 	// The build-agent prompt no longer carries an inline review step or its
 	// placeholder — review runs as a separate agent instead.
-	prompt := GetPrompt("/p.md", `{"id":"US-001"}`, "myprd", "US-001", "Test Story")
+	prompt := GetPrompt("/p.md", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
 	if strings.Contains(prompt, "{{QUALITY_REVIEW}}") {
 		t.Error("Expected no leftover {{QUALITY_REVIEW}} placeholder in the build prompt")
 	}

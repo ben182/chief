@@ -115,6 +115,9 @@ Chief constructs a prompt that tells the agent exactly what to do. The prompt in
 - **Instructions**: Read the PRD, implement the story, run checks, commit
 - **Progress context**: The path to `progress.md` — Chief inlines nothing from it;
   the agent reads the parts it needs (Codebase Patterns and the last entries)
+- **Research guidance** (Claude only): delegate broad codebase exploration to a
+  subagent and read files with the Read tool, so exploring the repo doesn't drag
+  the whole conversation through hundreds of shell turns
 
 Here's a simplified version of what the agent receives:
 

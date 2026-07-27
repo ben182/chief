@@ -35,11 +35,15 @@ var consolidatePromptTemplate string
 // current story context substituted. The storyContext is the JSON of the
 // current story to work on, inlined directly into the prompt so that the
 // agent does not need to read the entire prd.md file.
-func GetPrompt(progressPath, storyContext, prdName, storyID, storyTitle string) string {
+//
+// subagents reports whether the provider can delegate work to subagents (today
+// only Claude); when it can, the prompt carries the research-delegation block.
+func GetPrompt(progressPath, storyContext, prdName, storyID, storyTitle string, subagents bool) string {
 	result := strings.ReplaceAll(promptTemplate, "{{PROGRESS_PATH}}", progressPath)
 	result = strings.ReplaceAll(result, "{{STORY_CONTEXT}}", storyContext)
 	result = strings.ReplaceAll(result, "{{PRD_NAME}}", prdName)
 	result = strings.ReplaceAll(result, "{{STORY_ID}}", storyID)
+	result = strings.ReplaceAll(result, "{{RESEARCH}}", researchDelegation(subagents))
 	return strings.ReplaceAll(result, "{{STORY_TITLE}}", storyTitle)
 }
 
@@ -170,6 +174,41 @@ session model.`
 func exploreModel(nativeQuestions bool) string {
 	if nativeQuestions {
 		return exploreModelClaude
+	}
+	return ""
+}
+
+// researchDelegationClaude keeps the build agent's own context small. Broad
+// codebase exploration is the most expensive thing a build agent does: every
+// grep/cat turn re-sends the whole conversation, so a few hundred exploration
+// turns cost quadratically. A subagent researches in its own context and hands
+// back only the answer. It carries its own rationale so the agent doesn't dismiss
+// the rule as arbitrary the first time delegating feels like a detour.
+const researchDelegationClaude = `
+## Codebase Research
+
+**Delegate broad codebase research to a subagent.** When a question needs a sweep
+of the repository to answer — where a pattern lives, which files touch a concept,
+how a similar feature is wired, what the existing conventions are — hand it to a
+subagent (the Explore agent if your setup has one, otherwise a general-purpose
+subagent) and work from its answer. Do NOT crawl the repository yourself with
+dozens of small shell calls in this context: each of those turns re-sends the
+entire conversation, so inline exploration is by far the most expensive way to
+learn anything, and it crowds out the context you need for the actual work.
+
+**Read files with the Read tool, not the shell.** Use Read to look at a file,
+never ` + "`cat`, `sed`, `head`, or `tail`" + `. Targeted searching you run
+yourself is fine — that is what Grep and Glob are for — but as soon as a question
+takes more than a couple of them to answer, delegate it.
+`
+
+// researchDelegation returns the research-delegation block for a provider. It is
+// gated exactly like exploreModel and prototypeBlock: only Claude has subagents
+// and a Read tool to point at, so every other provider gets an empty string and
+// an otherwise identical build prompt.
+func researchDelegation(subagents bool) string {
+	if subagents {
+		return researchDelegationClaude
 	}
 	return ""
 }

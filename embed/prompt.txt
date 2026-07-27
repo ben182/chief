@@ -19,7 +19,7 @@ Your current story:
    - **NEVER stage or commit `.chief/` files** — these are local working files and must stay out of version control
    - Stage only the files you changed for the story (do NOT use `git add -A` or `git add .`)
 5. Append your progress to `{{PROGRESS_PATH}}`
-
+{{RESEARCH}}
 ## Testing
 
 When the story has testable logic, work test-first in vertical slices: write one

@@ -144,6 +144,7 @@ werden.
       (Anweisung gilt nur, wenn die Datei existiert)
 
 ### PERF-005: Recherche-Delegation im Build-Prompt
+**Status:** done
 **Priority:** 5
 **Description:** Als Ben möchte ich, dass Build-Agenten (Claude) ihre
 Codebase-Recherche an Subagenten delegieren und das Read-Tool statt
@@ -152,16 +153,16 @@ jedes Mal den kompletten Kontext durch die Abrechnung ziehen — der quadratisch
 Hebel.
 
 **Acceptance Criteria:**
-- [ ] Der Build-Prompt enthält für den Claude-Provider einen Block, der
+- [x] Der Build-Prompt enthält für den Claude-Provider einen Block, der
       anweist: breite Codebase-Recherche an einen Explore-/Subagenten
       delegieren statt sie mit vielen einzelnen Shell-Aufrufen im Hauptkontext
       zu erledigen
-- [ ] Derselbe Block weist an, zum Lesen von Dateien das Read-Tool statt
+- [x] Derselbe Block weist an, zum Lesen von Dateien das Read-Tool statt
       `cat`/`sed`/`head`/`tail` zu verwenden
-- [ ] Der Block wird nur für den Claude-Provider injiziert; bei allen anderen
+- [x] Der Block wird nur für den Claude-Provider injiziert; bei allen anderen
       Providern enthält der Build-Prompt ihn nicht (gleiche Gating-Mechanik wie
       der bestehende Explore-Block der interaktiven PRD-Prompts)
-- [ ] Review- und Consolidate-Prompts bleiben unverändert (der Review-Prompt
+- [x] Review- und Consolidate-Prompts bleiben unverändert (der Review-Prompt
       enthält bereits die Anweisung, nur den Diff zu betrachten)
 
 ## Functional Requirements

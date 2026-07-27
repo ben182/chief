@@ -248,7 +248,7 @@ func (m *Manager) Start(name string) error {
 		workDir = baseDir
 	}
 	instance.Loop = NewLoopWithWorkDir(instance.PRDPath, workDir, "", maxIter, provider)
-	instance.Loop.buildPrompt = promptBuilderForPRD(instance.PRDPath)
+	instance.Loop.buildPrompt = promptBuilderForPRD(instance.PRDPath, provider.SupportsInteractiveQuestions())
 	if cfg != nil {
 		instance.Loop.SetReview(cfg.Review.Active(), cfg.Review.Skill, cfg.Review.Instructions)
 		instance.Loop.SetReviewModel(cfg.Review.Model)

@@ -75,6 +75,22 @@
   hat 10 — vor dem elften auf ein Options-Struct umstellen. Jede Erweiterung
   kostet ~21 Call-Sites in `completion_test.go`, produktiv aber nur eine
   (`auto_actions.go:showCompletionScreen`).
+- **Provider-gegatete Prompt-Blöcke** folgen alle einem Muster in `embed/embed.go`:
+  Konstante `<name>Claude` + Funktion `<name>(flag bool) string`, im Prompt ein
+  `{{PLATZHALTER}}` auf eigener Zeile, Block beginnt und endet mit `\n` (leer =
+  genau eine Leerzeile = byte-identisch zum alten Prompt). Das Claude-Signal ist
+  überall `Provider.SupportsInteractiveQuestions()`. Vorlagen: `exploreModel`,
+  `prototypeBlock`, `researchDelegation`.
+- **Ein neuer `GetPrompt`-Parameter muss an ZWEI Stellen verdrahtet werden:**
+  `NewLoopWithEmbeddedPrompt` *und* `Manager.Start` bauen den `buildPrompt`-Closure
+  je selbst. Nur eine davon zu ändern sieht in Unit-Tests grün aus und erreicht
+  echte Runs nie (die laufen alle über den Manager).
+- **Manager-Tests mit echtem Run** brauchen `SetBaseDir(dir)` + Git-Repo + `prd.md`
+  unter `.chief/prds/<name>/` (Muster: `newResearchRepo`). Ohne baseDir läuft der
+  Run im echten Projekt-Repo und ruft den Agenten gar nicht auf. Den Run über
+  `SetCompletionCallback` auslaufen lassen und `m.Events()` in einer Goroutine
+  drainen — `m.Stop()` mitten im Lauf triggert ein vorbestehendes Data-Race
+  zwischen `Loop.Stop` und `exec.Cmd.Start`.
 - **Docs-Pflicht:** jede Config-Option gehört in `docs/reference/configuration.md`
   an *zwei* Stellen: den YAML-Beispielblock **und** die Key-Tabelle der jeweiligen
   Sektion.
@@ -347,3 +363,78 @@ Append-Anweisung („never replace, always append"), die Patterns-Pflege
   Verhalten — die beiden driften absichtlich auseinander.
 ---
 <!-- chief-timing story="PERF-004" duration_ms=365140 cost=9.280738 in=160 out=1720 cache_create=152499 cache_read=4193321 -->
+
+## 2026-07-27 - PERF-005: Recherche-Delegation im Build-Prompt
+
+**Implementiert**
+- Neuer Block `## Codebase Research` im Build-Prompt (`{{RESEARCH}}` in
+  `embed/prompt.txt`, Inhalt als `researchDelegationClaude` in `embed/embed.go`):
+  breite Codebase-Recherche an einen Subagenten (Explore-Agent, sonst
+  general-purpose) delegieren statt mit vielen Shell-Aufrufen im Hauptkontext;
+  Dateien mit dem Read-Tool lesen statt `cat`/`sed`/`head`/`tail`. Die Begründung
+  („jeder Turn schickt die ganze Konversation erneut") steht im Block, damit der
+  Agent die Regel nicht als willkürlich verwirft — dasselbe Vorgehen wie PERF-004.
+- Gating exakt wie beim bestehenden Explore-Block der interaktiven Prompts:
+  `researchDelegation(subagents bool)` neben `exploreModel`/`prototypeBlock`,
+  gespeist aus `Provider.SupportsInteractiveQuestions()`. Nicht-Claude-Provider
+  bekommen einen unveränderten Build-Prompt (leerer String, identisches
+  Whitespace-Layout — verifiziert).
+- `GetPrompt` hat einen sechsten Parameter `subagents bool`;
+  `promptBuilderForPRD(prdPath, subagents)` reicht ihn durch. Verdrahtet an
+  *beiden* Stellen: `NewLoopWithEmbeddedPrompt` und `Manager.Start`.
+- Review- und Consolidate-Prompt unangetastet.
+
+**Dateien**
+- `embed/embed.go`: `researchDelegationClaude`, `researchDelegation`,
+  `GetPrompt`-Signatur.
+- `embed/prompt.txt`: `{{RESEARCH}}` zwischen Task-Liste und `## Testing`.
+- `embed/embed_test.go`: `TestGetPrompt_ResearchDelegation`,
+  `TestReviewAndConsolidatePrompts_NoResearchBlock`.
+- `internal/loop/loop.go`, `internal/loop/manager.go`: Verdrahtung.
+- `internal/loop/research_prompt_test.go` (neu): `newResearchRepo`,
+  `newResearchPromptLoop`, drei Tests inkl. Manager-Hop.
+- `internal/loop/loop_test.go`: Feld `native` am `mockProvider`.
+- `docs/concepts/ralph-loop.md`: „Build Prompt" nachgezogen.
+
+**Learnings for future iterations**
+- **`mockProvider` kann jetzt auch „ist Claude" simulieren:** Feld `native bool`,
+  `SupportsInteractiveQuestions()` gibt es zurück. Default `false` = Verhalten
+  wie bisher, also mussten bestehende Literale nicht angefasst werden. Damit sind
+  provider-gegatete Features am Loop-Seam testbar, ohne einen Wrapper-Typ zu
+  bauen.
+- **`Manager.Stop()` mitten im Lauf triggert ein vorbestehendes Data-Race**
+  (`Loop.Stop` liest `l.cmd`, während `runIteration` es via `exec.Cmd.Start`
+  schreibt) — reproduzierbar mit `-race`. Manager-Tests, die einen echten Run
+  fahren, sollten ihn deshalb über `SetCompletionCallback` + Channel auslaufen
+  lassen statt zu stoppen, und `m.Events()` in einer Goroutine drainen (Puffer
+  100, sonst kann der Run stallen). Das Race ist Produktionscode, nicht Testcode
+  — falls es je jemanden beißt, liegt es in `internal/loop/loop.go:816`.
+- **Manager-Tests brauchen `SetBaseDir` + echtes Git-Repo + `prd.md` unter
+  `.chief/prds/<name>/`.** Mit der JSON-PRD aus `createTestPRDWithName` und ohne
+  baseDir läuft der Run im echten Projekt-Repo und invoziert den Agenten gar nicht
+  — der Test wartet dann ins Leere. `newResearchRepo(t)` in
+  `research_prompt_test.go` liefert das komplette Setup (Repo, PRD, Mock-Agent)
+  und ist für weitere Manager-/Loop-Tests wiederverwendbar.
+- **`buildPrompt()` im Test ein zweites Mal aufzurufen taugt nicht**, wenn der
+  Loop schon läuft: die Story ist dann durch und man bekommt „all stories are
+  complete". Beobachten statt nachfragen — `promptLog` zeigt, was der Agent
+  wirklich bekommen hat.
+- **Go-String-Konkatenation für Backticks bricht das Zeilenlayout des Prompts.**
+  `` ` + "`cat`" + ` `` mitten in einem Absatz erzeugt beim Rendern eine
+  überlange Zeile, weil der Quelltext-Umbruch woanders sitzt als der gerenderte.
+  Den Umbruch so legen, dass die konkatenierte Stelle am Zeilenanfang steht, und
+  das Ergebnis einmal wirklich ausgeben (Wegwerf-Test mit `fmt.Println(GetPrompt(...))`).
+- **Prompt-Layout für den Nicht-Claude-Fall verifizieren, nicht annehmen:** ein
+  Platzhalter auf eigener Zeile plus ein Block, der mit `\n` beginnt und endet,
+  ergibt leer genau eine Leerzeile — also byte-identisch zum alten Prompt. Mit
+  falscher Newline-Bilanz hätte man dort eine zusätzliche Leerzeile.
+- **Vier Mutationsproben, alle gefangen:** (1) Block nie injizieren → embed-Test +
+  beide Loop-Tests; (2) Gating entfernt (`if true`) → die „non-Claude"-Zweige;
+  (3) Manager-Hop auf `false` verdrahtet → nur `TestManagerGatesResearchBlock…`
+  (der Hop ist also echt abgedeckt, nicht bloß mitgetestet); (4) Block in
+  `review_prompt.txt`/`consolidate_prompt.txt` geleakt → AC4-Guards.
+- **`GetPrompt` hat jetzt 6 Parameter.** Für den siebten gilt sinngemäß, was für
+  `CompletionScreen.Configure` notiert ist: vorher auf ein Options-Struct
+  umstellen. Call-Sites sind hier aber billig (eine produktiv, ~8 im Test).
+---
+<!-- chief-timing story="PERF-005" duration_ms=645361 cost=23.444932 in=254 out=2384 cache_create=299503 cache_read=11764427 -->
