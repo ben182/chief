@@ -80,6 +80,9 @@ func CreateWorktree(repoDir, worktreePath, branch string) error {
 		if err := runGitChecked(repoDir, "failed to create branch "+branch, "branch", branch, defaultBranch); err != nil {
 			return err
 		}
+		// Worktree branches are always cut from the default branch, so that is
+		// what a pull request for them has to target.
+		RecordBaseBranch(repoDir, branch, defaultBranch)
 	}
 
 	// Add the worktree

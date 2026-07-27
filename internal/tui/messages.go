@@ -83,10 +83,9 @@ type cleanResultMsg struct {
 
 // autoActionResultMsg is sent when a post-completion auto-action (push/PR) completes.
 type autoActionResultMsg struct {
-	action  string // "push" or "pr"
-	err     error
-	prURL   string // Only set for successful PR creation
-	prTitle string // Only set for successful PR creation
+	action string // "push" or "pr"
+	err    error
+	pr     git.PR // Only set when action is "pr" and it succeeded
 }
 
 // summaryResultMsg is sent when post-completion run-summary generation finishes.

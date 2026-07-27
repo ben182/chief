@@ -151,7 +151,7 @@ func (a App) handleAutoActionResult(msg autoActionResultMsg) (tea.Model, tea.Cmd
 			a.completionScreen.SetPRError(msg.err.Error())
 			return a, nil
 		}
-		a.completionScreen.SetPRSuccess(msg.prURL, msg.prTitle)
+		a.completionScreen.SetPRSuccess(msg.pr)
 		return a, nil
 	}
 	return a, nil
@@ -175,6 +175,7 @@ func (a App) handleBackgroundAutoAction(msg backgroundAutoActionResultMsg) (tea.
 			if prdPath == "" {
 				prdPath = prd.PRDPath(a.baseDir, prdName)
 			}
+			baseOverride := a.config.OnComplete.PRBaseBranch
 			return a, func() tea.Msg {
 				p, err := prd.LoadPRD(prdPath)
 				if err != nil {
@@ -182,7 +183,7 @@ func (a App) handleBackgroundAutoAction(msg backgroundAutoActionResultMsg) (tea.
 				}
 				title := git.PRTitleFromPRD(prdName, p)
 				body := git.PRBodyFromPRD(p)
-				_, err = git.CreatePR(dir, branch, title, body)
+				_, err = git.EnsurePR(dir, branch, title, body, baseOverride)
 				return backgroundAutoActionResultMsg{prdName: prdName, action: "pr", err: err}
 			}
 		}
@@ -340,6 +341,10 @@ func (a *App) runAutoCreatePR() tea.Cmd {
 	if prdPath == "" {
 		prdPath = prd.PRDPath(a.baseDir, prdName)
 	}
+	baseOverride := ""
+	if a.config != nil {
+		baseOverride = a.config.OnComplete.PRBaseBranch
+	}
 	return func() tea.Msg {
 		p, err := prd.LoadPRD(prdPath)
 		if err != nil {
@@ -347,10 +352,10 @@ func (a *App) runAutoCreatePR() tea.Cmd {
 		}
 		title := git.PRTitleFromPRD(prdName, p)
 		body := git.PRBodyFromPRD(p)
-		url, err := git.CreatePR(dir, branch, title, body)
+		pr, err := git.EnsurePR(dir, branch, title, body, baseOverride)
 		if err != nil {
 			return autoActionResultMsg{action: "pr", err: err}
 		}
-		return autoActionResultMsg{action: "pr", prURL: url, prTitle: title}
+		return autoActionResultMsg{action: "pr", pr: pr}
 	}
 }

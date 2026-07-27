@@ -14,14 +14,15 @@ func TestSettingsOverlay_LoadFromConfig(t *testing.T) {
 			Setup: "npm install",
 		},
 		OnComplete: config.OnCompleteConfig{
-			Push:     true,
-			CreatePR: false,
+			Push:         true,
+			CreatePR:     false,
+			PRBaseBranch: "develop",
 		},
 	}
 	s.LoadFromConfig(cfg)
 
-	if len(s.items) != 6 {
-		t.Fatalf("expected 6 items, got %d", len(s.items))
+	if len(s.items) != 7 {
+		t.Fatalf("expected 7 items, got %d", len(s.items))
 	}
 	if s.items[0].Key != "worktree.setup" || s.items[0].StringVal != "npm install" {
 		t.Errorf("worktree.setup item: got key=%s val=%s", s.items[0].Key, s.items[0].StringVal)
@@ -32,14 +33,17 @@ func TestSettingsOverlay_LoadFromConfig(t *testing.T) {
 	if s.items[2].Key != "onComplete.createPR" || s.items[2].BoolVal {
 		t.Errorf("onComplete.createPR item: got key=%s val=%v", s.items[2].Key, s.items[2].BoolVal)
 	}
-	if s.items[3].Key != "onComplete.summary" {
-		t.Errorf("onComplete.summary item: got key=%s", s.items[3].Key)
+	if s.items[3].Key != "onComplete.prBaseBranch" || s.items[3].StringVal != "develop" {
+		t.Errorf("onComplete.prBaseBranch item: got key=%s val=%s", s.items[3].Key, s.items[3].StringVal)
 	}
-	if s.items[4].Key != "onComplete.notify" {
-		t.Errorf("onComplete.notify item: got key=%s", s.items[4].Key)
+	if s.items[4].Key != "onComplete.summary" {
+		t.Errorf("onComplete.summary item: got key=%s", s.items[4].Key)
 	}
-	if s.items[5].Key != "loop.keepAwake" {
-		t.Errorf("loop.keepAwake item: got key=%s", s.items[5].Key)
+	if s.items[5].Key != "onComplete.notify" {
+		t.Errorf("onComplete.notify item: got key=%s", s.items[5].Key)
+	}
+	if s.items[6].Key != "loop.keepAwake" {
+		t.Errorf("loop.keepAwake item: got key=%s", s.items[6].Key)
 	}
 	if s.selectedIndex != 0 {
 		t.Errorf("expected selectedIndex=0, got %d", s.selectedIndex)
@@ -55,6 +59,7 @@ func TestSettingsOverlay_ApplyToConfig(t *testing.T) {
 	s.items[0].StringVal = "go mod download"
 	s.items[1].BoolVal = true
 	s.items[2].BoolVal = true
+	s.items[3].StringVal = "develop"
 
 	resultCfg := config.Default()
 	s.ApplyToConfig(resultCfg)
@@ -67,6 +72,9 @@ func TestSettingsOverlay_ApplyToConfig(t *testing.T) {
 	}
 	if !resultCfg.OnComplete.CreatePR {
 		t.Error("expected createPR=true")
+	}
+	if resultCfg.OnComplete.PRBaseBranch != "develop" {
+		t.Errorf("expected prBaseBranch='develop', got '%s'", resultCfg.OnComplete.PRBaseBranch)
 	}
 }
 

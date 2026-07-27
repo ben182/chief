@@ -28,6 +28,61 @@ func TestPushBranch(t *testing.T) {
 	})
 }
 
+func TestPRCreateArgs(t *testing.T) {
+	t.Run("targets the base branch it was given", func(t *testing.T) {
+		got := prCreateArgs("chief/auth", "develop", "feat: auth", "body")
+		want := []string{"pr", "create", "--head", "chief/auth", "--base", "develop", "--title", "feat: auth", "--body", "body"}
+		if !equalArgs(got, want) {
+			t.Errorf("prCreateArgs() = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("omits --base entirely when there is none", func(t *testing.T) {
+		got := prCreateArgs("chief/auth", "", "feat: auth", "body")
+		want := []string{"pr", "create", "--head", "chief/auth", "--title", "feat: auth", "--body", "body"}
+		if !equalArgs(got, want) {
+			t.Errorf("prCreateArgs() = %v, want %v", got, want)
+		}
+	})
+}
+
+func TestFindOpenPR(t *testing.T) {
+	// Without a GitHub remote (or without gh at all) the question can't be
+	// answered — that has to surface as an error, not as "no PR exists", so
+	// EnsurePR doesn't silently skip an existing one.
+	t.Run("errors on a repo gh cannot resolve", func(t *testing.T) {
+		dir := initTestRepo(t)
+		pr, err := FindOpenPR(dir, "chief/auth")
+		if err == nil {
+			t.Error("FindOpenPR() expected an error for a repo without a GitHub remote, got nil")
+		}
+		if pr.URL != "" {
+			t.Errorf("FindOpenPR() URL = %q, want empty on error", pr.URL)
+		}
+	})
+}
+
+func TestEnsurePR(t *testing.T) {
+	t.Run("reports the create failure on a repo without a GitHub remote", func(t *testing.T) {
+		dir := initTestRepo(t)
+		if _, err := EnsurePR(dir, "chief/auth", "title", "body", ""); err == nil {
+			t.Error("EnsurePR() expected an error for a repo without a GitHub remote, got nil")
+		}
+	})
+}
+
+func equalArgs(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestDeleteBranch(t *testing.T) {
 	t.Run("deletes existing branch", func(t *testing.T) {
 		dir := initTestRepo(t)

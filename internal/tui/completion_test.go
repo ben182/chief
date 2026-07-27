@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/ben182/chief/internal/git"
 )
 
 func TestCompletionScreen_Configure(t *testing.T) {
@@ -216,7 +218,11 @@ func TestCompletionScreen_PRSuccess(t *testing.T) {
 	cs := NewCompletionScreen()
 	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, nil, 0)
 	cs.SetPushSuccess()
-	cs.SetPRSuccess("https://github.com/org/repo/pull/42", "feat(auth): Authentication")
+	cs.SetPRSuccess(git.PR{
+		URL:   "https://github.com/org/repo/pull/42",
+		Title: "feat(auth): Authentication",
+		Base:  "develop",
+	})
 	cs.SetSize(80, 40)
 
 	rendered := cs.Render()
@@ -226,11 +232,40 @@ func TestCompletionScreen_PRSuccess(t *testing.T) {
 	if !strings.Contains(rendered, "feat(auth): Authentication") {
 		t.Error("expected PR title in render output")
 	}
+	if !strings.Contains(rendered, "develop") {
+		t.Error("expected the PR's base branch in render output")
+	}
 	if !strings.Contains(rendered, "https://github.com/org/repo/pull/42") {
 		t.Error("expected PR URL in render output")
 	}
 	if cs.IsAutoActionRunning() {
 		t.Error("expected IsAutoActionRunning() to be false when all actions complete")
+	}
+}
+
+// A followup run pushes onto a branch whose PR is already open: the screen has
+// to say so rather than claim it opened a second one.
+func TestCompletionScreen_PRAlreadyOpen(t *testing.T) {
+	cs := NewCompletionScreen()
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, nil, 0)
+	cs.SetPushSuccess()
+	cs.SetPRSuccess(git.PR{
+		URL:            "https://github.com/org/repo/pull/42",
+		Title:          "feat(auth): Authentication",
+		Base:           "develop",
+		AlreadyExisted: true,
+	})
+	cs.SetSize(80, 40)
+
+	rendered := cs.Render()
+	if !strings.Contains(rendered, "PR already open") {
+		t.Error("expected 'PR already open' for a pre-existing pull request")
+	}
+	if strings.Contains(rendered, "Created PR") {
+		t.Error("expected no 'Created PR' claim for a pre-existing pull request")
+	}
+	if !strings.Contains(rendered, "https://github.com/org/repo/pull/42") {
+		t.Error("expected the existing PR's URL in render output")
 	}
 }
 
@@ -254,7 +289,7 @@ func TestCompletionScreen_ConfigureResetsAutoActions(t *testing.T) {
 	cs := NewCompletionScreen()
 	cs.Configure("auth", 8, 8, "chief/auth", 5, true, 0, nil, 0)
 	cs.SetPushSuccess()
-	cs.SetPRSuccess("https://example.com", "title")
+	cs.SetPRSuccess(git.PR{URL: "https://example.com", Title: "title"})
 
 	// Reconfigure should reset
 	cs.Configure("payments", 3, 5, "chief/payments", 2, false, 0, nil, 0)
@@ -265,8 +300,8 @@ func TestCompletionScreen_ConfigureResetsAutoActions(t *testing.T) {
 	if cs.prState != AutoActionIdle {
 		t.Error("expected PR state to be reset after Configure")
 	}
-	if cs.prURL != "" {
-		t.Error("expected prURL to be empty after Configure")
+	if cs.pr.URL != "" {
+		t.Error("expected the PR URL to be empty after Configure")
 	}
 }
 

@@ -60,6 +60,7 @@ func (s *SettingsOverlay) LoadFromConfig(cfg *config.Config) {
 		{Section: "Worktree", Label: "Setup command", Key: "worktree.setup", Type: SettingsItemString, StringVal: cfg.Worktree.Setup},
 		{Section: "On Complete", Label: "Push to remote", Key: "onComplete.push", Type: SettingsItemBool, BoolVal: cfg.OnComplete.Push},
 		{Section: "On Complete", Label: "Create pull request", Key: "onComplete.createPR", Type: SettingsItemBool, BoolVal: cfg.OnComplete.CreatePR},
+		{Section: "On Complete", Label: "PR base branch", Key: "onComplete.prBaseBranch", Type: SettingsItemString, StringVal: cfg.OnComplete.PRBaseBranch},
 		{Section: "On Complete", Label: "Write run summary", Key: "onComplete.summary", Type: SettingsItemBool, BoolVal: cfg.OnComplete.Summary},
 		{Section: "On Complete", Label: "Desktop notification", Key: "onComplete.notify", Type: SettingsItemBool, BoolVal: cfg.OnComplete.Notify},
 		{Section: "Loop", Label: "Keep machine awake", Key: "loop.keepAwake", Type: SettingsItemBool, BoolVal: cfg.Loop.KeepAwake},
@@ -81,6 +82,8 @@ func (s *SettingsOverlay) ApplyToConfig(cfg *config.Config) {
 			cfg.OnComplete.Push = item.BoolVal
 		case "onComplete.createPR":
 			cfg.OnComplete.CreatePR = item.BoolVal
+		case "onComplete.prBaseBranch":
+			cfg.OnComplete.PRBaseBranch = item.StringVal
 		case "onComplete.summary":
 			cfg.OnComplete.Summary = item.BoolVal
 		case "onComplete.notify":

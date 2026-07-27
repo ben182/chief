@@ -5,8 +5,27 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ben182/chief/internal/git"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// prSuccessLine describes the run's pull request: whether it was opened now or
+// was already there from an earlier run on the same branch, and which branch it
+// merges into (omitted when gh picked the repository default).
+func prSuccessLine(pr git.PR) string {
+	verb := "Created PR"
+	if pr.AlreadyExisted {
+		verb = "PR already open"
+	}
+	target := ""
+	if pr.Base != "" {
+		target = fmt.Sprintf(" → %s", pr.Base)
+	}
+	if pr.Title == "" {
+		return fmt.Sprintf("✓ %s%s", verb, target)
+	}
+	return fmt.Sprintf("✓ %s%s: %s", verb, target, pr.Title)
+}
 
 // AutoActionState represents the progress of an auto-action (push or PR).
 type AutoActionState int
@@ -73,8 +92,7 @@ type CompletionScreen struct {
 	pushError    string
 	prState      AutoActionState
 	prError      string
-	prURL        string
-	prTitle      string
+	pr           git.PR
 	spinnerFrame int
 }
 
@@ -102,8 +120,7 @@ func (c *CompletionScreen) Configure(prdName string, completed, total int, branc
 	c.pushError = ""
 	c.prState = AutoActionIdle
 	c.prError = ""
-	c.prURL = ""
-	c.prTitle = ""
+	c.pr = git.PR{}
 	c.spinnerFrame = 0
 	// Initialize confetti (deferred until SetSize if dimensions aren't known yet)
 	if c.width > 0 && c.height > 0 {
@@ -180,11 +197,11 @@ func (c *CompletionScreen) SetPRInProgress() {
 	c.prState = AutoActionInProgress
 }
 
-// SetPRSuccess marks the PR creation as successful.
-func (c *CompletionScreen) SetPRSuccess(url, title string) {
+// SetPRSuccess marks the run's pull request as settled — either created now or
+// already open from an earlier run on the same branch.
+func (c *CompletionScreen) SetPRSuccess(pr git.PR) {
 	c.prState = AutoActionSuccess
-	c.prURL = url
-	c.prTitle = title
+	c.pr = pr
 }
 
 // SetPRError marks the PR creation as failed with an error message.
@@ -518,9 +535,9 @@ func (c *CompletionScreen) renderAutoActions(innerWidth int) string {
 			frame := spinnerChars[c.spinnerFrame%len(spinnerChars)]
 			lines.WriteString(fgPrimary.Render(fmt.Sprintf("%s Creating pull request...", frame)))
 		case AutoActionSuccess:
-			lines.WriteString(fgSuccess.Render(fmt.Sprintf("✓ Created PR: %s", c.prTitle)))
+			lines.WriteString(fgSuccess.Render(prSuccessLine(c.pr)))
 			lines.WriteString("\n")
-			lines.WriteString(fgText.Render(fmt.Sprintf("  %s", c.prURL)))
+			lines.WriteString(fgText.Render(fmt.Sprintf("  %s", c.pr.URL)))
 		case AutoActionError:
 			lines.WriteString(fgError.Render(fmt.Sprintf("✗ PR creation failed: %s", c.prError)))
 		}

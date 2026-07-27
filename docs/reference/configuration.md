@@ -22,6 +22,7 @@ worktree:
 onComplete:
   push: true
   createPR: true
+  prBaseBranch: ""   # branch PRs merge into; empty = the branch the run's branch was cut from
   summary: true      # write & commit a timestamped summary-<date>-<time>.md when the run finishes
   notify: true       # desktop notification when the run finishes
 loop:
@@ -48,7 +49,8 @@ consolidate:
 | `agent.model` | string | `""` | Optional model passed to the Claude CLI via `--model`. Needed when Claude Code's `-p` mode ignores `~/.claude/settings.json` (e.g. local models via LM Studio). |
 | `worktree.setup` | string | `""` | Shell command to run in new worktrees (e.g., `npm install`, `go mod download`) |
 | `onComplete.push` | bool | `false` | Automatically push the branch to remote when a PRD completes. Only runs if the branch has at least one commit. |
-| `onComplete.createPR` | bool | `false` | Automatically create a pull request when a PRD completes (requires `gh` CLI). Only runs after a successful push, so a run with no commits creates no PR. |
+| `onComplete.createPR` | bool | `false` | Automatically create a pull request when a PRD completes (requires `gh` CLI). Only runs after a successful push, so a run with no commits creates no PR. The PR targets the branch the run's branch was cut from, and an already-open PR for the branch is reported instead of a second one being opened — see [Pull request target](#pull-request-target). |
+| `onComplete.prBaseBranch` | string | `""` | Forces the branch pull requests merge into. Empty (the default) lets Chief use the branch the run's branch was cut from. Set this only when that answer is wrong for your workflow. A branch `origin` doesn't have is ignored, leaving the choice to `gh`. |
 | `onComplete.summary` | bool | `true` | When a run finishes (or hits max iterations with committed work), run the agent once more to write a human-facing, timestamped `summary-<date>-<time>.md` next to the PRD — what was built, how to test it, where the new functionality lives, and open/parked follow-ups. Each run writes its own file (sortable name), so the PRD keeps a run history. The file is committed automatically (force-added, so it lands even when `.chief/` is gitignored); with `onComplete.push` on, it rides along in the pushed branch/PR. Only runs when the branch has at least one commit. |
 | `onComplete.notify` | bool | `true` | Send a desktop notification when a run finishes (macOS `osascript`, Linux `notify-send`). |
 | `loop.watchdogTimeoutSeconds` | int | `0` | Seconds of agent silence (no output) before the watchdog kills the hung process. `0` uses the built-in default of 5 minutes. Raise it when the agent runs long, silent builds or test suites that would otherwise trip the watchdog. |
@@ -85,6 +87,21 @@ Three properties keep it safe:
 
 It's off by default, deliberately: it edits code that already worked and was already signed off.
 
+### Pull request target
+
+A pull request has to merge back into the branch the work came from. In a repo where feature branches come off `develop`, a PR opened against `main` is the wrong merge — it drags every commit `develop` is ahead by into the diff, and merging it puts unreviewed work on the release branch.
+
+So Chief doesn't assume the default branch. It decides the base in this order:
+
+1. **`onComplete.prBaseBranch`**, when you set it. An explicit answer always wins.
+2. **The branch Chief cut the run's branch from.** Chief records this in the repo's git config (`branch.<name>.chiefbase`) at the moment it creates the branch, when the answer is still known for certain. Branches created from your current checkout record that branch; worktree branches are always cut from the default branch and record that.
+3. **The closest ancestor in history**, for a branch Chief didn't create (or one created before this behavior existed). Chief asks every other branch how many commits the run's branch has added since they last shared a commit, and takes the branch that answers with the fewest — a branch cut from `develop` is a handful of commits past `develop`, but those commits *plus* everything `develop` gained since it left `main` past `main`. Ties go to the default branch, so two feature branches cut from the same point don't nominate each other.
+4. **The default branch**, when there's nothing to go on.
+
+A base that `origin` doesn't have is dropped rather than passed to `gh`, which would fail outright; `gh` then applies the repository default.
+
+**Existing pull requests.** Before opening one, Chief checks whether the branch already has an open PR — the normal case for a followup run on the same branch. If it does, the push has already updated it, so Chief reports that PR (with its URL and target branch) instead of failing at `gh pr create`.
+
 ### Example Configurations
 
 **Minimal (defaults):**
@@ -114,7 +131,7 @@ Press `,` from any view in the TUI to open the Settings overlay. This provides a
 Settings are organized by section:
 
 - **Worktree** — Setup command (string, editable inline)
-- **On Complete** — Push to remote (toggle), Create pull request (toggle), Write run summary (toggle), Desktop notification (toggle)
+- **On Complete** — Push to remote (toggle), Create pull request (toggle), PR base branch (text; empty = the branch the run's branch was cut from), Write run summary (toggle), Desktop notification (toggle)
 - **Loop** — Keep machine awake (toggle)
 
 Changes are saved immediately to `.chief/config.yaml` on every edit.

@@ -67,16 +67,25 @@ func IsProtectedBranch(branch string) bool {
 // CreateBranch switches to branchName, creating it if it doesn't exist yet.
 // Idempotent: re-running a PRD whose branch already exists just checks it out
 // instead of failing like plain `git checkout -b` would.
+//
+// A freshly created branch records the branch it was cut from (see
+// RecordBaseBranch) so a pull request for it later targets that branch — cutting
+// from develop and then opening the PR against main is the wrong merge. An
+// existing branch keeps whatever origin it was created with.
 func CreateBranch(dir, branchName string) error {
 	exists, err := BranchExists(dir, branchName)
 	if err != nil {
 		return err
 	}
-	args := []string{"checkout", "-b", branchName}
 	if exists {
-		args = []string{"checkout", branchName}
+		return runGitChecked(dir, "", "checkout", branchName)
 	}
-	return runGitChecked(dir, "", args...)
+	base, _ := GetCurrentBranch(dir) // "" or "HEAD" (detached) is simply not recorded
+	if err := runGitChecked(dir, "", "checkout", "-b", branchName); err != nil {
+		return err
+	}
+	RecordBaseBranch(dir, branchName, base)
+	return nil
 }
 
 // BranchExists returns true if a branch with the given name exists.

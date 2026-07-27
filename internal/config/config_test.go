@@ -18,6 +18,29 @@ func TestDefault(t *testing.T) {
 	if cfg.OnComplete.CreatePR {
 		t.Error("expected CreatePR to be false")
 	}
+	// Empty means "use the branch the run's branch was cut from", not "main".
+	if cfg.OnComplete.PRBaseBranch != "" {
+		t.Errorf("expected PRBaseBranch to be empty, got %q", cfg.OnComplete.PRBaseBranch)
+	}
+}
+
+func TestLoadPRBaseBranch(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".chief"), 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	yaml := "onComplete:\n  createPR: true\n  prBaseBranch: develop\n"
+	if err := os.WriteFile(filepath.Join(dir, ".chief", "config.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.OnComplete.PRBaseBranch != "develop" {
+		t.Errorf("expected PRBaseBranch %q, got %q", "develop", cfg.OnComplete.PRBaseBranch)
+	}
 }
 
 func TestLoadNonExistent(t *testing.T) {

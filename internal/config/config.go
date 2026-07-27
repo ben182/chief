@@ -136,6 +136,12 @@ type OnCompleteConfig struct {
 	// completion and when max iterations is hit, as long as the branch has
 	// commits to describe.
 	Summary bool `yaml:"summary"`
+	// PRBaseBranch forces the branch pull requests are opened against. Empty (the
+	// default) lets chief use the branch the run's branch was cut from — recorded
+	// when chief created it, inferred from history otherwise — which is what you
+	// want in a repo where feature branches come off develop rather than main.
+	// Set this only when that answer is wrong for your workflow.
+	PRBaseBranch string `yaml:"prBaseBranch"`
 }
 
 // Default returns a Config with default values. Notify, Summary and KeepAwake
