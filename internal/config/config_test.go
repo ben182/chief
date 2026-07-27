@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestDefault(t *testing.T) {
@@ -273,6 +275,99 @@ func TestSaveOmitsUnsetEnabled(t *testing.T) {
 	}
 	if strings.Contains(string(data), "enabled: null") {
 		t.Errorf("unset enabled must not be written out:\n%s", string(data))
+	}
+}
+
+// TestPhaseModelsFromYAML verifies both phases pick their model up from the
+// config file, independently of each other and of the build agent's model.
+func TestPhaseModelsFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".chief"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	yaml := `agent:
+  model: opus
+review:
+  enabled: true
+  model: haiku
+consolidate:
+  enabled: true
+  model: opus
+`
+	if err := os.WriteFile(filepath.Join(dir, configFile), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if loaded.Review.Model != "haiku" {
+		t.Errorf("expected review.model %q, got %q", "haiku", loaded.Review.Model)
+	}
+	if loaded.Consolidate.Model != "opus" {
+		t.Errorf("expected consolidate.model %q, got %q", "opus", loaded.Consolidate.Model)
+	}
+	if loaded.Agent.Model != "opus" {
+		t.Errorf("expected agent.model to stay untouched, got %q", loaded.Agent.Model)
+	}
+}
+
+// TestPhaseModelsUnsetByDefault pins the empty default: chief resolves the
+// Sonnet default for the review and consolidation agents when it spawns them, so
+// the config itself must stay empty — otherwise the file would claim a model the
+// user never chose.
+func TestPhaseModelsUnsetByDefault(t *testing.T) {
+	loaded, err := Load(t.TempDir()) // no config file at all
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if loaded.Review.Model != "" {
+		t.Errorf("expected review.model to be unset, got %q", loaded.Review.Model)
+	}
+	if loaded.Consolidate.Model != "" {
+		t.Errorf("expected consolidate.model to be unset, got %q", loaded.Consolidate.Model)
+	}
+}
+
+// TestPhaseModelRoundTrip verifies a configured model survives Save/Load, and an
+// unconfigured one leaves no `model:` line behind that would read as a choice.
+func TestPhaseModelRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{
+		Review:      ReviewConfig{Enabled: Bool(true), Model: "haiku"},
+		Consolidate: ConsolidateConfig{Enabled: Bool(true), Model: "opus"},
+	}
+	if err := Save(dir, cfg); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if loaded.Review.Model != "haiku" {
+		t.Errorf("expected review.model to round-trip, got %q", loaded.Review.Model)
+	}
+	if loaded.Consolidate.Model != "opus" {
+		t.Errorf("expected consolidate.model to round-trip, got %q", loaded.Consolidate.Model)
+	}
+
+	bare := t.TempDir()
+	if err := Save(bare, &Config{Review: ReviewConfig{Skill: "/code-quality"}}); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(bare, configFile))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	var raw map[string]map[string]any
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("parse saved config: %v", err)
+	}
+	for _, section := range []string{"review", "consolidate"} {
+		if _, ok := raw[section]["model"]; ok {
+			t.Errorf("unset %s.model must not be written out:\n%s", section, string(data))
+		}
 	}
 }
 

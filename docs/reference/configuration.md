@@ -30,11 +30,13 @@ loop:
   keepAwake: true               # keep the machine awake while a loop is running (macOS)
 review:
   enabled: true                 # run the review with just the built-in prompt (no extra config needed)
+  model: ""                     # model the review agent runs on; empty = sonnet (Claude only)
   skill: "/code-quality"        # optional project skill the review agent runs (Claude only)
   instructions: |               # optional free-form guidance for the review agent
     Watch for N+1 queries and make sure new behavior has tests.
 consolidate:
   enabled: true                 # one refactor pass over the whole run, after the last story
+  model: ""                     # model the consolidation agent runs on; empty = sonnet (Claude only)
   skill: "/code-quality"        # optional project skill the consolidation agent runs (Claude only)
   instructions: |               # optional free-form guidance for the consolidation agent
     We keep all HTTP clients in internal/transport.
@@ -56,6 +58,7 @@ consolidate:
 | `loop.watchdogTimeoutSeconds` | int | `0` | Seconds of agent silence (no output) before the watchdog kills the hung process. `0` uses the built-in default of 5 minutes. Raise it when the agent runs long, silent builds or test suites that would otherwise trip the watchdog. |
 | `loop.keepAwake` | bool | `true` | Stop the machine from going to sleep while a loop is running. A run is a walk-away workflow — nobody touches the keyboard for an hour — so the OS would otherwise idle-sleep the machine mid-story and leave the agent frozen until you came back. macOS only (`caffeinate -i -s`, so the display still sleeps and only the machine stays up); a no-op on other platforms. Takes effect when a loop starts, so toggling it mid-run applies from the next start onwards. A closed lid still sleeps a MacBook without an external display — that's a firmware behavior no assertion can override. |
 | `review.enabled` | bool | unset | The hard switch, and it always wins. `true` runs the review with just the built-in prompt (the two-axis Spec/Standards review and code-smell baseline) — no skill or instructions needed. `false` keeps the review off even when `review.skill` or `review.instructions` are set, so you can park a skill in the config without it running. Left out entirely, a skill or instructions enable the review by themselves. |
+| `review.model` | string | `""` (= `sonnet`) | Model the **review agent** runs on, e.g. `haiku`, `sonnet`, `opus`. Left empty, the review runs on **Sonnet** rather than on the build agent's model: reviewing one story's diff is a large share of a run's cost and doesn't need the build model. Claude-specific (passed via `--model`); other providers ignore it. `agent.model` is untouched either way — if your build agent runs on a model of its own (e.g. a local model via LM Studio), set this to the same value so the review reaches it too. |
 | `review.skill` | string | `""` | Name of a project skill (e.g. `/code-quality`) the **separate review agent** runs as part of its review. Claude-specific; other providers ignore it. Optional — setting it also enables the review unless `review.enabled: false` says otherwise. |
 | `review.instructions` | string | `""` | Free-form guidance for the review agent (e.g. "watch for N+1 queries and missing tests"). Works with any provider. Optional — setting it also enables the review unless `review.enabled: false` says otherwise. |
 
@@ -66,6 +69,7 @@ See [The Review Agent](/concepts/code-review) for the full picture — why it's 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `consolidate.enabled` | bool | unset | The hard switch, and it always wins. `true` runs one **consolidation pass** over the whole run after the last story finishes: a single agent looks across every commit the run landed and refactors away the seams that no per-story review can see. `false` keeps the pass off even when `consolidate.skill` or `consolidate.instructions` are set. Left out entirely, a skill or instructions enable the pass by themselves. |
+| `consolidate.model` | string | `""` (= `sonnet`) | Model the **consolidation agent** runs on, e.g. `haiku`, `sonnet`, `opus`. Left empty, the pass runs on **Sonnet** rather than on the build agent's model, for the same reason the review does. Claude-specific; other providers ignore it. Set it to the same value as `agent.model` when your build agent runs on a model of its own. |
 | `consolidate.skill` | string | `""` | Name of a project skill (e.g. `/code-quality`) the consolidation agent runs as part of its pass. Claude-specific; other providers ignore it. Optional — setting it also enables the pass unless `consolidate.enabled: false` says otherwise. |
 | `consolidate.instructions` | string | `""` | Free-form guidance for the consolidation agent (e.g. "we keep all HTTP clients in `internal/transport`"). Works with any provider. Optional — setting it also enables the pass unless `consolidate.enabled: false` says otherwise. |
 

@@ -213,6 +213,65 @@ func TestManagerStopNonRunning(t *testing.T) {
 	}
 }
 
+// TestManagerAppliesPhaseModels verifies the configured review and consolidation
+// models reach the loop the manager starts, and that leaving them out lands on the
+// Sonnet default rather than on the build agent's model.
+func TestManagerAppliesPhaseModels(t *testing.T) {
+	start := func(t *testing.T, cfg *config.Config) *Loop {
+		t.Helper()
+		tmpDir := t.TempDir()
+		prdPath := createTestPRDWithName(t, tmpDir, "test-prd")
+
+		m := NewManager(10, &mockProvider{cliPath: "/usr/bin/true"})
+		m.SetConfig(cfg)
+		if err := m.Register("test-prd", prdPath); err != nil {
+			t.Fatalf("register failed: %v", err)
+		}
+		if err := m.Start("test-prd"); err != nil {
+			t.Fatalf("start failed: %v", err)
+		}
+		t.Cleanup(func() { _ = m.Stop("test-prd") })
+
+		instance, err := m.lookup("test-prd")
+		if err != nil {
+			t.Fatalf("lookup failed: %v", err)
+		}
+		instance.mu.Lock()
+		l := instance.Loop
+		instance.mu.Unlock()
+		if l == nil {
+			t.Fatal("expected a started loop")
+		}
+		return l
+	}
+
+	configured := start(t, &config.Config{
+		Agent:       config.AgentConfig{Model: "opus"},
+		Review:      config.ReviewConfig{Enabled: config.Bool(true), Model: "haiku"},
+		Consolidate: config.ConsolidateConfig{Enabled: config.Bool(true), Model: "opus"},
+	})
+	if got := configured.modelForMode(modeReview); got != "haiku" {
+		t.Errorf("review model = %q, want haiku", got)
+	}
+	if got := configured.modelForMode(modeConsolidate); got != "opus" {
+		t.Errorf("consolidate model = %q, want opus", got)
+	}
+
+	bare := start(t, &config.Config{
+		Review:      config.ReviewConfig{Enabled: config.Bool(true)},
+		Consolidate: config.ConsolidateConfig{Enabled: config.Bool(true)},
+	})
+	if got := bare.modelForMode(modeReview); got != "sonnet" {
+		t.Errorf("unconfigured review model = %q, want sonnet", got)
+	}
+	if got := bare.modelForMode(modeConsolidate); got != "sonnet" {
+		t.Errorf("unconfigured consolidate model = %q, want sonnet", got)
+	}
+	if got := bare.modelForMode(modeBuild); got != "" {
+		t.Errorf("the build agent must keep the provider's model, got %q", got)
+	}
+}
+
 func TestManagerStartNonExistent(t *testing.T) {
 	m := NewManager(10, testProvider)
 

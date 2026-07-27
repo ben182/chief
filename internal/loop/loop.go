@@ -222,6 +222,58 @@ func (l *Loop) SetReview(enabled bool, skill, instructions string) {
 	l.review = reviewer{enabled: enabled, skill: skill, instructions: instructions}
 }
 
+// SetReviewModel sets the model the review agent runs on, e.g. "haiku". An empty
+// string — the default — runs it on defaultPhaseModel instead. It never affects
+// the build agent, and it is inert for providers whose CLI takes no model.
+func (l *Loop) SetReviewModel(model string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.review.model = model
+}
+
+// SetConsolidateModel sets the model the consolidation agent runs on, e.g.
+// "haiku". An empty string — the default — runs it on defaultPhaseModel instead.
+// It never affects the build agent, and it is inert for providers whose CLI takes
+// no model.
+func (l *Loop) SetConsolidateModel(model string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.consolidate.model = model
+}
+
+// providerForMode returns the provider the given phase's agent should be spawned
+// with. The build agent always gets the configured provider untouched; the review
+// and consolidation agents get a copy running on their own model, so the phases
+// that only read already-committed code don't cost what building it did. A
+// provider that can't switch models is returned unchanged, which is what makes the
+// phase models inert for every non-Claude CLI.
+func (l *Loop) providerForMode(mode iterationMode) Provider {
+	model := l.modelForMode(mode)
+	if model == "" {
+		return l.provider
+	}
+	switcher, ok := l.provider.(ModelSwitcher)
+	if !ok {
+		return l.provider
+	}
+	return switcher.WithModel(model)
+}
+
+// modelForMode returns the model a phase's agent runs on, or "" for the build
+// agent, which keeps the provider's own model.
+func (l *Loop) modelForMode(mode iterationMode) string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	switch mode {
+	case modeReview:
+		return l.review.effectiveModel()
+	case modeConsolidate:
+		return l.consolidate.effectiveModel()
+	default:
+		return ""
+	}
+}
+
 // reviewEnabled reports whether a review agent should run after a story commits.
 func (l *Loop) reviewEnabled() bool {
 	l.mu.Lock()
@@ -487,7 +539,7 @@ func (l *Loop) runIterationWithRetry(ctx context.Context, mode iterationMode) er
 // agent is running so a <chief-done/> is attributed to the build or review agent.
 func (l *Loop) runIteration(ctx context.Context, mode iterationMode) error {
 	workDir := l.effectiveWorkDir()
-	cmd := l.provider.LoopCommand(ctx, l.prompt, workDir)
+	cmd := l.providerForMode(mode).LoopCommand(ctx, l.prompt, workDir)
 	setProcessGroup(cmd) // kill the whole subprocess tree, not just the direct child
 	l.mu.Lock()
 	l.agentCmd = cmd

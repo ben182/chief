@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,7 +18,37 @@ import (
 
 // mockProvider implements Provider for tests without importing agent (avoids import cycle).
 type mockProvider struct {
-	cliPath string // if set, used as CLI path; otherwise "claude"
+	cliPath string    // if set, used as CLI path; otherwise "claude"
+	model   string    // the model this provider runs on; set by WithModel, like the Claude provider's --model
+	models  *modelLog // if set, records the model of every invocation; shared with clones
+}
+
+// modelLog records the model each agent invocation ran on, so a test can observe
+// which model a phase asked the provider for.
+type modelLog struct {
+	mu     sync.Mutex
+	models []string
+}
+
+func (l *modelLog) record(model string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.models = append(l.models, model)
+}
+
+func (l *modelLog) all() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.models...)
+}
+
+// WithModel implements ModelSwitcher the way the Claude provider does: it returns
+// a clone running on the given model and leaves the receiver — the build agent's
+// provider — untouched.
+func (m *mockProvider) WithModel(model string) Provider {
+	clone := *m
+	clone.model = model
+	return &clone
 }
 
 func (m *mockProvider) Name() string                             { return "Test" }
@@ -35,6 +66,9 @@ func (m *mockProvider) path() string {
 }
 
 func (m *mockProvider) LoopCommand(ctx context.Context, _, workDir string) *exec.Cmd {
+	if m.models != nil {
+		m.models.record(m.model)
+	}
 	p := m.path()
 	cmd := exec.CommandContext(ctx, p)
 	cmd.Dir = workDir

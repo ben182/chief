@@ -23,3 +23,16 @@ type Provider interface {
 	ParseLine(line string) *Event
 	LogFileName() string
 }
+
+// ModelSwitcher is implemented by providers whose model can be picked per agent
+// invocation — today only Claude, whose CLI takes --model. It lets the loop run
+// the review and consolidation agents on a cheaper model than the build agent
+// without touching the build agent's own configuration: WithModel returns a copy
+// of the provider running on the given model and leaves the receiver alone.
+//
+// Providers that don't implement it (codex, opencode, cursor, gemini) simply run
+// every phase on whatever model their CLI picks, so a configured phase model is
+// inert there rather than an error.
+type ModelSwitcher interface {
+	WithModel(model string) Provider
+}

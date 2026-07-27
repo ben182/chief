@@ -11,12 +11,32 @@ type reviewer struct {
 	enabled      bool
 	skill        string
 	instructions string
+	// model is the model the review agent runs on. Empty means the default,
+	// resolved by effectiveModel.
+	model string
 }
 
 // active reports whether a review agent should run after a story commits.
 func (r reviewer) active() bool {
 	return r.enabled
 }
+
+// effectiveModel returns the model the review agent runs on: whatever the project
+// configured, or the phase default.
+func (r reviewer) effectiveModel() string {
+	if r.model != "" {
+		return r.model
+	}
+	return defaultPhaseModel
+}
+
+// defaultPhaseModel is the model the review and consolidation agents run on when
+// the project configures none. Both read code that is already written and
+// committed — judging one story's diff, or spotting duplicated helpers across a
+// run — which is a fraction of the work building it was, yet on the build model
+// they add up to a large share of a run's cost. The build agent is deliberately
+// left alone: it keeps running on whatever the provider was configured with.
+const defaultPhaseModel = "sonnet"
 
 // iterationMode distinguishes the agents an iteration can run: the build agent
 // (the default that implements a story), the review agent that runs after each

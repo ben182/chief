@@ -17,9 +17,21 @@ type consolidator struct {
 	enabled      bool
 	skill        string
 	instructions string
+	// model is the model the consolidation agent runs on. Empty means the default,
+	// resolved by effectiveModel.
+	model string
 }
 
 // active reports whether the consolidation pass should run at the end of a run.
 func (c consolidator) active() bool {
 	return c.enabled
+}
+
+// effectiveModel returns the model the consolidation agent runs on: whatever the
+// project configured, or the phase default.
+func (c consolidator) effectiveModel() string {
+	if c.model != "" {
+		return c.model
+	}
+	return defaultPhaseModel
 }

@@ -115,6 +115,54 @@ func TestClaudeProvider_SetModel(t *testing.T) {
 	}
 }
 
+// TestClaudeProvider_WithModel verifies a phase can be moved onto its own model
+// without disturbing the provider the build agent runs on: WithModel hands back a
+// provider that passes --model, and the original keeps its own model.
+func TestClaudeProvider_WithModel(t *testing.T) {
+	p := NewClaudeProvider("/bin/claude", "opus")
+
+	phase := p.WithModel("sonnet")
+	cmd := phase.LoopCommand(context.Background(), "hi", "/work")
+	wantArgs := []string{"/bin/claude", "--dangerously-skip-permissions", "-p", "hi", "--output-format", "stream-json", "--verbose", "--model", "sonnet"}
+	if len(cmd.Args) != len(wantArgs) {
+		t.Fatalf("phase LoopCommand Args = %v, want %v", cmd.Args, wantArgs)
+	}
+	for i, w := range wantArgs {
+		if cmd.Args[i] != w {
+			t.Errorf("phase LoopCommand Args[%d] = %q, want %q", i, cmd.Args[i], w)
+		}
+	}
+
+	if p.Model() != "opus" {
+		t.Errorf("WithModel must not change the original provider, Model() = %q, want opus", p.Model())
+	}
+	build := p.LoopCommand(context.Background(), "hi", "/work")
+	if build.Args[len(build.Args)-1] != "opus" {
+		t.Errorf("the build agent must keep its own model, Args = %v", build.Args)
+	}
+}
+
+// TestOnlyClaudeSwitchesModel pins down which providers a configured phase model
+// can reach. Claude's CLI takes --model, so review and consolidation can run on
+// their own model there; the other CLIs take none, and a phase model must be inert
+// for them rather than an error.
+func TestOnlyClaudeSwitchesModel(t *testing.T) {
+	if _, ok := loop.Provider(NewClaudeProvider("")).(loop.ModelSwitcher); !ok {
+		t.Error("the Claude provider must support per-phase models")
+	}
+	others := map[string]loop.Provider{
+		"codex":    NewCodexProvider(""),
+		"opencode": NewOpenCodeProvider(""),
+		"cursor":   NewCursorProvider(""),
+		"gemini":   NewGeminiProvider(""),
+	}
+	for name, p := range others {
+		if _, ok := p.(loop.ModelSwitcher); ok {
+			t.Errorf("%s takes no model, so it must not claim to switch models", name)
+		}
+	}
+}
+
 func TestClaudeProvider_ParseLine(t *testing.T) {
 	p := NewClaudeProvider("")
 	// Valid assistant text event

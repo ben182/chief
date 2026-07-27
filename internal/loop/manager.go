@@ -251,7 +251,9 @@ func (m *Manager) Start(name string) error {
 	instance.Loop.buildPrompt = promptBuilderForPRD(instance.PRDPath)
 	if cfg != nil {
 		instance.Loop.SetReview(cfg.Review.Active(), cfg.Review.Skill, cfg.Review.Instructions)
+		instance.Loop.SetReviewModel(cfg.Review.Model)
 		instance.Loop.SetConsolidate(cfg.Consolidate.Active(), cfg.Consolidate.Skill, cfg.Consolidate.Instructions)
+		instance.Loop.SetConsolidateModel(cfg.Consolidate.Model)
 	}
 	instance.Loop.SetRetryConfig(retryConfig)
 	if cfg != nil && cfg.Loop.WatchdogTimeoutSeconds > 0 {

@@ -40,6 +40,16 @@ func (p *ClaudeProvider) Model() string { return p.model }
 // flows to apply an interactively chosen model.
 func (p *ClaudeProvider) SetModel(model string) { p.model = model }
 
+// WithModel implements loop.ModelSwitcher: it returns a copy of the provider that
+// passes model to the CLI via --model, leaving the receiver untouched so the build
+// agent keeps running on its own model while a phase (review, consolidation) runs
+// on another.
+func (p *ClaudeProvider) WithModel(model string) loop.Provider {
+	clone := *p
+	clone.model = model
+	return &clone
+}
+
 // SupportsInteractiveQuestions implements loop.Provider. Claude Code renders a
 // native multiple-choice question UI, so the PRD prompts use it instead of
 // lettered text options.

@@ -38,6 +38,13 @@ type ConsolidateConfig struct {
 	// skill or instructions are configured. Left out of the config entirely it is
 	// nil, and then a non-empty Skill or Instructions turns the pass on by itself.
 	Enabled *bool `yaml:"enabled,omitempty"`
+	// Model is the model the consolidation agent runs on (e.g. "haiku", "opus").
+	// Empty — the default — runs the pass on Sonnet: consolidation is a large share
+	// of a run's cost and does not need the build agent's model. Claude-specific;
+	// providers whose CLI takes no model ignore it. Set it to the same value as
+	// `agent.model` when the build agent runs on a model of its own that the
+	// Sonnet default would not reach (e.g. a local model).
+	Model string `yaml:"model,omitempty"`
 	// Skill is the name of a project skill the consolidation agent should run as
 	// part of its pass (e.g. "/code-quality"). Claude-specific; other providers
 	// ignore it. Optional — setting it also enables the pass unless Enabled says
@@ -72,6 +79,13 @@ type ReviewConfig struct {
 	// skill or instructions are configured. Left out of the config entirely it is
 	// nil, and then a non-empty Skill or Instructions turns the review on by itself.
 	Enabled *bool `yaml:"enabled,omitempty"`
+	// Model is the model the review agent runs on (e.g. "haiku", "opus"). Empty —
+	// the default — runs the review on Sonnet: reviewing a single story's diff is a
+	// large share of a run's cost and does not need the build agent's model.
+	// Claude-specific; providers whose CLI takes no model ignore it. Set it to the
+	// same value as `agent.model` when the build agent runs on a model of its own
+	// that the Sonnet default would not reach (e.g. a local model).
+	Model string `yaml:"model,omitempty"`
 	// Skill is the name of a project skill the review agent should run as part of
 	// its review (e.g. "/code-quality"). Claude-specific; other providers ignore
 	// it. Optional — setting it also enables the review unless Enabled says
