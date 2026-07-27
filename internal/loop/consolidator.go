@@ -1,7 +1,5 @@
 package loop
 
-import "strings"
-
 // consolidator holds the configuration for the optional consolidation pass that
 // runs once at the end of a run, after every story has been built and reviewed.
 //
@@ -11,16 +9,17 @@ import "strings"
 // patterns for one concern, and both commits still look correct on their own. The
 // consolidation agent is the only one that sees the whole run and refactors those
 // seams away in one separate commit.
+//
+// enabled is the whole decision: whether a skill or instructions alone should
+// switch the pass on is resolved once by config.ConsolidateConfig.Active(), so a
+// caller that turns the pass off here gets it off, skill or not.
 type consolidator struct {
 	enabled      bool
 	skill        string
 	instructions string
 }
 
-// active reports whether the consolidation pass should run: true when explicitly
-// enabled, or when a skill or instructions are configured.
+// active reports whether the consolidation pass should run at the end of a run.
 func (c consolidator) active() bool {
-	return c.enabled ||
-		strings.TrimSpace(c.skill) != "" ||
-		strings.TrimSpace(c.instructions) != ""
+	return c.enabled
 }

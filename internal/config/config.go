@@ -33,26 +33,30 @@ type Config struct {
 // so an earlier run's shipped work is never touched. It is a pure refactor:
 // behavior must not change.
 type ConsolidateConfig struct {
-	// Enabled turns the consolidation pass on with just the built-in prompt, no
-	// extra config. A non-empty Skill or Instructions also enables it on its own,
-	// so this flag is only needed to run the bare baseline with neither of those set.
-	Enabled bool `yaml:"enabled"`
+	// Enabled is the hard switch for the pass, and it always wins: `enabled: true`
+	// runs it even with no other config, `enabled: false` keeps it off even when a
+	// skill or instructions are configured. Left out of the config entirely it is
+	// nil, and then a non-empty Skill or Instructions turns the pass on by itself.
+	Enabled *bool `yaml:"enabled,omitempty"`
 	// Skill is the name of a project skill the consolidation agent should run as
 	// part of its pass (e.g. "/code-quality"). Claude-specific; other providers
-	// ignore it. Optional — setting it also enables the pass.
+	// ignore it. Optional — setting it also enables the pass unless Enabled says
+	// otherwise.
 	Skill string `yaml:"skill"`
 	// Instructions is free-form guidance for the consolidation agent (e.g. "we
 	// keep all HTTP clients in internal/transport"). Works with any provider.
-	// Optional — setting it also enables the pass.
+	// Optional — setting it also enables the pass unless Enabled says otherwise.
 	Instructions string `yaml:"instructions"`
 }
 
-// Active reports whether the consolidation pass should run at the end of a run:
-// true when explicitly enabled, or when a skill or free-form instructions are
-// configured (either of which enables it on its own).
+// Active reports whether the consolidation pass should run at the end of a run.
+// An explicit `enabled` decides on its own, either way; without it, a configured
+// skill or free-form instructions turn the pass on.
 func (c ConsolidateConfig) Active() bool {
-	return c.Enabled ||
-		strings.TrimSpace(c.Skill) != "" ||
+	if c.Enabled != nil {
+		return *c.Enabled
+	}
+	return strings.TrimSpace(c.Skill) != "" ||
 		strings.TrimSpace(c.Instructions) != ""
 }
 
@@ -62,29 +66,37 @@ func (c ConsolidateConfig) Active() bool {
 // reviews the story's changes, fixes anything it finds, and amends the commit —
 // a second pair of eyes rather than the author checking their own work.
 type ReviewConfig struct {
-	// Enabled turns the review agent on with just the built-in review prompt (the
-	// two-axis Spec/Standards review and code-smell baseline), no extra config. A
-	// non-empty Skill or Instructions also enables the review on its own, so this
-	// flag is only needed to run the bare baseline with neither of those set.
-	Enabled bool `yaml:"enabled"`
+	// Enabled is the hard switch for the review, and it always wins: `enabled: true`
+	// runs it with just the built-in review prompt (the two-axis Spec/Standards
+	// review and code-smell baseline), `enabled: false` keeps it off even when a
+	// skill or instructions are configured. Left out of the config entirely it is
+	// nil, and then a non-empty Skill or Instructions turns the review on by itself.
+	Enabled *bool `yaml:"enabled,omitempty"`
 	// Skill is the name of a project skill the review agent should run as part of
 	// its review (e.g. "/code-quality"). Claude-specific; other providers ignore
-	// it. Optional — setting it also enables the review.
+	// it. Optional — setting it also enables the review unless Enabled says
+	// otherwise.
 	Skill string `yaml:"skill"`
 	// Instructions is free-form guidance for the review agent (e.g. "watch for
 	// N+1 queries and missing tests"). Works with any provider. Optional — setting
-	// it also enables the review.
+	// it also enables the review unless Enabled says otherwise.
 	Instructions string `yaml:"instructions"`
 }
 
-// Active reports whether a review agent should run: true when the review is
-// explicitly enabled, or when a skill or free-form instructions are configured
-// (either of which enables it on its own).
+// Active reports whether a review agent should run after a story commits. An
+// explicit `enabled` decides on its own, either way; without it, a configured
+// skill or free-form instructions turn the review on.
 func (r ReviewConfig) Active() bool {
-	return r.Enabled ||
-		strings.TrimSpace(r.Skill) != "" ||
+	if r.Enabled != nil {
+		return *r.Enabled
+	}
+	return strings.TrimSpace(r.Skill) != "" ||
 		strings.TrimSpace(r.Instructions) != ""
 }
+
+// Bool returns a pointer to b, for setting the tri-state `enabled` switches
+// (nil = not configured) from code rather than from YAML.
+func Bool(b bool) *bool { return &b }
 
 // LoopConfig holds agent-loop tuning knobs.
 type LoopConfig struct {

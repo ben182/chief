@@ -210,10 +210,12 @@ func promptBuilderForPRD(prdPath string) func() (string, string, string, error) 
 	}
 }
 
-// SetReview configures the separate review agent. When enabled is true or either
-// skill or instructions is non-empty, a review agent runs after each story's
-// build agent commits: it reviews the committed changes with a fresh context and
-// fixes and re-commits anything it finds. All unset disables the review.
+// SetReview configures the separate review agent. When enabled is true, a review
+// agent runs after each story's build agent commits: it reviews the committed
+// changes with a fresh context and fixes and re-commits anything it finds. enabled
+// decides on its own — skill and instructions only shape the review it runs, they
+// never switch it on. Callers coming from a project config pass
+// config.ReviewConfig.Active(), which is where "a skill alone enables it" lives.
 func (l *Loop) SetReview(enabled bool, skill, instructions string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -228,11 +230,13 @@ func (l *Loop) reviewEnabled() bool {
 }
 
 // SetConsolidate configures the end-of-run consolidation pass. When enabled is
-// true or either skill or instructions is non-empty, a single agent runs once the
-// run finishes: it looks across every commit the run landed for the seams no
-// per-story review can see (parallel implementations of the same thing, competing
-// patterns, leftovers from abandoned approaches) and refactors them away in one
-// separate commit. All unset disables the pass.
+// true, a single agent runs once the run finishes: it looks across every commit
+// the run landed for the seams no per-story review can see (parallel
+// implementations of the same thing, competing patterns, leftovers from abandoned
+// approaches) and refactors them away in one separate commit. enabled decides on
+// its own — skill and instructions only shape the pass it runs, they never switch
+// it on. Callers coming from a project config pass
+// config.ConsolidateConfig.Active(), which is where "a skill alone enables it" lives.
 func (l *Loop) SetConsolidate(enabled bool, skill, instructions string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

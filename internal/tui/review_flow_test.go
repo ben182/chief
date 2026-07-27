@@ -26,7 +26,7 @@ func TestReview_TimingDeferredUntilReviewDone(t *testing.T) {
 	app.prdName = "main"
 	app.logViewer = NewLogViewer()
 	app.config = config.Default()
-	app.config.Review.Enabled = true // review agent runs after each story
+	app.config.Review.Enabled = config.Bool(true) // review agent runs after each story
 
 	id := app.prd.UserStories[0].ID
 
@@ -58,7 +58,7 @@ func TestReview_StaysOnStoryWithTag(t *testing.T) {
 	app.prdName = "main"
 	app.logViewer = NewLogViewer()
 	app.config = config.Default()
-	app.config.Review.Enabled = true
+	app.config.Review.Enabled = config.Bool(true)
 
 	id := app.prd.UserStories[2].ID
 
@@ -98,7 +98,7 @@ func TestIterationStart_MovesSelectionAndClearsStaleReviewTag(t *testing.T) {
 	app.prdName = "main"
 	app.logViewer = NewLogViewer()
 	app.config = config.Default()
-	app.config.Review.Enabled = true
+	app.config.Review.Enabled = config.Bool(true)
 
 	seventh := app.prd.UserStories[6].ID
 	eighth := app.prd.UserStories[7].ID

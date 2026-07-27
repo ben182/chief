@@ -91,18 +91,23 @@ review:
     Flag any public function added without a doc comment.
 ```
 
-- **`review.enabled`** — turns the review on with just the built-in prompt (the
-  two-axis Spec/Standards review and code-smell baseline). Use this to run the
-  bare baseline when you don't need a skill or custom instructions.
+- **`review.enabled`** — the hard switch. `true` runs the review with just the
+  built-in prompt (the two-axis Spec/Standards review and code-smell baseline),
+  which is what you want when you don't need a skill or custom instructions.
+  `false` turns the review off and keeps it off, even with a skill or
+  instructions still in the file.
 - **`review.skill`** — a project skill the review agent runs as part of its
   review (e.g. `/code-quality`). This is Claude-specific; other providers ignore
   it.
 - **`review.instructions`** — free-form text steering what the reviewer should
   pay attention to. Works with any provider.
 
-Setting **any one of them enables the review**. Leaving all unset (the default)
-disables it, and Chief marks stories done straight after the build commit as
-before.
+With no `enabled` key present, setting **either of the other two enables the
+review** — so a project only has to name a skill. `enabled` overrides that in
+both directions: `enabled: false` disables the review no matter what else is
+configured, which is how you park a skill and instructions for later without
+running them. Leaving all three unset (the default) disables the review, and
+Chief marks stories done straight after the build commit as before.
 
 ## How the review prompt is assembled
 

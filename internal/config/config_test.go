@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -69,12 +70,16 @@ func TestReviewConfigEnabled(t *testing.T) {
 		want bool
 	}{
 		{"empty", ReviewConfig{}, false},
-		{"enabled flag only", ReviewConfig{Enabled: true}, true},
+		{"enabled flag only", ReviewConfig{Enabled: Bool(true)}, true},
 		{"skill only", ReviewConfig{Skill: "/code-quality"}, true},
 		{"instructions only", ReviewConfig{Instructions: "watch for N+1"}, true},
 		{"both", ReviewConfig{Skill: "/cq", Instructions: "x"}, true},
 		{"whitespace only", ReviewConfig{Skill: "  ", Instructions: "\n\t"}, false},
-		{"disabled flag, whitespace fields", ReviewConfig{Enabled: false, Skill: "  "}, false},
+		{"disabled flag, whitespace fields", ReviewConfig{Enabled: Bool(false), Skill: "  "}, false},
+		// enabled: false is a hard off switch: a leftover skill or instructions
+		// block must not resurrect a review the project explicitly turned off.
+		{"disabled flag beats skill", ReviewConfig{Enabled: Bool(false), Skill: "/code-quality"}, false},
+		{"disabled flag beats instructions", ReviewConfig{Enabled: Bool(false), Instructions: "watch for N+1"}, false},
 	}
 	for _, tt := range tests {
 		if got := tt.cfg.Active(); got != tt.want {
@@ -108,12 +113,15 @@ func TestConsolidateConfigEnabled(t *testing.T) {
 		want bool
 	}{
 		{"empty", ConsolidateConfig{}, false},
-		{"enabled flag only", ConsolidateConfig{Enabled: true}, true},
+		{"enabled flag only", ConsolidateConfig{Enabled: Bool(true)}, true},
 		{"skill only", ConsolidateConfig{Skill: "/code-quality"}, true},
 		{"instructions only", ConsolidateConfig{Instructions: "one HTTP client"}, true},
 		{"both", ConsolidateConfig{Skill: "/cq", Instructions: "x"}, true},
 		{"whitespace only", ConsolidateConfig{Skill: "  ", Instructions: "\n\t"}, false},
-		{"disabled flag, whitespace fields", ConsolidateConfig{Enabled: false, Skill: "  "}, false},
+		{"disabled flag, whitespace fields", ConsolidateConfig{Enabled: Bool(false), Skill: "  "}, false},
+		// enabled: false is a hard off switch, skill or instructions notwithstanding.
+		{"disabled flag beats skill", ConsolidateConfig{Enabled: Bool(false), Skill: "/code-quality"}, false},
+		{"disabled flag beats instructions", ConsolidateConfig{Enabled: Bool(false), Instructions: "one HTTP client"}, false},
 	}
 	for _, tt := range tests {
 		if got := tt.cfg.Active(); got != tt.want {
@@ -141,7 +149,7 @@ func TestConsolidateDefaultsOff(t *testing.T) {
 
 func TestConsolidateConfigRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &Config{Consolidate: ConsolidateConfig{Enabled: true, Skill: "/code-quality", Instructions: "one HTTP client only"}}
+	cfg := &Config{Consolidate: ConsolidateConfig{Enabled: Bool(true), Skill: "/code-quality", Instructions: "one HTTP client only"}}
 	if err := Save(dir, cfg); err != nil {
 		t.Fatalf("Save failed: %v", err)
 	}
@@ -149,7 +157,7 @@ func TestConsolidateConfigRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-	if !loaded.Consolidate.Enabled {
+	if loaded.Consolidate.Enabled == nil || !*loaded.Consolidate.Enabled {
 		t.Error("expected Enabled to round-trip")
 	}
 	if loaded.Consolidate.Skill != "/code-quality" {
@@ -157,6 +165,91 @@ func TestConsolidateConfigRoundTrip(t *testing.T) {
 	}
 	if loaded.Consolidate.Instructions != "one HTTP client only" {
 		t.Errorf("expected instructions to round-trip, got %q", loaded.Consolidate.Instructions)
+	}
+}
+
+// TestEnabledFalseOverridesSkillFromYAML pins the hard-switch semantics down on
+// the path a project actually uses: a config file. Someone who turns the review
+// or the consolidation pass off but leaves the skill and instructions in place —
+// to keep them around for later — must get no agent, not an agent driven by the
+// leftover config.
+func TestEnabledFalseOverridesSkillFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".chief"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	yaml := `review:
+  enabled: false
+  skill: "/code-quality"
+  instructions: "watch for N+1 queries"
+consolidate:
+  enabled: false
+  skill: "/code-quality"
+  instructions: "one HTTP client only"
+`
+	if err := os.WriteFile(filepath.Join(dir, configFile), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if loaded.Review.Active() {
+		t.Error("review: enabled: false must keep the review off despite skill and instructions")
+	}
+	if loaded.Consolidate.Active() {
+		t.Error("consolidate: enabled: false must keep the pass off despite skill and instructions")
+	}
+	// The fields themselves still round-trip, so flipping enabled back to true
+	// restores the configured review rather than the bare baseline.
+	if loaded.Review.Skill != "/code-quality" {
+		t.Errorf("expected the skill to survive being disabled, got %q", loaded.Review.Skill)
+	}
+}
+
+// TestSkillWithoutEnabledKeyStillActivates verifies the omitted-key case keeps
+// working: a config that only sets a skill (no `enabled` at all) still runs.
+func TestSkillWithoutEnabledKeyStillActivates(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".chief"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	yaml := `review:
+  skill: "/code-quality"
+consolidate:
+  instructions: "one HTTP client only"
+`
+	if err := os.WriteFile(filepath.Join(dir, configFile), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if !loaded.Review.Active() {
+		t.Error("a skill with no enabled key must still enable the review")
+	}
+	if !loaded.Consolidate.Active() {
+		t.Error("instructions with no enabled key must still enable the pass")
+	}
+}
+
+// TestSaveOmitsUnsetEnabled verifies a config that never touched `enabled`
+// doesn't gain an `enabled: null` line when it is written back out, which would
+// look like an off switch to anyone reading the file.
+func TestSaveOmitsUnsetEnabled(t *testing.T) {
+	dir := t.TempDir()
+	if err := Save(dir, &Config{Review: ReviewConfig{Skill: "/code-quality"}}); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, configFile))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if strings.Contains(string(data), "enabled: null") {
+		t.Errorf("unset enabled must not be written out:\n%s", string(data))
 	}
 }
 

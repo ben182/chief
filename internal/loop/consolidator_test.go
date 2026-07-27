@@ -85,10 +85,12 @@ func TestConsolidator_Active(t *testing.T) {
 	}{
 		{"all unset", consolidator{}, false},
 		{"explicitly enabled", consolidator{enabled: true}, true},
-		{"skill alone enables", consolidator{skill: "/code-quality"}, true},
-		{"instructions alone enable", consolidator{instructions: "watch for dupes"}, true},
-		{"blank skill does not enable", consolidator{skill: "   "}, false},
-		{"blank instructions do not enable", consolidator{instructions: "\n\t "}, false},
+		// Whether a skill or instructions alone enable the pass is decided upstream
+		// in config.ConsolidateConfig.Active(); here enabled is the whole decision,
+		// so an off switch can't be undone by a leftover skill.
+		{"skill alone does not enable", consolidator{skill: "/code-quality"}, false},
+		{"instructions alone do not enable", consolidator{instructions: "watch for dupes"}, false},
+		{"disabled beats skill and instructions", consolidator{skill: "/cq", instructions: "watch for dupes"}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -222,7 +224,7 @@ func TestBuildConsolidatePrompt_IncludesSkillAndInstructions(t *testing.T) {
 	gitCommitFile(t, repo, "b.txt", "b", "feat: myprd/US-002 - add b")
 
 	l := NewLoopWithWorkDir(prdPath, repo, "", 1, testProvider)
-	l.SetConsolidate(false, "/code-quality", "keep all HTTP clients in internal/transport")
+	l.SetConsolidate(true, "/code-quality", "keep all HTTP clients in internal/transport")
 	l.SetStartRef(startRef)
 
 	prompt, err := l.buildConsolidatePrompt()

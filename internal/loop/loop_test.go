@@ -940,8 +940,9 @@ func TestLoop_DoneWithoutCommitIsNotTrusted(t *testing.T) {
 	}
 }
 
-// TestLoop_SetReview verifies the review-enabled predicate reflects the
-// configured enabled flag / skill / instructions.
+// TestLoop_SetReview verifies the review-enabled predicate follows the enabled
+// flag alone: a skill or instructions shape the review but never switch it on,
+// so passing false leaves the review off no matter what else is configured.
 func TestLoop_SetReview(t *testing.T) {
 	l := NewLoop("/test/prd.json", "test", 5, testProvider)
 	if l.reviewEnabled() {
@@ -951,17 +952,13 @@ func TestLoop_SetReview(t *testing.T) {
 	if !l.reviewEnabled() {
 		t.Error("expected review enabled with the enabled flag alone")
 	}
-	l.SetReview(false, "/code-quality", "")
-	if !l.reviewEnabled() {
-		t.Error("expected review enabled with a skill")
-	}
-	l.SetReview(false, "", "watch for N+1")
-	if !l.reviewEnabled() {
-		t.Error("expected review enabled with instructions only")
-	}
-	l.SetReview(false, "  ", "  ")
+	l.SetReview(false, "/code-quality", "watch for N+1")
 	if l.reviewEnabled() {
-		t.Error("expected whitespace-only config to be treated as disabled")
+		t.Error("expected a skill and instructions not to re-enable a disabled review")
+	}
+	l.SetReview(true, "/code-quality", "watch for N+1")
+	if !l.reviewEnabled() {
+		t.Error("expected review enabled with the flag and configuration")
 	}
 }
 
@@ -996,7 +993,7 @@ func TestLoop_ReviewAgentRunsAfterCommit(t *testing.T) {
 		l.buildPrompt = promptBuilderForPRD(prdPath)
 		l.DisableRetry()
 		if withReview {
-			l.SetReview(false, "", "check the implementation carefully")
+			l.SetReview(true, "", "check the implementation carefully")
 		}
 
 		done := make(chan bool)
@@ -1104,7 +1101,7 @@ func TestLoop_ReviewReRunsUntilDone(t *testing.T) {
 	l := NewLoopWithWorkDir(prdPath, dir, "", 10, &mockProvider{cliPath: scriptPath})
 	l.buildPrompt = promptBuilderForPRD(prdPath)
 	l.DisableRetry()
-	l.SetReview(false, "", "check the implementation carefully")
+	l.SetReview(true, "", "check the implementation carefully")
 
 	var reviewDoneText string
 	done := make(chan bool)
@@ -1184,7 +1181,7 @@ func TestLoop_ReviewGivesUpAfterMaxAttempts(t *testing.T) {
 	l := NewLoopWithWorkDir(prdPath, dir, "", 10, &mockProvider{cliPath: scriptPath})
 	l.buildPrompt = promptBuilderForPRD(prdPath)
 	l.DisableRetry()
-	l.SetReview(false, "", "check the implementation carefully")
+	l.SetReview(true, "", "check the implementation carefully")
 
 	var reviewDoneText string
 	done := make(chan bool)
