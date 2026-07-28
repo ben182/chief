@@ -48,7 +48,7 @@ func (h *HelpOverlay) GetCategories() []ShortcutCategory {
 		Name: "Loop Control",
 		Shortcuts: []Shortcut{
 			{Key: "s", Description: "Start loop"},
-			{Key: "p", Description: "Pause (after iteration)"},
+			{Key: "p", Description: "Pause (after story + review)"},
 			{Key: "x", Description: "Stop immediately"},
 			{Key: "+/-", Description: "Adjust max iterations"},
 		},

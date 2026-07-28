@@ -449,7 +449,8 @@ func (m *Manager) runLoop(instance *LoopInstance) {
 	<-done
 }
 
-// Pause pauses the loop for a specific PRD (stops after current iteration).
+// Pause pauses the loop for a specific PRD: it stops after the current story
+// fully completes, including its review pass when one is configured.
 func (m *Manager) Pause(name string) error {
 	instance, err := m.lookup(name)
 	if err != nil {

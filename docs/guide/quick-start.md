@@ -111,7 +111,7 @@ The TUI shows:
 | Key | Action |
 |-----|--------|
 | `s` | **Start** the loop (when Ready, Paused, Stopped, or Error) |
-| `p` | **Pause** the loop (finishes current iteration) |
+| `p` | **Pause** the loop (finishes the current story, including its review) |
 | `x` | **Stop** the loop immediately |
 | `t` | **Toggle** between Dashboard and Log views |
 | `d` | **Diff view** — show the selected story's commit diff |

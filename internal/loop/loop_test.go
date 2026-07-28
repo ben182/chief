@@ -1097,6 +1097,94 @@ func TestLoop_ReviewAgentRunsAfterCommit(t *testing.T) {
 	})
 }
 
+// TestLoop_PauseStillRunsReview verifies that pausing mid-build does not skip
+// the story's review pass: pause means "stop after the current story", and a
+// story with review enabled isn't finished until its review ran. The pause is
+// set deterministically while the build agent is still running — the mock
+// build agent blocks on a flag file the test only creates after calling
+// Pause() — so a regression that bails out of runReview on the pause flag
+// would skip the review and mark the story done unreviewed.
+func TestLoop_PauseStillRunsReview(t *testing.T) {
+	dir := t.TempDir()
+	gitInit(t, dir)
+
+	prdPath := createTestPRD(t, dir, false)
+	callsPath := filepath.Join(dir, "calls.txt")
+	pauseSetPath := filepath.Join(dir, "pause-set")
+
+	// Mock agent: call 1 (build) waits until the test has paused the loop, then
+	// commits and signals done; call 2 (review) just signals done.
+	scriptPath := filepath.Join(dir, "mock-claude")
+	script := "#!/bin/bash\n" +
+		"echo call >> " + callsPath + "\n" +
+		"n=$(wc -l < " + callsPath + ")\n" +
+		"if [ \"$n\" -eq 1 ]; then\n" +
+		"  for i in $(seq 1 200); do [ -f " + pauseSetPath + " ] && break; sleep 0.05; done\n" +
+		"  echo content > " + filepath.Join(dir, "impl.txt") + "\n" +
+		"  git -C " + dir + " add impl.txt >/dev/null 2>&1\n" +
+		"  git -C " + dir + " commit -m 'feat: US-001 - Test Story' >/dev/null 2>&1\n" +
+		"fi\n" +
+		`echo '{"type":"assistant","message":{"content":[{"type":"text","text":"done <chief-done/>"}]}}'` + "\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	l := NewLoopWithWorkDir(prdPath, dir, "", 10, &mockProvider{cliPath: scriptPath})
+	l.buildPrompt = promptBuilderForPRD(prdPath, false)
+	l.DisableRetry()
+	l.SetReview(true, "", "check the implementation carefully")
+
+	var reviewStart, reviewDone bool
+	done := make(chan bool)
+	go func() {
+		for e := range l.Events() {
+			switch e.Type {
+			case EventIterationStart:
+				// Pause while the build agent is blocked on the flag file, then
+				// release it: the pause flag is guaranteed set before the build
+				// iteration can finish.
+				l.Pause()
+				os.WriteFile(pauseSetPath, []byte("go"), 0644)
+			case EventReviewStart:
+				reviewStart = true
+			case EventReviewDone:
+				reviewDone = true
+			}
+		}
+		done <- true
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := l.Run(ctx); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	<-done
+
+	if !l.IsPaused() {
+		t.Error("expected the loop to end paused")
+	}
+	if !reviewStart || !reviewDone {
+		t.Errorf("expected the paused story's review to run to completion, got start=%v done=%v", reviewStart, reviewDone)
+	}
+
+	data, err := os.ReadFile(callsPath)
+	if err != nil {
+		t.Fatalf("read calls: %v", err)
+	}
+	if calls := strings.Count(strings.TrimSpace(string(data)), "\n") + 1; calls != 2 {
+		t.Errorf("expected 2 agent invocations (build + review) despite the pause, got %d", calls)
+	}
+
+	p, err := prd.LoadPRD(prdPath)
+	if err != nil {
+		t.Fatalf("reload prd: %v", err)
+	}
+	if !p.UserStories[0].Passes {
+		t.Error("expected story to be marked done after its review finished")
+	}
+}
+
 // TestLoop_ReviewReRunsUntilDone verifies the premature-completion fix: a review
 // agent that ends its turn WITHOUT signalling <chief-done/> is re-run (fresh
 // context) instead of being reported complete, and only the pass that actually

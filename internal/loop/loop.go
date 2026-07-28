@@ -551,7 +551,8 @@ func (l *Loop) Run(ctx context.Context) error {
 			return err
 		}
 
-		// Check pause flag after iteration (loop stops after current iteration completes)
+		// Check pause flag after the story is fully finalized (including its
+		// review pass), so a pause stops between stories, never inside one.
 		l.mu.Lock()
 		if l.paused {
 			l.mu.Unlock()
@@ -919,7 +920,10 @@ func (l *Loop) Stop() {
 	}
 }
 
-// Pause sets the pause flag. The loop will stop after the current iteration completes.
+// Pause sets the pause flag. The loop will stop after the current story fully
+// completes: the build iteration finishes, and when a review is configured its
+// review pass still runs before the loop returns. Only Stop() abandons a story
+// mid-flight.
 func (l *Loop) Pause() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -1050,14 +1054,18 @@ func (l *Loop) commitStoryProgress(storyID, storyTitle string) {
 // reviewer can't block progress. The reviewer commits its own fixes; chief does
 // not gate the story on a pass/fail signal.
 func (l *Loop) runReview(ctx context.Context, iteration int, storyID, storyTitle string) {
-	// Skip cleanly if we're already shutting down.
+	// Skip cleanly if we're already shutting down. A pause deliberately does NOT
+	// skip the review: pausing means "stop after the current story", and a story
+	// with review enabled isn't finished until its review ran — bailing here would
+	// mark it done unreviewed, which is exactly what the user paused to avoid.
+	// Only a hard stop (or context cancellation) abandons the review.
 	select {
 	case <-ctx.Done():
 		return
 	default:
 	}
 	l.mu.Lock()
-	if l.stopped || l.paused {
+	if l.stopped {
 		l.mu.Unlock()
 		return
 	}
@@ -1106,7 +1114,7 @@ func (l *Loop) runReview(ctx context.Context, iteration int, storyID, storyTitle
 		default:
 		}
 		l.mu.Lock()
-		if l.stopped || l.paused {
+		if l.stopped {
 			l.mu.Unlock()
 			return
 		}

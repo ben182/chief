@@ -174,7 +174,8 @@ func (a App) launchLoop(prdName, prdDir string) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-// pauseLoop sets the pause flag so the loop stops after the current iteration.
+// pauseLoop sets the pause flag so the loop stops after the current story
+// fully completes (including its review pass, when one is configured).
 func (a App) pauseLoop() (tea.Model, tea.Cmd) {
 	return a.pauseLoopForPRD(a.prdName)
 }
@@ -185,9 +186,9 @@ func (a App) pauseLoopForPRD(prdName string) (tea.Model, tea.Cmd) {
 		a.manager.Pause(prdName)
 	}
 	if prdName == a.prdName {
-		a.lastActivity = "Pausing after current iteration..."
+		a.lastActivity = "Pausing after current story..."
 	} else {
-		a.lastActivity = "Pausing " + prdName + " after current iteration..."
+		a.lastActivity = "Pausing " + prdName + " after current story..."
 	}
 	return a, nil
 }
@@ -272,7 +273,7 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 			a.currentStoryTokens[prdName] = TokenUsage{}
 			// Whatever the previous story's review was doing, it is over once the
 			// next story starts building. runReview returns without emitting
-			// EventReviewDone when the loop is paused, stopped or cancelled
+			// EventReviewDone when the loop is stopped or cancelled
 			// mid-review, and the tag outranks everything in selectInProgressStory
 			// — so without this the selection stays pinned to that story for the
 			// rest of the run.
