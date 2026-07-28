@@ -369,51 +369,53 @@ func (m *Manager) runLoop(instance *LoopInstance) {
 	releaseAwake := m.holdAwakeWhileEnabled(instance.ctx)
 	defer releaseAwake()
 
-	// Start event forwarding goroutine
+	// Start event forwarding goroutine. It drains the loop's channel until the
+	// loop closes it (Run's deferred close), never exiting early: Loop.Run's own
+	// sends block when nobody reads, so a forwarder that stops reading while Run
+	// still emits would keep Run — and with it wg.Wait — from ever returning.
 	done := make(chan struct{})
 	go func() {
-		for {
+		defer close(done)
+		for event := range instance.Loop.Events() {
+			instance.mu.Lock()
+			instance.Iteration = event.Iteration
+			instance.mu.Unlock()
+
+			// Check if this is a completion event
+			completed := event.Type == EventComplete
+
+			// Forward event to manager channel. On the quit path the TUI stops
+			// draining m.events while it blocks in StopAll — a bare send here
+			// deadlocks the whole shutdown once the buffer fills. When the
+			// instance is cancelled, drop the event instead and keep consuming.
+			forwarded := false
 			select {
-			case event, ok := <-instance.Loop.Events():
-				if !ok {
-					close(done)
-					return
-				}
-
-				instance.mu.Lock()
-				instance.Iteration = event.Iteration
-				instance.mu.Unlock()
-
-				// Check if this is a completion event
-				completed := event.Type == EventComplete
-
-				// Forward event to manager channel
-				m.events <- ManagerEvent{
-					PRDName:   instance.Name,
-					Event:     event,
-					Completed: completed,
-				}
-
-				// If completed, trigger callbacks
-				if completed {
-					m.mu.RLock()
-					callback := m.onComplete
-					postCallback := m.onPostComplete
-					m.mu.RUnlock()
-					if callback != nil {
-						callback(instance.Name)
-					}
-					if postCallback != nil {
-						instance.mu.Lock()
-						branch := instance.Branch
-						workDir := instance.WorktreeDir
-						instance.mu.Unlock()
-						postCallback(instance.Name, branch, workDir)
-					}
-				}
+			case m.events <- ManagerEvent{
+				PRDName:   instance.Name,
+				Event:     event,
+				Completed: completed,
+			}:
+				forwarded = true
 			case <-instance.ctx.Done():
-				close(done)
-				return
+			}
+
+			// If completed, trigger callbacks — but not for an event dropped on
+			// cancellation: a quit must not kick off post-completion actions.
+			if completed && forwarded {
+				m.mu.RLock()
+				callback := m.onComplete
+				postCallback := m.onPostComplete
+				m.mu.RUnlock()
+				if callback != nil {
+					callback(instance.Name)
+				}
+				if postCallback != nil {
+					instance.mu.Lock()
+					branch := instance.Branch
+					workDir := instance.WorktreeDir
+					instance.mu.Unlock()
+					postCallback(instance.Name, branch, workDir)
+				}
 			}
 		}
 	}()

@@ -688,3 +688,58 @@ func TestManagerConcurrentAccessWithWorktreeFields(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// TestManagerStopAllReturnsWithoutEventDrain reproduces the quit deadlock: the
+// TUI calls StopAll synchronously inside Bubble Tea's Update, so nothing drains
+// m.events while it waits. A loop mid-burst fills the loop channel and the
+// manager channel; the forwarder must drop events on cancellation and keep
+// consuming, or wg.Wait() never returns and quitting needs a kill -9.
+func TestManagerStopAllReturnsWithoutEventDrain(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	prdDir := filepath.Join(tmpDir, "burst")
+	if err := os.MkdirAll(prdDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	prdPath := filepath.Join(prdDir, "prd.md")
+	md := "# Test Project\n\nDesc\n\n### US-001: Story One\n- [ ] works\n"
+	if err := os.WriteFile(prdPath, []byte(md), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Emit far more events than both 100-slot channel buffers hold, then hang
+	// around so the run is still alive when StopAll arrives.
+	scriptPath := filepath.Join(tmpDir, "mock-claude")
+	script := "#!/bin/bash\n" +
+		"for i in $(seq 1 300); do\n" +
+		`  echo '{"type":"assistant","message":{"content":[{"type":"text","text":"burst"}]}}'` + "\n" +
+		"done\n" +
+		"sleep 60\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewManager(10, &mockProvider{cliPath: scriptPath})
+	if err := m.Register("burst", prdPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Start("burst"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Let the burst fill the undrained channels so the forwarder is blocked in
+	// its send when the stop comes — the exact quit-time state.
+	time.Sleep(500 * time.Millisecond)
+
+	done := make(chan struct{})
+	go func() {
+		m.StopAll()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("StopAll deadlocked: forwarder never drained the loop after cancellation")
+	}
+}

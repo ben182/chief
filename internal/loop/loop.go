@@ -427,6 +427,13 @@ func (l *Loop) LogPath() string {
 
 // Run executes the agent loop until completion or max iterations.
 func (l *Loop) Run(ctx context.Context) error {
+	// Close the events channel on every exit path, including the early error
+	// returns: the Manager's forwarder drains l.events until it closes, and
+	// runLoop waits for that forwarder — an unclosed channel would leave both
+	// waiting forever. Run is called exactly once per Loop (every start builds a
+	// fresh Loop), so the close cannot double-fire.
+	defer close(l.events)
+
 	if l.provider == nil {
 		return fmt.Errorf("loop provider is not configured")
 	}
@@ -435,7 +442,6 @@ func (l *Loop) Run(ctx context.Context) error {
 		return err
 	}
 	defer l.logFile.Close()
-	defer close(l.events)
 
 	// Capture the branch HEAD before the first iteration commits anything, so the
 	// end-of-run consolidation pass can be scoped to this run's commits. A caller
