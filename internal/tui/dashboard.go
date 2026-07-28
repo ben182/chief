@@ -394,34 +394,35 @@ func (a *App) renderActivityLine() string {
 func (a *App) renderStoriesPanel(width, height int) string {
 	var content strings.Builder
 
-	// Panel title — append scroll percentage when list is scrollable
 	listHeight := height - 5 // Account for title, border, and progress bar
 	totalStories := len(a.prd.UserStories)
-	titleText := "Stories"
-	if totalStories > listHeight && listHeight > 0 {
-		maxOffset := totalStories - listHeight
-		pct := 0
-		if maxOffset > 0 {
-			pct = a.storiesScrollOffset * 100 / maxOffset
-		}
-		titleText = fmt.Sprintf("Stories (%d%%)", pct)
-	}
-	title := PanelTitleStyle.Render(titleText)
-	content.WriteString(title)
-	content.WriteString("\n")
-	content.WriteString(DividerStyle.Render(strings.Repeat("─", width-2)))
-	content.WriteString("\n")
 
-	// Clamp scroll offset
-	if a.storiesScrollOffset < 0 {
-		a.storiesScrollOffset = 0
-	}
+	// Clamp scroll offset before the title is built from it.
 	if listHeight > 0 && a.storiesScrollOffset > totalStories-listHeight {
 		a.storiesScrollOffset = totalStories - listHeight
 	}
 	if a.storiesScrollOffset < 0 {
 		a.storiesScrollOffset = 0
 	}
+
+	// Panel title — show which slice of the list is visible when it's
+	// scrollable. Deliberately not a percentage: the progress bar at the bottom
+	// of this same panel shows a completion percentage, and two unrelated
+	// percentages in one box read as a contradiction.
+	titleText := "Stories"
+	if totalStories > listHeight && listHeight > 0 {
+		first := a.storiesScrollOffset + 1
+		last := a.storiesScrollOffset + listHeight
+		if last > totalStories {
+			last = totalStories
+		}
+		titleText = fmt.Sprintf("Stories %d-%d of %d", first, last, totalStories)
+	}
+	title := PanelTitleStyle.Render(titleText)
+	content.WriteString(title)
+	content.WriteString("\n")
+	content.WriteString(DividerStyle.Render(strings.Repeat("─", width-2)))
+	content.WriteString("\n")
 
 	// Render visible slice of stories
 	endIdx := a.storiesScrollOffset + listHeight

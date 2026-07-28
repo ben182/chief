@@ -147,27 +147,53 @@ func TestScrollOffset_ClampsToValidRange(t *testing.T) {
 	}
 }
 
-func TestScrollPercentage_ShownWhenScrollable(t *testing.T) {
+func TestScrollRange_ShownWhenScrollable(t *testing.T) {
 	app := newTestApp(makeStories(20), 120, 20)
 
-	// Render the panel
+	// With 20 stories and listHeight = 15-5=10, the list is scrollable, so the
+	// title names the visible slice.
 	output := app.renderStoriesPanel(40, 15)
+	if !strings.Contains(output, "Stories 1-10 of 20") {
+		t.Errorf("expected visible range in panel title, got: %s", output)
+	}
 
-	// With 20 stories and listHeight = 15-5=10, list is scrollable
-	// Title should contain percentage
-	if !strings.Contains(output, "Stories (") || !strings.Contains(output, "%)") {
-		t.Errorf("expected scroll percentage in panel title, got: %s", output)
+	app.storiesScrollOffset = 10
+	output = app.renderStoriesPanel(40, 15)
+	if !strings.Contains(output, "Stories 11-20 of 20") {
+		t.Errorf("expected scrolled range in panel title, got: %s", output)
 	}
 }
 
-func TestScrollPercentage_NotShownWhenNotScrollable(t *testing.T) {
+func TestScrollRange_NotShownWhenNotScrollable(t *testing.T) {
 	app := newTestApp(makeStories(3), 120, 20)
 
 	output := app.renderStoriesPanel(40, 15)
 
-	// 3 stories fits in listHeight=10, so no percentage
-	if strings.Contains(output, "%)") {
-		t.Errorf("expected no scroll percentage when list fits, got: %s", output)
+	// 3 stories fit in listHeight=10, so the title stays bare.
+	if !strings.Contains(output, "Stories") || strings.Contains(output, " of 3") {
+		t.Errorf("expected no scroll range when list fits, got: %s", output)
+	}
+}
+
+// The bottom of the stories panel shows run completion. The title must not also
+// show a percentage, or 100%-scrolled reads as 100%-done.
+func TestStoriesTitle_HasNoPercentage(t *testing.T) {
+	app := newTestApp(makeStories(20), 120, 20)
+	app.storiesScrollOffset = 10
+
+	output := app.renderStoriesPanel(40, 15)
+	var title string
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, "Stories") {
+			title = line
+			break
+		}
+	}
+	if title == "" {
+		t.Fatalf("no title line found in panel: %s", output)
+	}
+	if strings.Contains(title, "%") {
+		t.Errorf("expected no percentage in stories panel title, got: %s", title)
 	}
 }
 
