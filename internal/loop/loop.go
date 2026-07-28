@@ -7,6 +7,7 @@ package loop
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -36,6 +37,13 @@ const DefaultWatchdogTimeout = 5 * time.Minute
 // DefaultMaxAttemptsPerStory is how many times a single story may be attempted
 // before it is parked for human review and the loop moves on to other stories.
 const DefaultMaxAttemptsPerStory = 5
+
+// errAllStoriesComplete is the sentinel a prompt builder returns when the PRD
+// has no actionable stories left. It is the only builder error that means "the
+// run is done" — anything else (a PRD that momentarily failed to load, say) is
+// a real error and must not be mistaken for completion, or the loop would
+// consolidate, announce success and push with stories unimplemented.
+var errAllStoriesComplete = errors.New("all stories are complete")
 
 // maxReviewAttempts caps how many times the review agent is re-run for a single
 // story when it ends its turn without signalling <chief-done/>. Unlike the build
@@ -217,7 +225,7 @@ func promptBuilderForPRD(prdPath string, subagents bool) func() (string, string,
 
 		story := p.NextStory()
 		if story == nil {
-			return "", "", "", fmt.Errorf("all stories are complete")
+			return "", "", "", errAllStoriesComplete
 		}
 
 		// Mark the story as in-progress in the markdown file. Best-effort: this is
@@ -474,7 +482,7 @@ func (l *Loop) Run(ctx context.Context) error {
 		// Rebuild prompt if builder is set (inlines the current story each iteration)
 		if l.buildPrompt != nil {
 			prompt, storyID, storyTitle, err := l.buildPrompt()
-			if err != nil {
+			if errors.Is(err, errAllStoriesComplete) {
 				// No actionable stories left: the run is done. Consolidate before
 				// announcing completion, so the refactor lands *before* the TUI's
 				// post-completion actions run — the summary then describes the
@@ -485,6 +493,13 @@ func (l *Loop) Run(ctx context.Context) error {
 					Iteration: currentIter,
 				}
 				return nil
+			}
+			if err != nil {
+				l.events <- Event{
+					Type: EventError,
+					Err:  err,
+				}
+				return err
 			}
 			l.mu.Lock()
 			l.prompt = prompt
@@ -523,8 +538,9 @@ func (l *Loop) Run(ctx context.Context) error {
 		// Resolve the story outcome for this iteration: mark it done (gated on a
 		// real commit and an optional review pass) or count a failed attempt and
 		// eventually park it. A source-of-truth write failure returns an error that
-		// stops the run. buildPrompt on the next iteration will return error when no
-		// actionable stories remain, which causes EventComplete to be emitted above.
+		// stops the run. buildPrompt on the next iteration returns
+		// errAllStoriesComplete when no actionable stories remain, which causes
+		// EventComplete to be emitted above.
 		if err := l.finalizeStory(ctx, currentIter); err != nil {
 			return err
 		}

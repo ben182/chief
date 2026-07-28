@@ -20,7 +20,8 @@ const (
 	EventToolResult
 	// EventStoryDone is emitted when Claude signals a story is done via <chief-done/>.
 	EventStoryDone
-	// EventComplete is emitted when all stories are complete (buildPrompt returns error).
+	// EventComplete is emitted when all stories are complete (buildPrompt
+	// returns errAllStoriesComplete).
 	EventComplete
 	// EventStoryNeedsReview is emitted when a story is parked for human review
 	// after failing to complete within the per-story attempt limit.

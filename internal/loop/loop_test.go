@@ -1416,3 +1416,47 @@ func TestLoop_CommitStoryProgress(t *testing.T) {
 		l.commitStoryProgress("US-003", "Story Three") // must not panic or error
 	})
 }
+
+// TestLoop_PRDLoadFailureIsAnErrorNotCompletion verifies that a prompt builder
+// failing because the PRD cannot be read ends the run with EventError — not
+// with the consolidate-and-EventComplete path, which would announce success
+// (and let the TUI push and open a PR) over a PRD that was never read.
+func TestLoop_PRDLoadFailureIsAnErrorNotCompletion(t *testing.T) {
+	dir := t.TempDir()
+
+	// The PRD file deliberately does not exist: LoadPRD fails on every read.
+	prdPath := filepath.Join(dir, "prd.md")
+
+	l := NewLoopWithWorkDir(prdPath, dir, "", 5, &mockProvider{cliPath: "/bin/true"})
+	l.buildPrompt = promptBuilderForPRD(prdPath, false)
+	l.DisableRetry()
+
+	var sawComplete, sawError bool
+	done := make(chan bool)
+	go func() {
+		for e := range l.Events() {
+			switch e.Type {
+			case EventComplete:
+				sawComplete = true
+			case EventError:
+				sawError = true
+			}
+		}
+		done <- true
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err := l.Run(ctx)
+	<-done
+
+	if err == nil {
+		t.Fatal("expected Run to return the PRD load error")
+	}
+	if sawComplete {
+		t.Error("a PRD load failure must not be reported as EventComplete")
+	}
+	if !sawError {
+		t.Error("expected EventError for the PRD load failure")
+	}
+}
