@@ -972,7 +972,21 @@ func (l *Loop) storyHasCommit(storyID, title string) bool {
 	}
 	// Whole-branch search (no since-ref): a story committed by an earlier run on
 	// this branch is still done, so a followup run must recognize it as complete.
-	hash, _ := git.FindCommitForStory(dir, prdNameFromPath(l.prdPath), storyID, title, "")
+	hash, err := git.FindCommitForStory(dir, prdNameFromPath(l.prdPath), storyID, title, "")
+	if err != nil {
+		// git log itself failed, which is not the same as "no matching commit".
+		// One legitimate case must stay fail-closed: a repo with no commits yet,
+		// where git log errors and "not done" is the right answer. Probe HEAD to
+		// tell it apart. If HEAD resolves, the repo has commits and the check
+		// itself is what broke (transient git failure, corrupt pack): fail open
+		// and trust <chief-done/> rather than counting a failed attempt against
+		// a story whose commit may be sitting in history.
+		if _, headErr := git.HeadHash(dir); headErr == nil {
+			l.logLine(fmt.Sprintf("[chief] could not verify commit for story %s (%v); trusting <chief-done/>", storyID, err))
+			return true
+		}
+		return false
+	}
 	return hash != ""
 }
 

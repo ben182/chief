@@ -1460,3 +1460,61 @@ func TestLoop_PRDLoadFailureIsAnErrorNotCompletion(t *testing.T) {
 		t.Error("expected EventError for the PRD load failure")
 	}
 }
+
+// TestStoryHasCommit_GitLogFailure verifies that a failing `git log` is not
+// mistaken for "no matching commit". In a repo with commits (HEAD resolves) the
+// check fails open and trusts <chief-done/> — otherwise a transient git failure
+// counts failed attempts against a story whose commit is sitting in history. A
+// repo with no commits yet stays fail-closed: there "not done" is the truth.
+func TestStoryHasCommit_GitLogFailure(t *testing.T) {
+	dir := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init")
+	run("config", "user.email", "t@t.io")
+	run("config", "user.name", "t")
+	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", ".")
+	run("commit", "-m", "feat: US-001 - Add login")
+
+	// A repo with no commits yet, prepared before the shim hijacks PATH.
+	empty := t.TempDir()
+	cmd := exec.Command("git", "init")
+	cmd.Dir = empty
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+
+	// Shim git so that `git log` always fails while everything else (rev-parse,
+	// the repo probe) still works.
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shimDir := t.TempDir()
+	shim := "#!/bin/bash\n" +
+		"if [ \"$1\" = \"log\" ]; then echo 'fatal: bad object' >&2; exit 128; fi\n" +
+		"exec " + realGit + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(shimDir, "git"), []byte(shim), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shimDir)
+
+	l := &Loop{workDir: dir}
+	if !l.storyHasCommit("US-001", "Add login") {
+		t.Error("expected fail-open true when git log fails but HEAD resolves")
+	}
+
+	l2 := &Loop{workDir: empty}
+	if l2.storyHasCommit("US-001", "Add login") {
+		t.Error("expected false in a repo with no commits, even though git log errors")
+	}
+}
