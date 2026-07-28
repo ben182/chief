@@ -907,3 +907,40 @@ func TestSettingsOverlay_GetSelectedItem(t *testing.T) {
 		t.Errorf("expected second item key='onComplete.push', got '%s'", item.Key)
 	}
 }
+
+// The log's "story done" marker mirrors review.enabled and was only set at
+// construction. The loop and the ETA follow a mid-run toggle live, so the
+// marker must move with them — otherwise the log prints the final green
+// "story done" while the run is still waiting on a review, or the reverse.
+func TestApp_PublishSettingsUpdatesReviewPendingMarker(t *testing.T) {
+	cfg := config.Default()
+	app := &App{
+		baseDir:         t.TempDir(),
+		config:          cfg,
+		logViewer:       NewLogViewer(),
+		settingsOverlay: NewSettingsOverlay(),
+	}
+	app.logViewer.SetReviewPending(cfg.Review.Active())
+	app.settingsOverlay.LoadFromConfig(app.config)
+
+	if app.logViewer.reviewPending {
+		t.Fatal("precondition: review is off by default")
+	}
+
+	selectKey(t, app.settingsOverlay, "review.enabled")
+	app.settingsOverlay.CycleTriBool() // unset -> true
+	app.publishSettings()
+
+	if !app.config.Review.Active() {
+		t.Fatal("precondition: the toggle should have enabled the review")
+	}
+	if !app.logViewer.reviewPending {
+		t.Error("enabling the review mid-run must switch the story-done marker to review-pending")
+	}
+
+	app.settingsOverlay.CycleTriBool() // true -> false
+	app.publishSettings()
+	if app.logViewer.reviewPending {
+		t.Error("disabling the review must switch the marker back")
+	}
+}

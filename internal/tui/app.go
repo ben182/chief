@@ -968,6 +968,13 @@ func (a *App) publishSettings() {
 	if a.manager != nil {
 		a.manager.SetConfig(&next)
 	}
+	// The log's story-done marker mirrors review.enabled (SetReviewPending at
+	// construction). The loop and the ETA already follow a mid-run toggle, so
+	// the marker has to move with them or the log claims "story done" while the
+	// run is still waiting on a review — or vice versa.
+	if a.logViewer != nil {
+		a.logViewer.SetReviewPending(next.Review.Active())
+	}
 	_ = config.Save(a.baseDir, &next)
 }
 
