@@ -268,10 +268,47 @@ func CommitLogForStories(repoDir string, stories []StoryRef, sinceRef string) (s
 	return runGit(repoDir, args...)
 }
 
+// CommittablePaths filters paths down to those a commit may include without
+// overriding the user's .gitignore: a path git ignores is dropped unless it is
+// already tracked — gitignore has no effect on tracked files, and dropping one
+// would let its changes pile up uncommitted forever. Callers that must land a
+// file despite an ignore rule (the run summary, by design) skip this filter
+// and rely on CommitPaths' force-add instead. Paths may be absolute or
+// relative to dir. When git itself can't answer, the path is kept: the add
+// downstream decides.
+func CommittablePaths(dir string, paths ...string) []string {
+	var keep []string
+	for _, p := range paths {
+		if isIgnored(dir, p) && !isTracked(dir, p) {
+			continue
+		}
+		keep = append(keep, p)
+	}
+	return keep
+}
+
+// isIgnored reports whether git ignores path in dir (check-ignore exits 0 only
+// for an ignored path; "not ignored" and "not a repo" both land on the
+// not-ignored side).
+func isIgnored(dir, path string) bool {
+	cmd := exec.Command("git", "check-ignore", "-q", "--", path)
+	cmd.Dir = dir
+	return cmd.Run() == nil
+}
+
+// isTracked reports whether path is in the index.
+func isTracked(dir, path string) bool {
+	cmd := exec.Command("git", "ls-files", "--error-unmatch", "--", path)
+	cmd.Dir = dir
+	return cmd.Run() == nil
+}
+
 // CommitPaths stages the given paths and commits them with message. Paths are
 // force-added (`git add -f`) so a file lives under an otherwise-gitignored
-// directory (e.g. `.chief/`) is still committed. Paths may be absolute or
-// relative to dir. Returns an error if nothing was staged or the commit fails.
+// directory (e.g. `.chief/`) is still committed. Callers who must respect the
+// user's choice to gitignore `.chief/` filter with CommittablePaths first.
+// Paths may be absolute or relative to dir. Returns an error if nothing was
+// staged or the commit fails.
 func CommitPaths(dir, message string, paths ...string) error {
 	if len(paths) == 0 {
 		return fmt.Errorf("no paths to commit")
@@ -294,9 +331,10 @@ func HeadSubject(dir string) (string, error) {
 // own working files (prd.md, progress.md) to the story commit the agent just
 // made, so a completed story's tracked progress travels with its code in one
 // commit and survives an interrupted run. Only the listed paths are amended in;
-// other unstaged changes are left untouched. Force-add (`-f`) keeps it working
-// when the PRD dir sits under an otherwise-gitignored `.chief/`. Paths may be
-// absolute or relative to dir.
+// other unstaged changes are left untouched. Force-add (`-f`) keeps the add
+// itself from failing on edge cases; callers who must respect the user's
+// gitignore filter with CommittablePaths first. Paths may be absolute or
+// relative to dir.
 func AmendPaths(dir string, paths ...string) error {
 	if len(paths) == 0 {
 		return fmt.Errorf("no paths to amend")

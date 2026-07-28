@@ -1020,6 +1020,11 @@ func (l *Loop) commitStoryProgress(storyID, storyTitle string) {
 			paths = append(paths, p)
 		}
 	}
+	// A user who gitignored .chief/ chose to keep these files local; committing
+	// them anyway would override that choice. Files that are already tracked stay
+	// in — gitignore doesn't apply to them, and skipping them would let their
+	// changes pile up uncommitted.
+	paths = git.CommittablePaths(dir, paths...)
 	if len(paths) == 0 {
 		return
 	}

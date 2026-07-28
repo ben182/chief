@@ -190,3 +190,48 @@ func TestGenerate_AgentFailsWithoutFile(t *testing.T) {
 		t.Fatalf("wrong error class: %v", err)
 	}
 }
+
+// TestGenerate_SweepRespectsGitignore verifies that when the user gitignored
+// .chief/, the sweep does not force the working files into the repo — only the
+// summary itself is force-added, which is the documented design (it rides in
+// the pushed branch/PR).
+func TestGenerate_SweepRespectsGitignore(t *testing.T) {
+	dir := initRepoWithBranch(t)
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".chief/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prdDir := filepath.Join(dir, ".chief", "prds", "default")
+	if err := os.MkdirAll(prdDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(prdDir, "prd.md"), []byte("# PRD\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(prdDir, "progress.md"), []byte("# progress\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Date(2026, 7, 21, 14, 32, 5, 0, time.UTC)
+	summaryPath := filepath.Join(prdDir, FileNameFor(now))
+	provider := &fakeProvider{writePath: summaryPath, content: "# Run Summary"}
+
+	res, err := generateAt(context.Background(), provider, dir, prdDir, storyS1, nil, "", now)
+	if err != nil {
+		t.Fatalf("generateAt: %v", err)
+	}
+	if !res.Committed {
+		t.Error("expected the summary itself to be committed (force-added by design)")
+	}
+
+	check := func(name string) bool {
+		cmd := exec.Command("git", "cat-file", "-e", "HEAD:.chief/prds/default/"+name)
+		cmd.Dir = dir
+		return cmd.Run() == nil
+	}
+	if !check(filepath.Base(summaryPath)) {
+		t.Error("summary should be tracked despite the gitignore")
+	}
+	if check("prd.md") || check("progress.md") {
+		t.Error("gitignored working files must not be swept into the commit")
+	}
+}

@@ -234,3 +234,37 @@ func TestCommitPaths_ForceAddsGitignoredFile(t *testing.T) {
 		t.Errorf("summary was not committed despite force-add; ls-files empty")
 	}
 }
+
+// TestCommittablePaths verifies the filter that keeps commits from overriding
+// the user's .gitignore: ignored-and-untracked paths are dropped, while normal
+// paths and tracked files (which gitignore has no effect on) stay in.
+func TestCommittablePaths(t *testing.T) {
+	dir := initTestRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".chief/\n"), 0644); err != nil {
+		t.Fatalf("write .gitignore: %v", err)
+	}
+	prdDir := filepath.Join(dir, ".chief", "prds", "default")
+	if err := os.MkdirAll(prdDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	plain := filepath.Join(dir, "notes.md")
+	ignored := filepath.Join(prdDir, "prd.md")
+	trackedIgnored := filepath.Join(prdDir, "progress.md")
+	for _, p := range []string{plain, ignored, trackedIgnored} {
+		if err := os.WriteFile(p, []byte("x\n"), 0644); err != nil {
+			t.Fatalf("write %s: %v", p, err)
+		}
+	}
+	// progress.md was force-added in the past (the pre-filter behavior); once
+	// tracked, gitignore no longer applies and the filter must keep it.
+	if err := CommitPaths(dir, "chore: track progress", trackedIgnored); err != nil {
+		t.Fatalf("CommitPaths: %v", err)
+	}
+
+	got := CommittablePaths(dir, plain, ignored, trackedIgnored)
+	want := []string{plain, trackedIgnored}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("CommittablePaths = %v, want %v", got, want)
+	}
+}

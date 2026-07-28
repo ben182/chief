@@ -1415,6 +1415,46 @@ func TestLoop_CommitStoryProgress(t *testing.T) {
 		l := NewLoopWithWorkDir(prdPath, dir, "", 1, testProvider)
 		l.commitStoryProgress("US-003", "Story Three") // must not panic or error
 	})
+
+	t.Run("respects a gitignored .chief/", func(t *testing.T) {
+		dir := t.TempDir()
+		gitInit(t, dir)
+		// The user opted in to keeping chief's files local, exactly what the
+		// first-time setup offers.
+		if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".chief/\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		for _, args := range [][]string{{"add", ".gitignore"}, {"commit", "-m", "chore: ignore .chief"}} {
+			cmd := exec.Command("git", args...)
+			cmd.Dir = dir
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("git %v: %s", args, string(out))
+			}
+		}
+		before := gitHeadCount(t, dir)
+
+		prdDir := filepath.Join(dir, ".chief", "prds", "p1")
+		if err := os.MkdirAll(prdDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		prdPath := filepath.Join(prdDir, "prd.md")
+		if err := os.WriteFile(prdPath, []byte("# PRD\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(prdDir, "progress.md"), []byte("# progress\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		l := NewLoopWithWorkDir(prdPath, dir, "", 1, testProvider)
+		l.commitStoryProgress("US-004", "Story Four")
+
+		if got := gitHeadCount(t, dir); got != before {
+			t.Errorf("commit count = %d, want %d (nothing should be committed)", got, before)
+		}
+		if gitTracked(t, dir, ".chief/prds/p1/prd.md") || gitTracked(t, dir, ".chief/prds/p1/progress.md") {
+			t.Error("gitignored chief files must not be force-added to the repo")
+		}
+	})
 }
 
 // TestLoop_PRDLoadFailureIsAnErrorNotCompletion verifies that a prompt builder

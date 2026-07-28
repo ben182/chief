@@ -112,27 +112,30 @@ func generateAt(ctx context.Context, provider loop.Provider, gitDir, prdDir stri
 	res := Result{Path: summaryPath}
 
 	// Commit deterministically rather than trusting the agent to. Force-add so a
-	// summary under a gitignored `.chief/` is still tracked. The same commit
-	// sweeps chief's own working files (prd.md, progress.md and the scoped
-	// .gitignore) so a finished run never leaves them behind as uncommitted
-	// changes — this is the backstop for the per-story commits, catching the last
-	// story's timing and any status the concurrent writes raced past. Only files
-	// that exist are included.
+	// summary under a gitignored `.chief/` is still tracked — that one file is
+	// meant to ride in the pushed branch/PR by design. The same commit sweeps
+	// chief's own working files (prd.md, progress.md and the scoped .gitignore)
+	// so a finished run never leaves them behind as uncommitted changes — this is
+	// the backstop for the per-story commits, catching the last story's timing
+	// and any status the concurrent writes raced past. Only files that exist are
+	// included, and unlike the summary the swept files respect the user's
+	// gitignore: someone who ignored .chief/ chose to keep them local.
 	if git.IsGitRepo(gitDir) {
 		msg := "docs: add run summary"
-		paths := []string{summaryPath}
 		names := []string{"prd.md", "progress.md", ".gitignore"}
 		// Sweep the follow-up inbox too, so a `chief followup` run's checked-off
 		// items are committed by the end of the run instead of being left behind as
 		// an uncommitted change. FollowupInboxNames is the same set the followup
 		// command accepts (todos.md and its aliases); only existing files are added.
 		names = append(names, prd.FollowupInboxNames...)
+		var swept []string
 		for _, name := range names {
 			p := filepath.Join(prdDir, name)
 			if _, statErr := os.Stat(p); statErr == nil {
-				paths = append(paths, p)
+				swept = append(swept, p)
 			}
 		}
+		paths := append([]string{summaryPath}, git.CommittablePaths(gitDir, swept...)...)
 		if err := git.CommitPaths(gitDir, msg, paths...); err != nil {
 			// The file exists and is useful even if the commit failed (e.g. nothing
 			// staged because it was already committed). Report the file, note the
