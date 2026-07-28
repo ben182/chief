@@ -79,11 +79,19 @@ type Manager struct {
 	provider       Provider
 	baseDir        string         // Project root directory (for CLAUDE.md etc.)
 	config         *config.Config // Project config for post-completion actions
-	awake          *awake.Guard   // Keeps the machine from sleeping while loops run
+	awake          sleepGuard     // Keeps the machine from sleeping while loops run
 	mu             sync.RWMutex
 	wg             sync.WaitGroup
 	onComplete     func(prdName string)                  // Callback when a PRD completes
 	onPostComplete func(prdName, branch, workDir string) // Callback for post-completion actions (push, PR)
+}
+
+// sleepGuard is the part of awake.Guard the manager uses: a reference-counted
+// request to keep the machine awake. An interface so a test can count the
+// acquires and releases a run makes without spawning the real helper process.
+type sleepGuard interface {
+	Acquire()
+	Release()
 }
 
 // NewManager creates a new loop manager.
@@ -259,6 +267,10 @@ func (m *Manager) Start(name string) error {
 	if cfg != nil && cfg.Loop.WatchdogTimeoutSeconds > 0 {
 		instance.Loop.SetWatchdogTimeout(time.Duration(cfg.Loop.WatchdogTimeoutSeconds) * time.Second)
 	}
+	// The values above are the starting point; from here the loop re-reads them
+	// from the manager whenever it needs them, so editing the review model or the
+	// watchdog timeout during a run applies to the rest of that run.
+	instance.Loop.SetConfigFn(m.Config)
 	// Capture the branch HEAD before the loop makes any commits, so the run
 	// summary can be scoped to exactly this run's work (StartRef..HEAD). On a
 	// followup run this is the tip left by the previous run, so its already-landed
@@ -282,6 +294,69 @@ func (m *Manager) Start(name string) error {
 	return nil
 }
 
+// awakeRecheckInterval is how often a running loop re-reads loop.keepAwake.
+// Sleep is an OS idle timer measured in minutes, so noticing the switch within a
+// few seconds is as good as noticing it instantly, and the check is a mutex read.
+// A var rather than a const so tests don't have to wait it out.
+var awakeRecheckInterval = 5 * time.Second
+
+// holdAwakeWhileEnabled keeps the machine awake for as long as loop.keepAwake is
+// on, and returns a function that gives the assertion back.
+//
+// It re-checks on a ticker rather than reading the setting once at the start.
+// The whole point of the setting is to survive a walk-away run, so noticing
+// halfway through that it is off — or plugging in and wanting it on — is exactly
+// when someone reaches for it, and a run is long enough that waiting for the next
+// one is not an answer.
+//
+// The returned function is not safe to call twice, and must not run concurrently
+// with the ticker: it waits for the goroutine to stop before touching the
+// reference it holds.
+func (m *Manager) holdAwakeWhileEnabled(ctx context.Context) func() {
+	held := false
+	reconcile := func() {
+		cfg := m.Config()
+		want := cfg != nil && cfg.Loop.KeepAwake
+		if want == held {
+			return
+		}
+		if want {
+			m.awake.Acquire()
+		} else {
+			m.awake.Release()
+		}
+		held = want
+	}
+	reconcile()
+
+	stop := make(chan struct{})
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		ticker := time.NewTicker(awakeRecheckInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				reconcile()
+			}
+		}
+	}()
+
+	return func() {
+		close(stop)
+		<-stopped
+		if held {
+			m.awake.Release()
+			held = false
+		}
+	}
+}
+
 // runLoop runs a loop instance and forwards events.
 func (m *Manager) runLoop(instance *LoopInstance) {
 	defer m.wg.Done()
@@ -291,10 +366,8 @@ func (m *Manager) runLoop(instance *LoopInstance) {
 	// agent is frozen until someone comes back. The guard is reference counted, so
 	// parallel PRDs share one assertion and the machine is released when the last
 	// loop ends.
-	if cfg := m.Config(); cfg != nil && cfg.Loop.KeepAwake {
-		m.awake.Acquire()
-		defer m.awake.Release()
-	}
+	releaseAwake := m.holdAwakeWhileEnabled(instance.ctx)
+	defer releaseAwake()
 
 	// Start event forwarding goroutine
 	done := make(chan struct{})

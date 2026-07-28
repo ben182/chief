@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/ben182/chief/embed"
+	"github.com/ben182/chief/internal/config"
 	"github.com/ben182/chief/internal/git"
 	"github.com/ben182/chief/internal/prd"
 )
@@ -121,6 +122,22 @@ type Loop struct {
 	// sawConsolidateDone records that it signalled <chief-done/>.
 	consolidate        consolidator
 	sawConsolidateDone bool
+
+	// configFn, when set, supplies the project config every time one of these
+	// settings is needed, rather than the run using whatever they were when it
+	// started. A run is long enough that the answer can legitimately change
+	// mid-flight — turning the review off after watching it fix nothing for three
+	// stories, or dropping it to a cheaper model — and a setting that only takes
+	// effect on the next run is a setting you have to stop the run to use. The
+	// captured review/consolidate/watchdog values stay as the fallback for a Loop
+	// driven directly, without a manager to read a project config from.
+	//
+	// It must be safe to call from any goroutine and must not hand back a config
+	// that is mutated in place afterwards: readers here copy fields out of it
+	// without holding any lock the writer knows about. Manager.Config satisfies
+	// both — the TUI replaces the whole config on every edit rather than writing
+	// through the pointer.
+	configFn func() *config.Config
 	// startRef is the branch HEAD captured before this run made any commits. It
 	// scopes the consolidation pass to StartRef..HEAD — this run's commits only —
 	// so a followup run never refactors work an earlier run already shipped. The
@@ -228,6 +245,72 @@ func (l *Loop) SetReview(enabled bool, skill, instructions string) {
 	l.review = reviewer{enabled: enabled, skill: skill, instructions: instructions}
 }
 
+// SetConfigFn makes the loop read the review, consolidation and watchdog
+// settings from fn every time it needs them, instead of using the values it was
+// configured with when the run started. Pass nil to go back to the captured
+// values. See the configFn field for what fn has to guarantee.
+func (l *Loop) SetConfigFn(fn func() *config.Config) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.configFn = fn
+}
+
+// liveConfig returns the current project config, or nil when the loop has no
+// live source (or the source has none to give).
+func (l *Loop) liveConfig() *config.Config {
+	l.mu.Lock()
+	fn := l.configFn
+	l.mu.Unlock()
+	if fn == nil {
+		return nil
+	}
+	return fn()
+}
+
+// currentReviewer returns the review settings in force right now: from the live
+// config when there is one, otherwise the values captured at the start.
+func (l *Loop) currentReviewer() reviewer {
+	if cfg := l.liveConfig(); cfg != nil {
+		return reviewer{
+			enabled:      cfg.Review.Active(),
+			skill:        cfg.Review.Skill,
+			instructions: cfg.Review.Instructions,
+			model:        cfg.Review.Model,
+		}
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.review
+}
+
+// currentConsolidator returns the consolidation settings in force right now.
+func (l *Loop) currentConsolidator() consolidator {
+	if cfg := l.liveConfig(); cfg != nil {
+		return consolidator{
+			enabled:      cfg.Consolidate.Active(),
+			skill:        cfg.Consolidate.Skill,
+			instructions: cfg.Consolidate.Instructions,
+			model:        cfg.Consolidate.Model,
+		}
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.consolidate
+}
+
+// currentWatchdogTimeout returns the silence timeout the next iteration should
+// run under. A config value of 0 means "unset", which falls back to the captured
+// timeout — not to a disabled watchdog, which is what SetWatchdogTimeout(0)
+// means for a caller driving the loop directly.
+func (l *Loop) currentWatchdogTimeout() time.Duration {
+	if cfg := l.liveConfig(); cfg != nil && cfg.Loop.WatchdogTimeoutSeconds > 0 {
+		return time.Duration(cfg.Loop.WatchdogTimeoutSeconds) * time.Second
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.watchdogTimeout
+}
+
 // SetReviewModel sets the model the review agent runs on, e.g. "haiku". An empty
 // string — the default — runs it on defaultPhaseModel instead. It never affects
 // the build agent, and it is inert for providers whose CLI takes no model.
@@ -268,13 +351,11 @@ func (l *Loop) providerForMode(mode iterationMode) Provider {
 // modelForMode returns the model a phase's agent runs on, or "" for the build
 // agent, which keeps the provider's own model.
 func (l *Loop) modelForMode(mode iterationMode) string {
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	switch mode {
 	case modeReview:
-		return l.review.effectiveModel()
+		return l.currentReviewer().effectiveModel()
 	case modeConsolidate:
-		return l.consolidate.effectiveModel()
+		return l.currentConsolidator().effectiveModel()
 	default:
 		return ""
 	}
@@ -282,9 +363,7 @@ func (l *Loop) modelForMode(mode iterationMode) string {
 
 // reviewEnabled reports whether a review agent should run after a story commits.
 func (l *Loop) reviewEnabled() bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.review.active()
+	return l.currentReviewer().active()
 }
 
 // SetConsolidate configures the end-of-run consolidation pass. When enabled is
@@ -304,9 +383,7 @@ func (l *Loop) SetConsolidate(enabled bool, skill, instructions string) {
 // consolidateEnabled reports whether the consolidation pass should run at the end
 // of the run.
 func (l *Loop) consolidateEnabled() bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.consolidate.active()
+	return l.currentConsolidator().active()
 }
 
 // SetStartRef records the branch HEAD captured before this run made any commits,
@@ -547,6 +624,10 @@ func (l *Loop) runIteration(ctx context.Context, mode iterationMode) error {
 	workDir := l.effectiveWorkDir()
 	cmd := l.providerForMode(mode).LoopCommand(ctx, l.prompt, workDir)
 	setProcessGroup(cmd) // kill the whole subprocess tree, not just the direct child
+	// Resolved per iteration, and before l.mu is taken: the live config source
+	// locks l.mu itself, and a raised timeout is worth picking up on the next
+	// agent rather than only on the next run.
+	watchdogTimeout := l.currentWatchdogTimeout()
 	l.mu.Lock()
 	l.agentCmd = cmd
 	// Clear the command on every return path (success or error) so IsRunning()
@@ -559,7 +640,6 @@ func (l *Loop) runIteration(ctx context.Context, mode iterationMode) error {
 	l.stderrTail = nil // reset crash diagnostics for this iteration
 	// Initialize watchdog state
 	l.lastOutputTime.Store(time.Now().UnixNano())
-	watchdogTimeout := l.watchdogTimeout
 	l.mu.Unlock()
 
 	// Create pipes for stdout and stderr
@@ -1137,9 +1217,11 @@ func (l *Loop) runConsolidation(ctx context.Context, iteration int) {
 //   - no story commits in this run's window (every story was already done, or the
 //     run landed nothing).
 func (l *Loop) buildConsolidatePrompt() (string, error) {
+	c := l.currentConsolidator()
+	skill := c.skill
+	instructions := c.instructions
+
 	l.mu.Lock()
-	skill := l.consolidate.skill
-	instructions := l.consolidate.instructions
 	startRef := l.startRef
 	l.mu.Unlock()
 
@@ -1176,11 +1258,13 @@ func (l *Loop) buildConsolidatePrompt() (string, error) {
 // buildReviewPrompt loads the PRD and builds the review-agent prompt for the
 // story currently being reviewed, inlining that story's context.
 func (l *Loop) buildReviewPrompt() (string, error) {
+	r := l.currentReviewer()
+	skill := r.skill
+	instructions := r.instructions
+
 	l.mu.Lock()
 	storyID := l.currentStoryID
 	storyTitle := l.currentStoryTitle
-	skill := l.review.skill
-	instructions := l.review.instructions
 	l.mu.Unlock()
 
 	p, err := prd.LoadPRD(l.prdPath)

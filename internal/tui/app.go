@@ -18,18 +18,18 @@ import (
 
 // App is the main Bubble Tea model for the Chief TUI.
 type App struct {
-	prd                 *prd.PRD
-	prdPath             string
-	prdName             string
-	state               AppState
-	iteration           int
-	startTime           time.Time
+	prd       *prd.PRD
+	prdPath   string
+	prdName   string
+	state     AppState
+	iteration int
+	startTime time.Time
 	// runBaselineDone holds the IDs of stories that were already passing when
 	// the current run started. The dashboard progress bar counts only stories
 	// outside this set, so follow-up stories appended to an otherwise finished
 	// PRD show progress for this run rather than for the whole PRD. Nil before
 	// any run has started this session, in which case the whole PRD is counted.
-	runBaselineDone map[string]bool
+	runBaselineDone     map[string]bool
 	selectedIndex       int
 	storiesScrollOffset int
 	width               int
@@ -947,6 +947,30 @@ func (a *App) renderSettingsView() string {
 	return a.settingsOverlay.Render()
 }
 
+// publishSettings folds the overlay's current values into the config, hands the
+// result to the manager and writes it to disk.
+//
+// It builds a *new* config rather than editing the one already in use. A running
+// loop reads these settings from the manager on its own goroutine — that is what
+// makes an edit take effect mid-run — so writing through the shared pointer would
+// be a data race on every field the overlay can reach. Replacing the whole value
+// under the manager's lock means a reader either sees the old config or the new
+// one, never a half-updated one. The copy is a true snapshot: every field is a
+// value type except the two `enabled` switches, and ApplyToConfig gives those
+// fresh pointers.
+func (a *App) publishSettings() {
+	next := config.Config{}
+	if a.config != nil {
+		next = *a.config
+	}
+	a.settingsOverlay.ApplyToConfig(&next)
+	a.config = &next
+	if a.manager != nil {
+		a.manager.SetConfig(&next)
+	}
+	_ = config.Save(a.baseDir, &next)
+}
+
 // handleSettingsKeys handles keyboard input for the settings overlay.
 func (a App) handleSettingsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Dismiss GH error on any key
@@ -960,8 +984,7 @@ func (a App) handleSettingsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "enter":
 			a.settingsOverlay.ConfirmEdit()
-			a.settingsOverlay.ApplyToConfig(a.config)
-			_ = config.Save(a.baseDir, a.config)
+			a.publishSettings()
 			return a, nil
 		case "esc":
 			a.settingsOverlay.CancelEdit()
@@ -1004,18 +1027,15 @@ func (a App) handleSettingsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return settingsGHCheckResultMsg{installed: installed, authenticated: authenticated, err: err}
 				}
 			}
-			a.settingsOverlay.ApplyToConfig(a.config)
-			_ = config.Save(a.baseDir, a.config)
+			a.publishSettings()
 			return a, nil
 		case SettingsItemTriBool:
 			a.settingsOverlay.CycleTriBool()
-			a.settingsOverlay.ApplyToConfig(a.config)
-			_ = config.Save(a.baseDir, a.config)
+			a.publishSettings()
 			return a, nil
 		case SettingsItemEnum:
 			a.settingsOverlay.CycleEnum()
-			a.settingsOverlay.ApplyToConfig(a.config)
-			_ = config.Save(a.baseDir, a.config)
+			a.publishSettings()
 			return a, nil
 		case SettingsItemString, SettingsItemInt:
 			a.settingsOverlay.StartEditing()
@@ -1047,8 +1067,7 @@ func (a App) handleSettingsGHCheck(msg settingsGHCheckResultMsg) (tea.Model, tea
 	}
 
 	// Validation passed - save the config
-	a.settingsOverlay.ApplyToConfig(a.config)
-	_ = config.Save(a.baseDir, a.config)
+	a.publishSettings()
 	return a, nil
 }
 

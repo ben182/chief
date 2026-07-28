@@ -121,8 +121,8 @@ type LoopConfig struct {
 	// KeepAwake stops the machine from going to sleep while a loop is running.
 	// A run is a walk-away workflow, so nobody touches the keyboard for an hour
 	// and the OS suspends the machine mid-story. Currently macOS only
-	// (caffeinate); a no-op elsewhere. Takes effect when a loop starts, so
-	// toggling it mid-run applies from the next start onwards.
+	// (caffeinate); a no-op elsewhere. A running loop re-reads this within a few
+	// seconds, so switching it on halfway through a run applies to that run.
 	KeepAwake bool `yaml:"keepAwake"`
 }
 

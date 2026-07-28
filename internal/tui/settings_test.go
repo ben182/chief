@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ben182/chief/internal/config"
+	"github.com/ben182/chief/internal/loop"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -812,6 +813,80 @@ func TestSettingsOverlay_LongValuesDoNotWrap(t *testing.T) {
 		s.AddEditChar(ch)
 	}
 	check("long edit buffer")
+}
+
+// A running loop reads these settings from the manager, on its own goroutine.
+// That only works if an edit publishes a *new* config instead of writing through
+// the pointer the loop already has — otherwise every keystroke in the overlay is
+// a data race against a live run.
+func TestApp_PublishSettingsReplacesConfigRatherThanMutatingIt(t *testing.T) {
+	original := config.Default()
+	original.Review.Model = "sonnet"
+
+	manager := loop.NewManager(1, nil)
+	manager.SetConfig(original)
+
+	app := &App{
+		baseDir:         t.TempDir(),
+		config:          original,
+		manager:         manager,
+		settingsOverlay: NewSettingsOverlay(),
+	}
+	app.settingsOverlay.LoadFromConfig(app.config)
+
+	selectKey(t, app.settingsOverlay, "review.model")
+	app.settingsOverlay.StartEditing()
+	for range "sonnet" { // editing starts from the current value
+		app.settingsOverlay.DeleteEditChar()
+	}
+	for _, ch := range "haiku" {
+		app.settingsOverlay.AddEditChar(ch)
+	}
+	app.settingsOverlay.ConfirmEdit()
+
+	app.publishSettings()
+
+	if app.config == original {
+		t.Error("expected a new config, got the same pointer back")
+	}
+	if original.Review.Model != "sonnet" {
+		t.Errorf("the config in use was edited in place: review.model is now %q", original.Review.Model)
+	}
+	if app.config.Review.Model != "haiku" {
+		t.Errorf("app config not updated: review.model = %q", app.config.Review.Model)
+	}
+	if got := manager.Config(); got != app.config {
+		t.Error("the manager was not handed the new config, so a running loop would keep the old one")
+	}
+
+	// Settings the overlay didn't touch have to survive the round trip.
+	if !app.config.OnComplete.Notify || !app.config.Loop.KeepAwake {
+		t.Error("expected untouched defaults to be carried over to the new config")
+	}
+}
+
+// Publishing has to write the file too — that is the only copy that survives a
+// restart, and the manager's in-memory config would otherwise drift from it.
+func TestApp_PublishSettingsWritesTheConfigFile(t *testing.T) {
+	baseDir := t.TempDir()
+	app := &App{
+		baseDir:         baseDir,
+		config:          config.Default(),
+		settingsOverlay: NewSettingsOverlay(),
+	}
+	app.settingsOverlay.LoadFromConfig(app.config)
+
+	selectKey(t, app.settingsOverlay, "consolidate.enabled")
+	app.settingsOverlay.CycleTriBool() // unset -> true
+	app.publishSettings()
+
+	reloaded, err := config.Load(baseDir)
+	if err != nil {
+		t.Fatalf("loading the saved config failed: %v", err)
+	}
+	if reloaded.Consolidate.Enabled == nil || !*reloaded.Consolidate.Enabled {
+		t.Errorf("expected consolidate.enabled: true on disk, got %v", reloaded.Consolidate.Enabled)
+	}
 }
 
 func TestSettingsOverlay_GetSelectedItem(t *testing.T) {
