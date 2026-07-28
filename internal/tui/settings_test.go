@@ -1,11 +1,125 @@
 package tui
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/ben182/chief/internal/config"
+	"github.com/charmbracelet/lipgloss"
 )
+
+// configLeafKeys walks config.Config and returns every leaf setting as its
+// dotted yaml path (e.g. "review.model").
+func configLeafKeys(t *testing.T, typ reflect.Type, prefix string) []string {
+	t.Helper()
+
+	var keys []string
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		name, _, _ := strings.Cut(field.Tag.Get("yaml"), ",")
+		if name == "" || name == "-" {
+			t.Fatalf("field %s.%s has no yaml tag", typ.Name(), field.Name)
+		}
+		path := name
+		if prefix != "" {
+			path = prefix + "." + name
+		}
+		if field.Type.Kind() == reflect.Struct {
+			keys = append(keys, configLeafKeys(t, field.Type, path)...)
+			continue
+		}
+		keys = append(keys, path)
+	}
+	return keys
+}
+
+// TestSettingsOverlay_CoversEveryConfigKey pins the overlay to the config
+// struct. The overlay used to expose a hand-picked seven of the config's
+// settings, so every key added since — the per-phase review and consolidation
+// models among them — was reachable only by editing .chief/config.yaml by hand.
+// Adding a field to config.Config now fails here until it has a row.
+func TestSettingsOverlay_CoversEveryConfigKey(t *testing.T) {
+	s := NewSettingsOverlay()
+	s.LoadFromConfig(config.Default())
+
+	covered := make(map[string]bool, len(s.items))
+	for _, item := range s.items {
+		if covered[item.Key] {
+			t.Errorf("duplicate settings item for key %q", item.Key)
+		}
+		covered[item.Key] = true
+	}
+
+	wanted := configLeafKeys(t, reflect.TypeOf(config.Config{}), "")
+	for _, key := range wanted {
+		if !covered[key] {
+			t.Errorf("config key %q has no settings item — add one to LoadFromConfig", key)
+		}
+		delete(covered, key)
+	}
+	for key := range covered {
+		t.Errorf("settings item %q does not match any config key", key)
+	}
+}
+
+// TestSettingsOverlay_RoundTripsEveryConfigKey checks the other half of the
+// contract: a value edited in the overlay has to land back in the config. A key
+// with a row in LoadFromConfig but no case in ApplyToConfig would render and
+// edit fine, then silently discard the change on save.
+func TestSettingsOverlay_RoundTripsEveryConfigKey(t *testing.T) {
+	s := NewSettingsOverlay()
+	s.LoadFromConfig(config.Default())
+
+	// Give every item a value that differs from the zero value it loaded.
+	for i := range s.items {
+		switch s.items[i].Type {
+		case SettingsItemBool:
+			s.items[i].BoolVal = !s.items[i].BoolVal
+		case SettingsItemTriBool:
+			s.items[i].TriVal = config.Bool(true)
+		case SettingsItemInt:
+			s.items[i].IntVal = 4242
+		case SettingsItemEnum:
+			s.items[i].StringVal = s.items[i].Options[len(s.items[i].Options)-1]
+		default:
+			s.items[i].StringVal = "value-for-" + s.items[i].Key
+		}
+	}
+
+	cfg := config.Default()
+	s.ApplyToConfig(cfg)
+
+	// Read the applied config back through a second overlay: if ApplyToConfig
+	// missed a key, the reloaded item still carries the original value.
+	reloaded := NewSettingsOverlay()
+	reloaded.LoadFromConfig(cfg)
+
+	for i, want := range s.items {
+		got := reloaded.items[i]
+		if got.Key != want.Key {
+			t.Fatalf("item %d: key changed across reload: %q vs %q", i, want.Key, got.Key)
+		}
+		switch want.Type {
+		case SettingsItemBool:
+			if got.BoolVal != want.BoolVal {
+				t.Errorf("%s: not applied (got %v, want %v)", want.Key, got.BoolVal, want.BoolVal)
+			}
+		case SettingsItemTriBool:
+			if got.TriVal == nil || *got.TriVal != *want.TriVal {
+				t.Errorf("%s: not applied (got %v)", want.Key, got.TriVal)
+			}
+		case SettingsItemInt:
+			if got.IntVal != want.IntVal {
+				t.Errorf("%s: not applied (got %d, want %d)", want.Key, got.IntVal, want.IntVal)
+			}
+		default:
+			if got.StringVal != want.StringVal {
+				t.Errorf("%s: not applied (got %q, want %q)", want.Key, got.StringVal, want.StringVal)
+			}
+		}
+	}
+}
 
 func TestSettingsOverlay_LoadFromConfig(t *testing.T) {
 	s := NewSettingsOverlay()
@@ -21,9 +135,6 @@ func TestSettingsOverlay_LoadFromConfig(t *testing.T) {
 	}
 	s.LoadFromConfig(cfg)
 
-	if len(s.items) != 7 {
-		t.Fatalf("expected 7 items, got %d", len(s.items))
-	}
 	if s.items[0].Key != "worktree.setup" || s.items[0].StringVal != "npm install" {
 		t.Errorf("worktree.setup item: got key=%s val=%s", s.items[0].Key, s.items[0].StringVal)
 	}
@@ -372,6 +483,335 @@ func TestSettingsOverlay_RenderEmptyStringValue(t *testing.T) {
 	if !strings.Contains(rendered, "(not set)") {
 		t.Error("expected '(not set)' for empty setup command")
 	}
+}
+
+// selectKey moves the selection onto the item with the given config key.
+func selectKey(t *testing.T, s *SettingsOverlay, key string) {
+	t.Helper()
+	for i, item := range s.items {
+		if item.Key == key {
+			s.selectedIndex = i
+			return
+		}
+	}
+	t.Fatalf("no settings item for key %q", key)
+}
+
+func TestSettingsOverlay_CycleTriBool(t *testing.T) {
+	s := NewSettingsOverlay()
+	s.LoadFromConfig(config.Default())
+	selectKey(t, s, "review.enabled")
+
+	item := s.GetSelectedItem()
+	if item.TriVal != nil {
+		t.Fatalf("expected review.enabled to start unset, got %v", *item.TriVal)
+	}
+
+	s.CycleTriBool()
+	if item = s.GetSelectedItem(); item.TriVal == nil || !*item.TriVal {
+		t.Fatalf("expected true after first cycle, got %v", item.TriVal)
+	}
+
+	s.CycleTriBool()
+	if item = s.GetSelectedItem(); item.TriVal == nil || *item.TriVal {
+		t.Fatalf("expected false after second cycle, got %v", item.TriVal)
+	}
+
+	// Third cycle returns to the derived default rather than sticking on false.
+	s.CycleTriBool()
+	if item = s.GetSelectedItem(); item.TriVal != nil {
+		t.Fatalf("expected unset after third cycle, got %v", *item.TriVal)
+	}
+}
+
+// A tri-state switch left alone must stay nil through a save, or opening the
+// overlay and toggling something unrelated would freeze the review pass at
+// whatever it happened to be deriving at the time.
+func TestSettingsOverlay_ApplyKeepsUntouchedTriStateUnset(t *testing.T) {
+	s := NewSettingsOverlay()
+	cfg := config.Default()
+	cfg.Review.Skill = "/code-quality"
+	s.LoadFromConfig(cfg)
+
+	selectKey(t, s, "onComplete.push")
+	s.ToggleBool()
+	s.ApplyToConfig(cfg)
+
+	if cfg.Review.Enabled != nil {
+		t.Errorf("expected review.enabled to stay unset, got %v", *cfg.Review.Enabled)
+	}
+	if cfg.Consolidate.Enabled != nil {
+		t.Errorf("expected consolidate.enabled to stay unset, got %v", *cfg.Consolidate.Enabled)
+	}
+	if !cfg.Review.Active() {
+		t.Error("expected the review to stay derived-on from its skill")
+	}
+}
+
+// Loading and applying must both copy the tri-state switch rather than share
+// the pointer. Sharing it works only for as long as every edit path happens to
+// replace the pointer instead of writing through it; the moment one writes
+// `*item.TriVal = false`, a config the overlay merely displayed would change
+// underneath the caller — with no save, and no way to cancel out of it.
+func TestSettingsOverlay_TriStateIsNeverSharedWithConfig(t *testing.T) {
+	s := NewSettingsOverlay()
+	cfg := config.Default()
+	cfg.Review.Enabled = config.Bool(true)
+	cfg.Consolidate.Enabled = config.Bool(false)
+	s.LoadFromConfig(cfg)
+
+	loaded := map[string]*bool{
+		"review.enabled":      cfg.Review.Enabled,
+		"consolidate.enabled": cfg.Consolidate.Enabled,
+	}
+	for key, fromCfg := range loaded {
+		selectKey(t, s, key)
+		item := s.GetSelectedItem()
+		if item.TriVal == nil {
+			t.Fatalf("%s: expected the loaded value, got nil", key)
+		}
+		if item.TriVal == fromCfg {
+			t.Errorf("%s: overlay shares the config's pointer after LoadFromConfig", key)
+		}
+		if *item.TriVal != *fromCfg {
+			t.Errorf("%s: loaded %v, config holds %v", key, *item.TriVal, *fromCfg)
+		}
+	}
+
+	s.ApplyToConfig(cfg)
+
+	for key, want := range map[string]bool{"review.enabled": true, "consolidate.enabled": false} {
+		selectKey(t, s, key)
+		item := s.GetSelectedItem()
+		var applied *bool
+		if key == "review.enabled" {
+			applied = cfg.Review.Enabled
+		} else {
+			applied = cfg.Consolidate.Enabled
+		}
+		if applied == nil || *applied != want {
+			t.Errorf("%s: expected %v after apply, got %v", key, want, applied)
+		}
+		if applied == item.TriVal {
+			t.Errorf("%s: config shares the overlay's pointer after ApplyToConfig", key)
+		}
+	}
+
+	// And the round trip leaves the values themselves alone.
+	selectKey(t, s, "review.enabled")
+	s.CycleTriBool() // true -> false
+	if cfg.Review.Enabled == nil || !*cfg.Review.Enabled {
+		t.Error("cycling the overlay changed the config before ApplyToConfig")
+	}
+}
+
+func TestSettingsOverlay_IntEditing(t *testing.T) {
+	s := NewSettingsOverlay()
+	s.LoadFromConfig(config.Default())
+	selectKey(t, s, "loop.watchdogTimeoutSeconds")
+
+	s.StartEditing()
+	if !s.IsEditing() {
+		t.Fatal("expected an int item to be editable")
+	}
+	if s.editBuffer != "" {
+		t.Errorf("expected an empty buffer for an unset timeout, got %q", s.editBuffer)
+	}
+
+	// Non-digits are dropped so the buffer always parses.
+	for _, ch := range "9x0m0" {
+		s.AddEditChar(ch)
+	}
+	if s.editBuffer != "900" {
+		t.Errorf("expected buffer '900', got %q", s.editBuffer)
+	}
+
+	s.ConfirmEdit()
+	if got := s.GetSelectedItem().IntVal; got != 900 {
+		t.Errorf("expected 900, got %d", got)
+	}
+
+	// Clearing the field falls back to the built-in default.
+	s.StartEditing()
+	if s.editBuffer != "900" {
+		t.Errorf("expected the current value in the buffer, got %q", s.editBuffer)
+	}
+	for range "900" {
+		s.DeleteEditChar()
+	}
+	s.ConfirmEdit()
+	if got := s.GetSelectedItem().IntVal; got != 0 {
+		t.Errorf("expected 0 after clearing, got %d", got)
+	}
+}
+
+func TestSettingsOverlay_CycleEnum(t *testing.T) {
+	s := NewSettingsOverlay()
+	s.LoadFromConfig(config.Default())
+	selectKey(t, s, "agent.provider")
+
+	if got := s.GetSelectedItem().StringVal; got != "" {
+		t.Fatalf("expected provider to start unset, got %q", got)
+	}
+
+	seen := []string{}
+	for range agentProviders {
+		s.CycleEnum()
+		seen = append(seen, s.GetSelectedItem().StringVal)
+	}
+	for i, want := range agentProviders {
+		if seen[i] != want {
+			t.Errorf("cycle %d: expected %q, got %q", i, want, seen[i])
+		}
+	}
+
+	// Past the last provider it wraps back to "use the default".
+	s.CycleEnum()
+	if got := s.GetSelectedItem().StringVal; got != "" {
+		t.Errorf("expected wrap back to unset, got %q", got)
+	}
+}
+
+// A provider name that is not in the list (hand-edited YAML, or one dropped in a
+// later version) must not trap the cycle.
+func TestSettingsOverlay_CycleEnumFromUnknownValue(t *testing.T) {
+	s := NewSettingsOverlay()
+	cfg := config.Default()
+	cfg.Agent.Provider = "aider"
+	s.LoadFromConfig(cfg)
+	selectKey(t, s, "agent.provider")
+
+	s.CycleEnum()
+	if got := s.GetSelectedItem().StringVal; got != agentProviders[0] {
+		t.Errorf("expected %q, got %q", agentProviders[0], got)
+	}
+}
+
+func TestSettingsOverlay_RenderTriStateDefault(t *testing.T) {
+	s := NewSettingsOverlay()
+	cfg := config.Default()
+	s.LoadFromConfig(cfg)
+	s.SetSize(120, 60) // tall enough that nothing scrolls out of view
+
+	if !strings.Contains(s.Render(), "Default (off)") {
+		t.Error("expected an unconfigured review to render as 'Default (off)'")
+	}
+
+	// A skill turns the pass on without an explicit `enabled`, and the label has
+	// to follow the setting as it is edited, not just as it was loaded.
+	selectKey(t, s, "review.skill")
+	s.StartEditing()
+	for _, ch := range "/code-quality" {
+		s.AddEditChar(ch)
+	}
+	s.ConfirmEdit()
+
+	if !strings.Contains(s.Render(), "Default (on)") {
+		t.Error("expected the derived default to flip to 'on' once a skill is set")
+	}
+}
+
+func TestSettingsOverlay_RenderPlaceholders(t *testing.T) {
+	s := NewSettingsOverlay()
+	s.LoadFromConfig(config.Default())
+	s.SetSize(120, 60)
+
+	rendered := s.Render()
+	for _, want := range []string{"sonnet (default)", "claude (default)", defaultWatchdogLabel()} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("expected placeholder %q in the rendered overlay", want)
+		}
+	}
+}
+
+// The item list is taller than the modal on a normal terminal, so the selected
+// row has to be scrolled into view — otherwise everything below the fold is
+// invisible and unreachable.
+func TestSettingsOverlay_ScrollsSelectionIntoView(t *testing.T) {
+	s := NewSettingsOverlay()
+	s.LoadFromConfig(config.Default())
+	s.SetSize(80, 24)
+
+	if !strings.Contains(s.Render(), "Worktree") {
+		t.Fatal("expected the first section to be visible initially")
+	}
+
+	last := len(s.items) - 1
+	for s.selectedIndex < last {
+		s.MoveDown()
+	}
+
+	rendered := s.Render()
+	if !strings.Contains(rendered, "Consolidate") {
+		t.Error("expected the last section to be visible after scrolling to the end")
+	}
+	if !strings.Contains(rendered, "Instructions") {
+		t.Error("expected the last item to be visible after scrolling to the end")
+	}
+	if strings.Contains(rendered, "Worktree") {
+		t.Error("expected the first section to have scrolled out of view")
+	}
+	if !strings.Contains(rendered, "⋯") {
+		t.Error("expected a marker showing the list continues above")
+	}
+
+	// Back at the top the window has to follow the selection the other way.
+	for s.selectedIndex > 0 {
+		s.MoveUp()
+	}
+	if !strings.Contains(s.Render(), "Worktree") {
+		t.Error("expected to scroll back to the first section")
+	}
+}
+
+// A value wider than the value column must be shortened, not wrapped. lipgloss
+// wraps an over-long line rather than letting it stick out, so an unclamped
+// value costs the modal extra rows: the box grows past the height it sized
+// itself to and pushes settings off the bottom. Free-form instructions are long
+// enough to hit this in normal use.
+func TestSettingsOverlay_LongValuesDoNotWrap(t *testing.T) {
+	const screenW, screenH = 80, 40
+
+	baseline := NewSettingsOverlay()
+	baseline.LoadFromConfig(config.Default())
+	baseline.SetSize(screenW, screenH)
+	wantLines := len(strings.Split(baseline.Render(), "\n"))
+
+	long := strings.Repeat("watch for N+1 queries and missing tests ", 8)
+
+	s := NewSettingsOverlay()
+	cfg := config.Default()
+	cfg.Review.Instructions = long
+	s.LoadFromConfig(cfg)
+	s.SetSize(screenW, screenH)
+
+	check := func(label string) {
+		t.Helper()
+		rendered := s.Render()
+		if got := len(strings.Split(rendered, "\n")); got != wantLines {
+			t.Errorf("%s: modal is %d lines, expected %d — the value wrapped", label, got, wantLines)
+		}
+		var widest int
+		for _, line := range strings.Split(rendered, "\n") {
+			if w := lipgloss.Width(line); w > widest {
+				widest = w
+			}
+		}
+		if widest > screenW {
+			t.Errorf("%s: rendered %d columns wide, screen is %d", label, widest, screenW)
+		}
+	}
+
+	check("long stored value")
+
+	// Same again while that value is being typed: the edit buffer is rendered in
+	// place of the stored value, on a path of its own.
+	selectKey(t, s, "review.instructions")
+	s.StartEditing()
+	for _, ch := range long {
+		s.AddEditChar(ch)
+	}
+	check("long edit buffer")
 }
 
 func TestSettingsOverlay_GetSelectedItem(t *testing.T) {

@@ -132,17 +132,22 @@ onComplete:
 
 Press `,` from any view in the TUI to open the Settings overlay. This provides an interactive way to view and edit all config values.
 
-Settings are organized by section:
+Every key documented above has a row here — nothing is reachable only by hand-editing the YAML. Settings are organized by section:
 
-- **Worktree** — Setup command (string, editable inline)
+- **Worktree** — Setup command (text)
 - **On Complete** — Push to remote (toggle), Create pull request (toggle), PR base branch (text; empty = the branch the run's branch was cut from), Write run summary (toggle), Desktop notification (toggle)
-- **Loop** — Keep machine awake (toggle)
+- **Loop** — Keep machine awake (toggle), Watchdog timeout in seconds (number; empty = the built-in default)
+- **Agent** — Provider (cycles through the supported CLIs; empty = `claude`), CLI path (text), Model (text)
+- **Review** — Enabled (three-way), Model (text; empty = `sonnet`), Skill (text), Instructions (text)
+- **Consolidate** — Enabled (three-way), Model (text; empty = `sonnet`), Skill (text), Instructions (text)
+
+The two **Enabled** switches are three-way rather than on/off, matching the config: `Enter` cycles them **Default → Yes → No → Default**. On *Default* the value column shows what the setting currently resolves to — `Default (on)` once a skill or instructions are set, `Default (off)` otherwise — and no `enabled:` key is written to the file. Leaving a switch on *Default* is not the same as setting it to No, so editing an unrelated setting never freezes a derived pass at whatever it happened to resolve to at the time.
 
 Changes are saved immediately to `.chief/config.yaml` on every edit.
 
 When toggling "Create pull request" to Yes, Chief validates that the `gh` CLI is installed and authenticated. If validation fails, the toggle reverts and an error message is shown with installation instructions.
 
-Navigate with `j`/`k` or arrow keys. Press `Enter` to toggle booleans or edit strings. Press `Esc` to close.
+Navigate with `j`/`k` or arrow keys. The list scrolls when the terminal is too short for it; a `⋯` marks that it continues above or below. Press `Enter` to toggle booleans, cycle three-way switches and the provider, or edit text and number fields. Press `Esc` to close.
 
 ## First-Time Setup
 

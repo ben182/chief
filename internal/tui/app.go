@@ -1007,7 +1007,17 @@ func (a App) handleSettingsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.settingsOverlay.ApplyToConfig(a.config)
 			_ = config.Save(a.baseDir, a.config)
 			return a, nil
-		case SettingsItemString:
+		case SettingsItemTriBool:
+			a.settingsOverlay.CycleTriBool()
+			a.settingsOverlay.ApplyToConfig(a.config)
+			_ = config.Save(a.baseDir, a.config)
+			return a, nil
+		case SettingsItemEnum:
+			a.settingsOverlay.CycleEnum()
+			a.settingsOverlay.ApplyToConfig(a.config)
+			_ = config.Save(a.baseDir, a.config)
+			return a, nil
+		case SettingsItemString, SettingsItemInt:
 			a.settingsOverlay.StartEditing()
 			return a, nil
 		}
