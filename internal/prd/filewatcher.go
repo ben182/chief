@@ -59,7 +59,8 @@ func (w *fileWatcher[T]) Stop() {
 	w.mu.Unlock()
 
 	close(w.done)
-	w.watcher.Close()
+	_ = w.watcher.Close() // best-effort teardown; Stop has no way to report
+
 }
 
 // Events returns the channel on which change events are delivered.

@@ -441,7 +441,9 @@ func (l *Loop) Run(ctx context.Context) error {
 	if err := l.openRunLog(); err != nil {
 		return err
 	}
-	defer l.logFile.Close()
+	// The run is over by the time this fires; a failing log Close must not turn a
+	// successful run into a failed one.
+	defer func() { _ = l.logFile.Close() }()
 
 	// Capture the branch HEAD before the first iteration commits anything, so the
 	// end-of-run consolidation pass can be scoped to this run's commits. A caller
@@ -904,7 +906,7 @@ func (l *Loop) logLine(line string) {
 	l.logMu.Lock()
 	defer l.logMu.Unlock()
 	if l.logFile != nil {
-		l.logFile.WriteString(line + "\n")
+		_, _ = l.logFile.WriteString(line + "\n") // best-effort: logging must never fail a run
 	}
 }
 

@@ -135,8 +135,10 @@ func RunNew(opts NewOptions) error {
 
 	// Check if prd.md was created
 	if _, err := os.Stat(prdMdPath); os.IsNotExist(err) {
-		// Clean up empty directory to prevent broken picker entries
-		os.Remove(prdDir)
+		// Clean up empty directory to prevent broken picker entries. Best-effort:
+		// a leftover directory is cosmetic and the user is already being told to
+		// re-run.
+		_ = os.Remove(prdDir)
 		fmt.Println("\nNo prd.md was created. Run 'chief new' again to try again.")
 		return nil
 	}

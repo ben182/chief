@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/ben182/chief/internal/loop"
 	"github.com/ben182/chief/internal/prd"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // TabEntry represents a PRD tab in the tab bar.

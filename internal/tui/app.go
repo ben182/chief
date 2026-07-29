@@ -214,8 +214,9 @@ func NewAppWithOptions(prdPath string, maxIter int, provider loop.Provider) (*Ap
 	manager.SetBaseDir(baseDir)
 	manager.SetConfig(cfg)
 
-	// Register the initial PRD with the manager
-	manager.Register(prdName, prdPath)
+	// Register the initial PRD with the manager. The manager is brand new, so the
+	// only error Register can return ("already registered") is impossible here.
+	_ = manager.Register(prdName, prdPath)
 
 	// Create tab bar for always-visible PRD tabs
 	tabBar := NewTabBar(baseDir, prdName, manager)
@@ -869,7 +870,7 @@ func (a App) handleBranchWarningKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			// Track the branch on the manager instance
 			if instance := a.manager.GetInstance(prdName); instance != nil {
-				a.manager.UpdateWorktreeInfo(prdName, "", branchName)
+				_ = a.manager.UpdateWorktreeInfo(prdName, "", branchName) // instance existence just checked
 			}
 			a.lastActivity = "Created branch: " + branchName
 			// Now start the loop
@@ -975,7 +976,13 @@ func (a *App) publishSettings() {
 	if a.logViewer != nil {
 		a.logViewer.SetReviewPending(next.Review.Active())
 	}
-	_ = config.Save(a.baseDir, &next)
+	// A failed save used to be silent, so a config that could not be persisted
+	// (read-only checkout, bad permissions) looked like it applied and then
+	// vanished on the next start. The in-memory change stands either way — only
+	// persistence failed — so this reports rather than reverts.
+	if err := config.Save(a.baseDir, &next); err != nil {
+		a.lastActivity = "Settings apply but could not be saved: " + err.Error()
+	}
 }
 
 // handleSettingsKeys handles keyboard input for the settings overlay.
@@ -1213,10 +1220,12 @@ func (a App) finishWorktreeSetup() (tea.Model, tea.Cmd) {
 	if prdPath == "" {
 		prdPath = filepath.Join(prdDir, "prd.md")
 	}
+	// The GetInstance check already decides which call can succeed, so neither
+	// branch has an error left to report.
 	if instance := a.manager.GetInstance(prdName); instance == nil {
-		a.manager.RegisterWithWorktree(prdName, prdPath, worktreePath, branchName)
+		_ = a.manager.RegisterWithWorktree(prdName, prdPath, worktreePath, branchName)
 	} else {
-		a.manager.UpdateWorktreeInfo(prdName, worktreePath, branchName)
+		_ = a.manager.UpdateWorktreeInfo(prdName, worktreePath, branchName)
 	}
 
 	a.lastActivity = fmt.Sprintf("Created worktree at %s on branch %s", worktreePath, branchName)
@@ -1332,7 +1341,8 @@ func (a App) handleCleanResult(msg cleanResultMsg) (tea.Model, tea.Cmd) {
 	if msg.success {
 		// Clear worktree info from manager
 		if a.manager != nil {
-			a.manager.ClearWorktreeInfo(msg.prdName, msg.clearBranch)
+			// Fails only when the instance is already gone, which clears the info too.
+			_ = a.manager.ClearWorktreeInfo(msg.prdName, msg.clearBranch)
 		}
 		a.picker.Refresh()
 		a.lastActivity = fmt.Sprintf("Cleaned worktree for %s", msg.prdName)
@@ -1347,19 +1357,13 @@ func (a *App) renderHelpView() string {
 	return a.helpOverlay.Render()
 }
 
-// renderPickerView renders the PRD picker modal overlaid on the dashboard.
+// renderPickerView renders the PRD picker modal, which centers itself and
+// covers the full screen. The dashboard behind it is deliberately not rendered:
+// nothing of it shows through, and rendering it anyway cost a full dashboard
+// pass on every keystroke in the picker.
 func (a *App) renderPickerView() string {
-	// Render the dashboard in the background
-	background := a.renderDashboard()
-
-	// Overlay the picker
 	a.picker.SetSize(a.width, a.height)
-	picker := a.picker.Render()
-
-	// For now, just return the picker (it handles centering)
-	// In a more sophisticated implementation, we could overlay with transparency
-	_ = background
-	return picker
+	return a.picker.Render()
 }
 
 // GetPRD returns the current PRD.
@@ -1499,8 +1503,9 @@ func (a *App) adjustMaxIterations(delta int) {
 	// Update the manager's default
 	if a.manager != nil {
 		a.manager.SetMaxIterations(newMax)
-		// Also update any running loop for the current PRD
-		a.manager.SetMaxIterationsForInstance(a.prdName, newMax)
+		// Also update any running loop for the current PRD. No instance yet just
+		// means the new default above applies when it starts.
+		_ = a.manager.SetMaxIterationsForInstance(a.prdName, newMax)
 	}
 
 	a.lastActivity = fmt.Sprintf("Max iterations: %d", newMax)

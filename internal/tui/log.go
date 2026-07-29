@@ -10,8 +10,8 @@ import (
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/ben182/chief/internal/loop"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // LogEntry represents a single entry in the log viewer.

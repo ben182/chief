@@ -93,8 +93,9 @@ func BranchExists(dir, branchName string) (bool, error) {
 	cmd := exec.Command("git", "rev-parse", "--verify", branchName)
 	cmd.Dir = dir
 	if err := cmd.Run(); err != nil {
-		// Branch doesn't exist
-		return false, nil
+		// A non-zero rev-parse is the answer, not a failure: the branch does not
+		// exist. The error return is reserved for genuine problems.
+		return false, nil //nolint:nilerr // exit status is the signal
 	}
 	return true, nil
 }

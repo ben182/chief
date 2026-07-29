@@ -223,7 +223,8 @@ func (a App) switchToPRD(name, prdPath string) (tea.Model, tea.Cmd) {
 
 	// Register with manager if not already registered
 	if instance := a.manager.GetInstance(name); instance == nil {
-		a.manager.Register(name, prdPath)
+		// Guarded by the GetInstance check, so "already registered" cannot fire.
+		_ = a.manager.Register(name, prdPath)
 	}
 
 	// Create new watcher for the new PRD

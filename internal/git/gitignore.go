@@ -25,7 +25,7 @@ func IsChiefIgnored(dir string) bool {
 // followed by line. If it exists, line is appended (with a separating newline
 // when needed) unless line — or any of aliases — is already present as a
 // trimmed line. It is idempotent and safe to call repeatedly.
-func ensureLineInFile(path, line, header string, aliases ...string) error {
+func ensureLineInFile(path, line, header string, aliases ...string) (err error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -54,7 +54,13 @@ func ensureLineInFile(path, line, header string, aliases ...string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	// A write path, so a failing Close means the entry did not land — reporting
+	// that beats silently leaving the file unignored.
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	// Add a newline before ours if the file doesn't end with one.
 	if len(content) > 0 && content[len(content)-1] != '\n' {

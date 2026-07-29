@@ -311,7 +311,7 @@ func (c *CompletionScreen) Render() string {
 
 	// Auto-actions progress or hint
 	if c.summaryState != AutoActionIdle || c.pushState != AutoActionIdle || c.prState != AutoActionIdle {
-		content.WriteString(c.renderAutoActions(innerWidth))
+		content.WriteString(c.renderAutoActions())
 	} else if !c.hasAutoActions {
 		content.WriteString(fgMuted.Render("Configure auto-push and PR in settings (,)"))
 		content.WriteString("\n")
@@ -518,8 +518,10 @@ func (c *CompletionScreen) renderStoryTimings(innerWidth int) string {
 // spinnerChars are the animation frames for the completion screen spinner.
 var spinnerChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-// renderAutoActions renders the auto-action progress section.
-func (c *CompletionScreen) renderAutoActions(innerWidth int) string {
+// renderAutoActions renders the auto-action progress section. Its lines are
+// short status messages that never need padding or truncation, so unlike the
+// other render helpers it takes no width.
+func (c *CompletionScreen) renderAutoActions() string {
 	var lines strings.Builder
 
 	// Summary status
@@ -570,7 +572,6 @@ func (c *CompletionScreen) renderAutoActions(innerWidth int) string {
 		lines.WriteString("\n")
 	}
 
-	_ = innerWidth
 	return lines.String()
 }
 

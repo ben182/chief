@@ -5,9 +5,9 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/ben182/chief/internal/git"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/ben182/chief/internal/git"
 )
 
 // ghCheckResultMsg is sent when the gh CLI check completes.

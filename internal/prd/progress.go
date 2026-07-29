@@ -75,7 +75,7 @@ func ParseProgressFile(path string) (map[string][]ProgressEntry, []Timing, error
 		}
 		return nil, nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only: nothing to report
 
 	entries := make(map[string][]ProgressEntry)
 	var current *ProgressEntry
@@ -207,12 +207,18 @@ func parseTimingFields(attrs string) (Timing, bool) {
 // is append-only (never a read-modify-write of the whole file) so it cannot
 // clobber a concurrent append from the coding agent; duplicates are resolved by
 // ParseTimings on read.
-func AppendTiming(path string, t Timing) error {
+func AppendTiming(path string, t Timing) (err error) {
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	// A write path, so a failing Close (full disk, network filesystem) means the
+	// timing record did not land and the caller has to hear about it.
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	// Make sure our comment starts on its own line even if the agent left the
 	// file without a trailing newline.

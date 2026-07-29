@@ -455,7 +455,7 @@ func (s *SettingsOverlay) Render() string {
 
 	// GH error dialog overlay
 	if s.showGHError {
-		content.WriteString(s.renderGHError(modalWidth))
+		content.WriteString(s.renderGHError())
 	} else {
 		// Render settings items grouped by section
 		content.WriteString(s.renderItems(modalWidth, modalHeight-chromeHeight, rows))
@@ -719,8 +719,9 @@ func (i SettingsItem) placeholder() string {
 // blank, message, blank, install hint, disabled note.
 const ghErrorContentHeight = 6
 
-// renderGHError renders the GH CLI error dialog.
-func (s *SettingsOverlay) renderGHError(modalWidth int) string {
+// renderGHError renders the GH CLI error dialog. The dialog is fixed-copy and
+// each line fits the narrowest modal, so unlike renderItems it takes no width.
+func (s *SettingsOverlay) renderGHError() string {
 	var result strings.Builder
 
 	errorHeaderStyle := lipgloss.NewStyle().
@@ -743,6 +744,5 @@ func (s *SettingsOverlay) renderGHError(modalWidth int) string {
 	result.WriteString("\n")
 	result.WriteString(hintStyle.Render("PR creation has been disabled."))
 
-	_ = modalWidth
 	return result.String()
 }

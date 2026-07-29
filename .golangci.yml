@@ -1,0 +1,48 @@
+version: "2"
+
+# The linter set is deliberately small: everything here catches a bug class that
+# has actually bitten this codebase (dropped errors, dead assignments, stale
+# nil checks), rather than enforcing a house style.
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - nilerr # returns nil where a non-nil error was just checked
+    - unconvert # redundant type conversions
+    - wastedassign # values assigned and never used
+    - misspell
+    - copyloopvar # leftover loop-variable copies (unnecessary since Go 1.22)
+
+  settings:
+    errcheck:
+      # An explicit `_ = f()` stays allowed: this codebase uses it to mark
+      # deliberate best-effort calls (worktree cleanup, gitignore fixups) where
+      # a failure genuinely has no recovery path.
+      check-blank: false
+    govet:
+      enable:
+        - nilness
+    staticcheck:
+      # SA (bugs) and S (simplifications) are worth acting on. ST* is naming and
+      # comment style and QF* is refactor suggestions — both are opinions about
+      # taste, and this repo already reads consistently.
+      checks:
+        - all
+        - -ST1*
+        - -QF1*
+
+  exclusions:
+    generated: lax
+    rules:
+      # Test helpers routinely ignore errors from setup calls that would fail
+      # the test anyway via a later assertion.
+      - path: _test\.go
+        linters:
+          - errcheck
+
+formatters:
+  enable:
+    - gofmt
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

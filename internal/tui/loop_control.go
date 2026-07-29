@@ -76,7 +76,16 @@ func (a *App) isAnotherPRDRunningInSameDir(prdName string) bool {
 	if a.manager == nil {
 		return false
 	}
-	for _, inst := range a.manager.GetAllInstances() {
+	return anotherPRDRunsInRoot(a.manager.GetAllInstances(), prdName)
+}
+
+// anotherPRDRunsInRoot reports whether any instance other than prdName is
+// running in the project root. Two loops committing in the same directory would
+// interleave their commits, so a start has to be held back when one is found.
+// Split out from the method so it can be exercised without a live manager, whose
+// instance getters hand back snapshots.
+func anotherPRDRunsInRoot(instances []*loop.LoopInstance, prdName string) bool {
+	for _, inst := range instances {
 		if inst.Name != prdName && inst.State == loop.LoopStateRunning && inst.WorktreeDir == "" {
 			return true
 		}
@@ -114,7 +123,8 @@ func (a App) launchLoop(prdName, prdDir string) (tea.Model, tea.Cmd) {
 		if prdPath == "" {
 			prdPath = filepath.Join(prdDir, "prd.md")
 		}
-		a.manager.Register(prdName, prdPath)
+		// Guarded by the GetInstance check above, so "already registered" cannot fire.
+		_ = a.manager.Register(prdName, prdPath)
 	}
 
 	// Start the loop via manager
@@ -128,7 +138,7 @@ func (a App) launchLoop(prdName, prdDir string) (tea.Model, tea.Cmd) {
 	// and never for main/master - we never auto-push a protected branch.
 	if inst := a.manager.GetInstance(prdName); inst != nil && inst.Branch == "" && inst.WorktreeDir == "" && git.IsGitRepo(a.baseDir) {
 		if b, err := git.GetCurrentBranch(a.baseDir); err == nil && !git.IsProtectedBranch(b) {
-			a.manager.UpdateWorktreeInfo(prdName, "", b)
+			_ = a.manager.UpdateWorktreeInfo(prdName, "", b) // instance existence just checked
 		}
 	}
 
@@ -183,7 +193,12 @@ func (a App) pauseLoop() (tea.Model, tea.Cmd) {
 // pauseLoopForPRD pauses the loop for a specific PRD.
 func (a App) pauseLoopForPRD(prdName string) (tea.Model, tea.Cmd) {
 	if a.manager != nil {
-		a.manager.Pause(prdName)
+		// Pause fails when the loop is not running. Swallowing that made the TUI
+		// claim "Pausing after current story..." with nothing to pause.
+		if err := a.manager.Pause(prdName); err != nil {
+			a.lastActivity = "Cannot pause: " + err.Error()
+			return a, nil
+		}
 	}
 	if prdName == a.prdName {
 		a.lastActivity = "Pausing after current story..."
@@ -196,7 +211,7 @@ func (a App) pauseLoopForPRD(prdName string) (tea.Model, tea.Cmd) {
 // stopLoopForPRD stops the loop for a specific PRD immediately.
 func (a *App) stopLoopForPRD(prdName string) {
 	if a.manager != nil {
-		a.manager.Stop(prdName)
+		_ = a.manager.Stop(prdName) // best-effort: a loop that is already gone is the goal
 	}
 }
 

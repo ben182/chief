@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/ben182/chief/internal/prd"
+	"github.com/charmbracelet/lipgloss"
 )
 
 const (

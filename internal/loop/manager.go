@@ -207,9 +207,10 @@ func (m *Manager) Unregister(name string) error {
 		return err
 	}
 
-	// Stop if running
+	// Stop if running. A Stop error only says the instance was already gone or
+	// not running, which is exactly the state Unregister wants anyway.
 	if instance.State == LoopStateRunning {
-		m.Stop(name)
+		_ = m.Stop(name)
 	}
 
 	m.mu.Lock()
@@ -618,7 +619,7 @@ func (m *Manager) StopAll() {
 	m.mu.RUnlock()
 
 	for _, name := range names {
-		m.Stop(name)
+		_ = m.Stop(name) // best-effort shutdown: keep stopping the rest regardless
 	}
 
 	// Wait for all loops to finish

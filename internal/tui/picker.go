@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/ben182/chief/internal/git"
 	"github.com/ben182/chief/internal/loop"
 	"github.com/ben182/chief/internal/prd"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // PRDEntry represents a PRD in the picker list.
@@ -912,7 +912,7 @@ func (p *PRDPicker) renderMergeResult(modalWidth, modalHeight int) string {
 				Padding(0, 1)
 			content.WriteString(hintStyle.Render("To resolve manually:"))
 			content.WriteString("\n")
-			content.WriteString(hintStyle.Render(fmt.Sprintf("  cd <project-root>")))
+			content.WriteString(hintStyle.Render("  cd <project-root>"))
 			content.WriteString("\n")
 			content.WriteString(hintStyle.Render(fmt.Sprintf("  git merge %s", p.mergeResult.Branch)))
 			content.WriteString("\n")

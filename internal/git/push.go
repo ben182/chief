@@ -12,15 +12,17 @@ import (
 // CheckGHCLI validates that the GitHub CLI is installed and authenticated.
 func CheckGHCLI() (installed bool, authenticated bool, err error) {
 	// Check if gh is installed
+	// A lookup or auth-status failure is the answer this function reports through
+	// its bools, so err stays nil for both.
 	_, err = exec.LookPath("gh")
 	if err != nil {
-		return false, false, nil
+		return false, false, nil //nolint:nilerr // "not installed" is a result, not an error
 	}
 
 	// Check if gh is authenticated
 	cmd := exec.Command("gh", "auth", "status")
 	if err := cmd.Run(); err != nil {
-		return true, false, nil
+		return true, false, nil //nolint:nilerr // "not authenticated" is a result, not an error
 	}
 
 	return true, true, nil

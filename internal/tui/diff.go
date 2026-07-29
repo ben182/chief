@@ -3,8 +3,8 @@ package tui
 import (
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/ben182/chief/internal/git"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // DiffViewer displays git diffs with syntax highlighting and scrolling.
