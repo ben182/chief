@@ -111,46 +111,58 @@ func reviewInstructionsBlock(instructions string) string {
 // methodology: map the work as a design tree and, each round, ask the whole
 // frontier of currently-answerable questions at once — every question carrying a
 // recommended answer — then wait for the batch of answers before recomputing the
-// frontier. It is deliberately presented in plain prose: the native
-// multiple-choice picker (AskUserQuestion) is not used, so this one format
-// applies to every provider.
+// frontier. Questions use the ❓/➡️ shape so the recommendation is impossible to
+// miss and answers map back by number. It is deliberately presented in plain
+// prose: the native multiple-choice picker (AskUserQuestion) is not used, so this
+// one format applies to every provider.
 const questionFormatBatch = `### Grill in rounds — ask the whole frontier at once
 
-Map the work as a **design tree**: every decision branches into the decisions
-that hang off it. Work the tree in **rounds**. The **frontier** is every decision
-whose prerequisites are already settled — the questions you can ask *now* without
-guessing at answers you haven't heard yet.
+Interview the user relentlessly until you reach a shared understanding. Map this
+as a **design tree**: every decision branches into the decisions that hang off it.
 
-Ask the entire frontier in a single round, then **stop and wait** for the user's
-answers before the next round. Do not trickle questions out one at a time, and do
-not ask a question whose answer depends on another still open this round — that
-one belongs to a *later* round. Each round the user's answers reshape the tree:
-settled decisions push the frontier outward and unblock the questions that
-depended on them. Recompute the frontier and ask the next round. Keep going until
-the frontier is empty — every branch visited, nothing silently assumed.
+Work the tree in **rounds**. The **frontier** is every decision whose
+prerequisites are already settled — the questions you can ask *now* without
+guessing at answers you haven't heard yet. Ask the whole frontier in one round:
+number each question and give your recommended answer. Then **stop and wait** for
+the user's answers before the next round.
 
-**Present each round in plain prose — never a native multiple-choice picker or
-question tool.** Number the questions so answers map back cleanly, and give every
-question your recommended answer with a one-line reason, so the user can confirm
-the whole batch ("all your recs") or redirect individual ones. Show the
-alternatives, but make the recommendation explicit:
+**Ask in plain prose — never a native multiple-choice picker or question tool.**
+Format every question like so:
 
-    Round 2 — persistence & limits
+    ❓ **Q1** - **<question title>**: <question body, might be multiple paragraphs, including multiple choices>
 
-    1. State persistence — should open sessions survive a restart?
-       A. Yes, persist to disk   (recommended: you already persist settings, so
-          it's consistent)
-       B. No, sessions are ephemeral
-       C. Persist only on an explicit "save"
+    ➡️ <your recommended answer>
 
-    2. Session cap — is there a maximum number of open sessions?
-       A. No cap   (recommended: nothing in the current UI implies one)
-       B. Cap at N
+The recommendation is not optional — every question carries one, with a one-line
+reason, so the user can confirm the whole batch ("all your recs") or redirect
+individual ones:
 
-    (Confirm the recommendations, or redirect any of them.)
+    ❓ **Q1** - **State persistence**: Should open sessions survive a restart, or
+    are they ephemeral? A middle option is persisting only on an explicit "save".
 
-Wait for the round's answers, then compute and ask the next round. Write nothing
-until the frontier is empty.`
+    ➡️ Persist to disk — you already persist settings, so it stays consistent.
+
+    ❓ **Q2** - **Session cap**: Is there a maximum number of open sessions?
+
+    ➡️ No cap — nothing in the current UI implies one.
+
+Each round the user answers reshapes the tree — settled decisions push the
+frontier outward and unblock questions that depended on them. Recompute the
+frontier and ask the next round. A question whose answer depends on another
+question still open in this round belongs to a *later* round, not this one. Never
+trickle questions out one at a time, and never guess at an answer you haven't
+heard.
+
+Finding *facts* is your job, never the user's. When a frontier question needs a
+fact from the environment (the repository, the filesystem, the tools at hand), go
+find it — don't ask the user for anything you could look up yourself. Don't block
+on it either: a running lookup is an unsettled prerequisite, so only the questions
+downstream of it wait for it — ask the rest of the frontier now. The *decisions*
+are the user's — put each to them and wait.
+
+The grill is done when the frontier is empty: every branch of the design tree
+visited, nothing left silently assumed. Write nothing until then, and do not act
+on the outcome until the user confirms you have reached a shared understanding.`
 
 // exploreModelClaude instructs the Claude interactive session to run codebase
 // exploration on Opus via a subagent, so exploration quality does not depend on

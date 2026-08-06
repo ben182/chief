@@ -331,8 +331,8 @@ func TestGetInitPromptQuestionFormat(t *testing.T) {
 	prdDir := "/path/to/.chief/prds/main"
 
 	// The batch-grill format is provider-independent: both the native and the
-	// non-native provider get the same rounds-based grilling, and neither uses
-	// the AskUserQuestion picker.
+	// non-native provider get the same rounds-based grilling, the same ❓/➡️
+	// question shape, and neither uses the AskUserQuestion picker.
 	for _, native := range []bool{true, false} {
 		prompt := GetInitPrompt(prdDir, "", native)
 		if !strings.Contains(prompt, "frontier") {
@@ -340,6 +340,9 @@ func TestGetInitPromptQuestionFormat(t *testing.T) {
 		}
 		if strings.Contains(prompt, "AskUserQuestion") {
 			t.Errorf("native=%v: expected grilling to avoid the AskUserQuestion picker", native)
+		}
+		if !strings.Contains(prompt, "❓ **Q1**") || !strings.Contains(prompt, "➡️") {
+			t.Errorf("native=%v: expected the ❓ question / ➡️ recommendation format", native)
 		}
 	}
 }
