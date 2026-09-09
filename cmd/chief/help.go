@@ -17,6 +17,7 @@ Commands:
                             (name defaults to the PRD of the current chief/<name> branch)
   status [name]             Show progress for a PRD (default: default)
   list                      List all PRDs with progress
+  worktree <cmd> <prd>      Run a PRD worktree's setup or teardown command by hand
   help                      Show this help message
 
 Global Options:
@@ -57,6 +58,9 @@ Examples:
   chief status              Show progress for default PRD
   chief status auth         Show progress for auth PRD
   chief list                List all PRDs with progress
+  chief worktree setup auth Re-run worktree.setup in the auth PRD's worktree
+  chief worktree teardown auth
+                            Run worktree.teardown without removing the worktree
   chief --version           Show version number`)
 }
 

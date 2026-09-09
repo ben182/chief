@@ -12,6 +12,14 @@ import (
 // keeps worktrees inside the project and out of the way.
 const DefaultWorktreeDir = ".chief/worktrees/{prd}"
 
+// BranchForPRD names the branch chief gives a PRD's worktree. It lives here
+// rather than in the TUI because the CLI resolves the same worktree: both have
+// to arrive at one branch name, or a {branch} placeholder in the path template
+// would point them at two different directories.
+func BranchForPRD(prdName string) string {
+	return "chief/" + prdName
+}
+
 // WorktreePathForPRD resolves the worktree.dir template into the absolute path
 // of a PRD's worktree. An empty template means DefaultWorktreeDir.
 //

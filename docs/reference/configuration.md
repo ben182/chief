@@ -134,6 +134,8 @@ worktree:
   teardown: "./scripts/worktree.sh teardown"
 ```
 
+Both commands can also be run by hand against an existing worktree, with the same environment, the same working directory and the same log file — see [`chief worktree`](/reference/cli#chief-worktree). That is how you re-run a setup after fixing the script, or retry a teardown that failed. `chief worktree teardown` does not remove the worktree.
+
 ```bash
 #!/usr/bin/env bash
 # scripts/worktree.sh — runs inside the worktree, one script for every PRD.

@@ -9,9 +9,10 @@ import (
 
 // worktreeBranchFor names the branch chief gives a PRD's worktree. It is the
 // same name BranchWarning suggests, so a {branch} placeholder in the path
-// template points at the same directory before and after the dialog.
+// template points at the same directory before and after the dialog — and the
+// same name `chief worktree setup` resolves, which is why it comes from git.
 func worktreeBranchFor(prdName string) string {
-	return "chief/" + prdName
+	return git.BranchForPRD(prdName)
 }
 
 // worktreeDirSetting returns the configured worktree.dir template, trimmed.

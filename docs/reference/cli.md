@@ -22,6 +22,7 @@ chief [command] [flags]
 | `edit` | Open the PRD for editing |
 | `status` | Show current PRD progress |
 | `list` | List all PRDs in the project |
+| `worktree` | Run a PRD worktree's setup or teardown command by hand |
 
 ## Commands
 
@@ -317,6 +318,46 @@ chief list
 #   auth-system: My Auth Project (5/8, 62%)
 #   landing-page: Marketing Site (12/12, 100%)
 #   api-v2: Public API (0/6, 0%)
+```
+
+---
+
+### chief worktree
+
+Run a PRD worktree's `worktree.setup` or `worktree.teardown` command by hand, without starting a run.
+
+```bash
+chief worktree setup <prd>
+chief worktree teardown <prd>
+```
+
+Both subcommands resolve the worktree exactly the way the TUI does: the branch is `chief/<prd>`, and the directory comes from the [`worktree.dir`](/reference/configuration#config-keys) template (default `.chief/worktrees/<prd>`). The command runs in that directory with the same [`CHIEF_*` environment variables](/reference/configuration#worktree-command-environment) a run would give it, so a script cannot tell the two apart.
+
+Output is streamed to your terminal while the command runs and written to `.chief/prds/<prd>/setup-<timestamp>.log` or `teardown-<timestamp>.log` at the same time — the same log files a run produces. The path is printed when the command finishes.
+
+`chief worktree setup` is the way to re-run a setup after fixing the script, or after configuring `worktree.setupOnReuse: false`. `chief worktree teardown` **does not remove the worktree** — it only runs the command, which makes it the way to retry a teardown that failed, or to drop a worktree's outside resources while keeping the checkout. Removing a worktree stays the job of the TUI's clean flow (`c` on a finished PRD), which runs the teardown itself.
+
+Both commands fail with a non-zero exit status when:
+
+- the PRD has no worktree at the resolved path (nothing is run — start the PRD in chief to create it),
+- no `worktree.setup` / `worktree.teardown` command is configured in `.chief/config.yaml`,
+- the command itself exits non-zero or hits `worktree.setupTimeoutSeconds`.
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `setup` \| `teardown` | Which configured command to run (required) |
+| `prd` | PRD name whose worktree to run it in (required) |
+
+**Examples:**
+
+```bash
+# Re-run the setup script in the auth PRD's worktree
+chief worktree setup auth
+
+# Drop the auth worktree's database and containers, keep the checkout
+chief worktree teardown auth
 ```
 
 ---

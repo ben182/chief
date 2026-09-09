@@ -39,6 +39,9 @@ func main() {
 		case "list":
 			runList()
 			return
+		case "worktree":
+			runWorktree()
+			return
 		case "help", "--help", "-h":
 			printHelp()
 			return
@@ -182,6 +185,33 @@ func runFollowup() {
 	}
 	if err := cmd.RunFollowup(opts); err != nil {
 		fatal(err)
+	}
+}
+
+// runWorktree dispatches `chief worktree <setup|teardown> <prd>`. It is chief's
+// only two-level command, so the nested switch mirrors the one in main rather
+// than introducing a command framework for a single case.
+func runWorktree() {
+	if len(os.Args) < 3 {
+		fatalf("chief worktree needs a subcommand: setup or teardown")
+	}
+
+	opts := cmd.WorktreeOptions{}
+	if len(os.Args) > 3 && !strings.HasPrefix(os.Args[3], "-") {
+		opts.Name = os.Args[3]
+	}
+
+	switch sub := os.Args[2]; sub {
+	case "setup":
+		if err := cmd.RunWorktreeSetup(opts); err != nil {
+			fatal(err)
+		}
+	case "teardown":
+		if err := cmd.RunWorktreeTeardown(opts); err != nil {
+			fatal(err)
+		}
+	default:
+		fatalf("unknown worktree subcommand %q: use setup or teardown", sub)
 	}
 }
 
