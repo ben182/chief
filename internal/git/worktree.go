@@ -43,16 +43,30 @@ func GetDefaultBranch(repoDir string) (string, error) {
 	return "", fmt.Errorf("could not detect default branch (tried main, master)")
 }
 
+// CreateWorktreeOptions describes the worktree CreateWorktree should produce.
+// A struct rather than a parameter list because PRDName and Teardown matter
+// only for the one branch of the function that tears a stale worktree down, and
+// a caller that configures no teardown has no reason to name them.
+type CreateWorktreeOptions struct {
+	RepoDir      string
+	WorktreePath string
+	Branch       string
+	// PRDName and Teardown describe the teardown of a stale worktree: the
+	// command to run and the PRD it belongs to, which reaches the command as
+	// CHIEF_PRD_NAME.
+	PRDName  string
+	Teardown string
+}
+
 // CreateWorktree creates a branch from the default branch and adds a worktree at the given path.
 // If the worktree path already exists and is a valid worktree on the expected branch, it is reused.
 // If the worktree path exists but is stale (wrong branch or invalid), it is removed and recreated.
 //
-// teardown, when non-empty, is the configured worktree teardown command; it runs
-// inside a stale worktree before that worktree is removed, and a failing
-// teardown aborts the whole call so nothing outside git is left orphaned. A
-// reused worktree is not torn down.
-func CreateWorktree(repoDir, worktreePath, branch, teardown string) error {
-	absWorktreePath, err := filepath.Abs(worktreePath)
+// A non-empty opts.Teardown runs inside a stale worktree before that worktree is
+// removed, and a failing teardown aborts the whole call so nothing outside git
+// is left orphaned. A reused worktree is not torn down.
+func CreateWorktree(opts CreateWorktreeOptions) error {
+	absWorktreePath, err := filepath.Abs(opts.WorktreePath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve worktree path: %w", err)
 	}
@@ -61,59 +75,54 @@ func CreateWorktree(repoDir, worktreePath, branch, teardown string) error {
 	if IsWorktree(absWorktreePath) {
 		// Check if it's on the expected branch
 		currentBranch, err := GetCurrentBranch(absWorktreePath)
-		if err == nil && currentBranch == branch {
+		if err == nil && currentBranch == opts.Branch {
 			// Valid worktree on the expected branch, reuse it
 			return nil
 		}
-		// Stale worktree (wrong branch or invalid), remove and recreate
-		if out, err := RunTeardown(absWorktreePath, teardown); err != nil {
+		// Stale worktree (wrong branch or invalid), remove and recreate. Its
+		// resources belong to the branch it is standing on, not to the one we
+		// are about to check out, so that is the branch the teardown is told
+		// about.
+		staleBranch := opts.Branch
+		if err == nil && currentBranch != "" {
+			staleBranch = currentBranch
+		}
+		stale := WorktreeContext{
+			PRDName:      opts.PRDName,
+			Branch:       staleBranch,
+			BaseBranch:   RecordedBaseBranch(opts.RepoDir, staleBranch),
+			WorktreePath: absWorktreePath,
+			RepoDir:      opts.RepoDir,
+		}
+		if out, err := RunTeardown(stale, opts.Teardown); err != nil {
 			return fmt.Errorf("worktree teardown failed: %w\n%s", err, out)
 		}
-		if err := RemoveWorktree(repoDir, absWorktreePath); err != nil {
+		if err := RemoveWorktree(opts.RepoDir, absWorktreePath); err != nil {
 			return fmt.Errorf("failed to remove stale worktree: %w", err)
 		}
 	}
 
-	defaultBranch, err := GetDefaultBranch(repoDir)
+	defaultBranch, err := GetDefaultBranch(opts.RepoDir)
 	if err != nil {
 		return fmt.Errorf("failed to detect default branch: %w", err)
 	}
 
 	// Create the branch from the default branch if it doesn't exist
-	exists, err := BranchExists(repoDir, branch)
+	exists, err := BranchExists(opts.RepoDir, opts.Branch)
 	if err != nil {
 		return fmt.Errorf("failed to check branch existence: %w", err)
 	}
 	if !exists {
-		if err := runGitChecked(repoDir, "failed to create branch "+branch, "branch", branch, defaultBranch); err != nil {
+		if err := runGitChecked(opts.RepoDir, "failed to create branch "+opts.Branch, "branch", opts.Branch, defaultBranch); err != nil {
 			return err
 		}
 		// Worktree branches are always cut from the default branch, so that is
 		// what a pull request for them has to target.
-		RecordBaseBranch(repoDir, branch, defaultBranch)
+		RecordBaseBranch(opts.RepoDir, opts.Branch, defaultBranch)
 	}
 
 	// Add the worktree
-	return runGitChecked(repoDir, "failed to add worktree", "worktree", "add", absWorktreePath, branch)
-}
-
-// RunTeardown runs the configured worktree teardown command inside worktreePath
-// and returns its combined output. An empty command is a no-op, which is what
-// keeps removal a pure git operation for projects that configure nothing.
-//
-// Callers run this before removing a worktree and must not remove it when this
-// returns an error: the teardown owns resources git knows nothing about —
-// databases, web-server links — and removing the directory anyway would orphan
-// them.
-func RunTeardown(worktreePath, teardown string) (string, error) {
-	if strings.TrimSpace(teardown) == "" {
-		return "", nil
-	}
-
-	cmd := exec.Command("sh", "-c", teardown)
-	cmd.Dir = worktreePath
-	out, err := cmd.CombinedOutput()
-	return strings.TrimSpace(string(out)), err
+	return runGitChecked(opts.RepoDir, "failed to add worktree", "worktree", "add", absWorktreePath, opts.Branch)
 }
 
 // RemoveWorktree removes a git worktree at the given path.

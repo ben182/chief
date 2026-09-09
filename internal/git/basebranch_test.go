@@ -93,7 +93,7 @@ func TestCreateWorktreeRecordsBase(t *testing.T) {
 	commitFile(t, dir, "dev.txt", "dev\n", "dev work")
 
 	worktree := t.TempDir() + "/wt"
-	if err := CreateWorktree(dir, worktree, "chief/auth", ""); err != nil {
+	if err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: worktree, Branch: "chief/auth"}); err != nil {
 		t.Fatalf("CreateWorktree() error = %v", err)
 	}
 

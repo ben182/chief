@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ben182/chief/internal/config"
+	"github.com/ben182/chief/internal/git"
 	"github.com/ben182/chief/internal/loop"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -581,7 +582,7 @@ func cleanApp(t *testing.T, teardown, branch string, option int) *App {
 // filled when the clean command runs.
 func recordCleanCalls(a *App, teardownOut string, teardownErr error) *[]string {
 	calls := &[]string{}
-	a.runTeardown = func(worktreePath, teardown string) (string, error) {
+	a.runTeardown = func(wt git.WorktreeContext, teardown string) (string, error) {
 		*calls = append(*calls, "teardown:"+teardown)
 		return teardownOut, teardownErr
 	}

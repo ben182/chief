@@ -135,6 +135,10 @@ type AgentConfig struct {
 
 // WorktreeConfig holds worktree-related settings.
 type WorktreeConfig struct {
+	// Setup is a shell command run inside a freshly created worktree, for
+	// whatever a checkout needs before it can be worked in — dependencies, an
+	// .env, a database. Empty (the default) skips the step. Like Teardown it
+	// gets the worktree's context in its environment, see git.WorktreeContext.
 	Setup string `yaml:"setup"`
 	// Teardown is a shell command run inside a worktree right before chief
 	// removes it, so resources living outside git — databases, web-server

@@ -50,12 +50,27 @@ func BaseBranchFor(dir, branch string) string {
 	return def
 }
 
+// RecordedBaseBranch returns what RecordBaseBranch stored for branch, or "" when
+// nothing was recorded. Unlike BaseBranchFor it never infers and never falls
+// back to the default branch, so "" means "chief does not know" — which is what
+// a setup or teardown script is told through CHIEF_BASE_BRANCH.
+func RecordedBaseBranch(dir, branch string) string {
+	if branch == "" {
+		return ""
+	}
+	base, err := runGit(dir, "config", "--get", baseBranchConfigKey(branch))
+	if err != nil {
+		return ""
+	}
+	return base
+}
+
 // recordedBaseBranch reads back what RecordBaseBranch stored, ignoring a branch
 // that has since been deleted (locally and on origin) — a stale name would make
 // `gh pr create --base` fail outright, where inference still has a chance.
 func recordedBaseBranch(dir, branch string) string {
-	base, err := runGit(dir, "config", "--get", baseBranchConfigKey(branch))
-	if err != nil || base == "" || base == branch {
+	base := RecordedBaseBranch(dir, branch)
+	if base == "" || base == branch {
 		return ""
 	}
 	if exists, err := BranchExists(dir, base); err == nil && exists {

@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -95,11 +94,14 @@ type App struct {
 	// Worktree setup spinner
 	worktreeSpinner *WorktreeSpinner
 
-	// runTeardown and removeWorktree are the two halves of cleaning a worktree.
-	// Fields rather than direct calls so a test can pin the order — the teardown
-	// has to finish before the directory goes away — without staging a real
-	// worktree and a real database. Nil means the real implementation.
-	runTeardown    func(worktreePath, teardown string) (string, error)
+	// runTeardown and removeWorktree are the two halves of cleaning a worktree,
+	// runSetup the configured command a fresh one gets. Fields rather than
+	// direct calls so a test can pin the order — the teardown has to finish
+	// before the directory goes away — and inspect the context handed to a
+	// command, without staging a real worktree and a real database. Nil means
+	// the real implementation.
+	runSetup       func(wt git.WorktreeContext, setup string) (string, error)
+	runTeardown    func(wt git.WorktreeContext, teardown string) (string, error)
 	removeWorktree func(repoDir, worktreePath string) error
 
 	// Completion screen
@@ -1159,10 +1161,16 @@ func (a *App) runWorktreeStep(step WorktreeSpinnerStep, baseDir, worktreePath, b
 	case SpinnerStepCreateBranch:
 		// A stale worktree on the wrong branch is removed here, so the teardown
 		// has to come along.
-		teardown := a.teardownCommand()
+		opts := git.CreateWorktreeOptions{
+			RepoDir:      baseDir,
+			WorktreePath: worktreePath,
+			Branch:       branchName,
+			PRDName:      a.pendingStartPRD,
+			Teardown:     a.teardownCommand(),
+		}
 		return func() tea.Msg {
 			// CreateWorktree handles both branch creation and worktree addition
-			if err := git.CreateWorktree(baseDir, worktreePath, branchName, teardown); err != nil {
+			if err := git.CreateWorktree(opts); err != nil {
 				return worktreeStepResultMsg{step: SpinnerStepCreateBranch, err: err}
 			}
 			return worktreeStepResultMsg{step: SpinnerStepCreateBranch}
@@ -1170,19 +1178,38 @@ func (a *App) runWorktreeStep(step WorktreeSpinnerStep, baseDir, worktreePath, b
 
 	case SpinnerStepRunSetup:
 		setupCmd := a.config.Worktree.Setup
+		runSetup := a.runSetup
+		if runSetup == nil {
+			runSetup = git.RunSetup
+		}
+		// The branch exists by now, so its recorded base is known and the setup
+		// script can diff against it.
+		wt := a.worktreeContext(a.pendingStartPRD, branchName, worktreePath)
 		return func() tea.Msg {
-			cmd := exec.Command("sh", "-c", setupCmd)
-			cmd.Dir = worktreePath
-			if out, err := cmd.CombinedOutput(); err != nil {
+			if out, err := runSetup(wt, setupCmd); err != nil {
 				return worktreeStepResultMsg{
 					step: SpinnerStepRunSetup,
-					err:  fmt.Errorf("%s\n%s", err.Error(), strings.TrimSpace(string(out))),
+					err:  fmt.Errorf("%s\n%s", err.Error(), out),
 				}
 			}
 			return worktreeStepResultMsg{step: SpinnerStepRunSetup}
 		}
 	}
 	return nil
+}
+
+// worktreeContext gathers what a setup or teardown command is told about the
+// worktree it runs against. The base branch is read from git rather than
+// remembered in the App: the recording happens in CreateWorktree, and a run
+// picked up after a restart has no memory of it.
+func (a App) worktreeContext(prdName, branch, worktreePath string) git.WorktreeContext {
+	return git.WorktreeContext{
+		PRDName:      prdName,
+		Branch:       branch,
+		BaseBranch:   git.RecordedBaseBranch(a.baseDir, branch),
+		WorktreePath: worktreePath,
+		RepoDir:      a.baseDir,
+	}
 }
 
 // handleWorktreeStepResult handles the result of a worktree setup step.
@@ -1206,7 +1233,7 @@ func (a App) handleWorktreeStepResult(msg worktreeStepResultMsg) (tea.Model, tea
 
 		// Check if we need to run setup
 		if a.worktreeSpinner.HasSetupCommand() {
-			return a, a.runWorktreeStep(SpinnerStepRunSetup, a.baseDir, a.pendingWorktreePath, "")
+			return a, a.runWorktreeStep(SpinnerStepRunSetup, a.baseDir, a.pendingWorktreePath, a.worktreeSpinner.branchName)
 		}
 
 		// No setup - we're done, transition to loop
@@ -1339,10 +1366,11 @@ func (a App) cleanWorktreeCmd(prdName, branch, worktreePath, teardown string, cl
 		removeWorktree = git.RemoveWorktree
 	}
 	baseDir := a.baseDir
+	wt := a.worktreeContext(prdName, branch, worktreePath)
 
 	return func() tea.Msg {
 		if teardown != "" {
-			out, err := runTeardown(worktreePath, teardown)
+			out, err := runTeardown(wt, teardown)
 			if err != nil {
 				return teardownFailedMsg{
 					prdName:      prdName,

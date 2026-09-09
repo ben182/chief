@@ -50,8 +50,8 @@ consolidate:
 | `agent.provider` | string | `"claude"` | Agent CLI to use: `claude`, `codex`, `opencode`, `cursor`, or `gemini` |
 | `agent.cliPath` | string | `""` | Optional path to the agent binary (e.g. `/usr/local/bin/opencode`). If empty, Chief uses the provider name from PATH. |
 | `agent.model` | string | `""` | Optional model passed to the Claude CLI via `--model`. Needed when Claude Code's `-p` mode ignores `~/.claude/settings.json` (e.g. local models via LM Studio). |
-| `worktree.setup` | string | `""` | Shell command to run in new worktrees (e.g., `npm install`, `go mod download`) |
-| `worktree.teardown` | string | `""` | Shell command run **inside** a worktree right before Chief removes it, so resources that live outside git — a per-worktree database, a web-server link, containers — disappear with the directory instead of being orphaned. Runs on both clean options (`c` in the picker) and before a stale worktree on the wrong branch is recreated. A non-zero exit **cancels the removal**: the worktree is kept and the command's output is shown, with the option to remove it anyway. Empty (the default) keeps removal a pure git operation. Make it idempotent — it may run against a worktree it already tore down. |
+| `worktree.setup` | string | `""` | Shell command to run in new worktrees (e.g., `npm install`, `go mod download`). Runs with the PRD name, branch and paths in its environment — see [Worktree command environment](#worktree-command-environment). |
+| `worktree.teardown` | string | `""` | Shell command run **inside** a worktree right before Chief removes it, so resources that live outside git — a per-worktree database, a web-server link, containers — disappear with the directory instead of being orphaned. Runs on both clean options (`c` in the picker) and before a stale worktree on the wrong branch is recreated. A non-zero exit **cancels the removal**: the worktree is kept and the command's output is shown, with the option to remove it anyway. Empty (the default) keeps removal a pure git operation. Make it idempotent — it may run against a worktree it already tore down. Gets the same environment as `worktree.setup` — see [Worktree command environment](#worktree-command-environment). |
 | `onComplete.push` | bool | `false` | Automatically push the branch to remote when a PRD completes. Only runs if the branch has at least one commit. |
 | `onComplete.createPR` | bool | `false` | Automatically create a pull request when a PRD completes (requires `gh` CLI). Only runs after a successful push, so a run with no commits creates no PR. The PR targets the branch the run's branch was cut from, and an already-open PR for the branch is reported instead of a second one being opened — see [Pull request target](#pull-request-target). |
 | `onComplete.prBaseBranch` | string | `""` | Forces the branch pull requests merge into. Empty (the default) lets Chief use the branch the run's branch was cut from. Set this only when that answer is wrong for your workflow. A branch `origin` doesn't have is ignored, leaving the choice to `gh`. |
@@ -92,6 +92,57 @@ Three properties keep it safe:
 - **Never blocks the run.** Like the review, it's best-effort: a crash or an unfinished pass is surfaced as an event, but the stories stay done. It runs *before* the run summary and push, so the summary describes the consolidated result and the PR carries it.
 
 It's off by default, deliberately: it edits code that already worked and was already signed off.
+
+### Worktree command environment
+
+`worktree.setup` and `worktree.teardown` run through `sh -c` with the worktree as their working directory. On top of the environment they inherit from Chief, both get:
+
+| Variable | Value |
+|----------|-------|
+| `CHIEF_PRD_NAME` | Name of the PRD the worktree belongs to, e.g. `auth-rework` — the directory name under `.chief/prds/`. |
+| `CHIEF_BRANCH` | Branch checked out in the worktree, e.g. `chief/auth-rework`. On a teardown that replaces a stale worktree, this is the branch that worktree is standing on, not the one about to replace it. |
+| `CHIEF_BASE_BRANCH` | Branch `CHIEF_BRANCH` was cut from, as recorded when Chief created it (see [Pull request target](#pull-request-target)). **Empty** when Chief has no record — for a branch it didn't create, it does not guess here. |
+| `CHIEF_WORKTREE_PATH` | Absolute path of the worktree. Same as the working directory, so a tool that changes directory itself can still find it. |
+| `CHIEF_REPO_DIR` | Absolute path of the main checkout — where the shared things live: an `.env` to copy, a seeded database to clone. |
+
+This is what lets one script serve every worktree instead of parsing the directory it happens to sit in:
+
+```yaml
+worktree:
+  setup: "./scripts/worktree.sh setup"
+  teardown: "./scripts/worktree.sh teardown"
+```
+
+```bash
+#!/usr/bin/env bash
+# scripts/worktree.sh — runs inside the worktree, one script for every PRD.
+set -euo pipefail
+
+# A slug both Postgres and Herd accept: auth-rework -> auth_rework
+slug="${CHIEF_PRD_NAME//[^a-zA-Z0-9]/_}"
+db="app_${slug}"
+
+case "${1:?setup or teardown}" in
+  setup)
+    cp "$CHIEF_REPO_DIR/.env" .env
+    sed -i '' "s/^DB_DATABASE=.*/DB_DATABASE=$db/" .env
+    createdb "$db"
+    composer install && php artisan migrate
+    # Only diff against the base branch when Chief knows one. Written as an
+    # if rather than a `[ -n ... ] &&` one-liner: as the last statement under
+    # `set -e`, a false test would exit non-zero and fail the setup.
+    if [ -n "${CHIEF_BASE_BRANCH:-}" ]; then
+      git diff --name-only "$CHIEF_BASE_BRANCH"
+    fi
+    ;;
+  teardown)
+    # Idempotent: it may run against a worktree that was already torn down.
+    dropdb --if-exists "$db"
+    ;;
+esac
+```
+
+A `CHIEF_*` variable that happens to be set in Chief's own environment does not leak through — the values above always win.
 
 ### Pull request target
 
