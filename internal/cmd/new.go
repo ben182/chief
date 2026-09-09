@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 
 	"github.com/ben182/chief/embed"
-	"github.com/ben182/chief/internal/git"
 	"github.com/ben182/chief/internal/loop"
 	"github.com/ben182/chief/internal/prd"
 )
@@ -106,20 +105,12 @@ func RunNew(opts NewOptions) error {
 		return fmt.Errorf("new command requires Provider to be set")
 	}
 
-	// Give the PRD its own branch (chief/<name>) right away, matching how the
-	// loop branches when a PRD is started. This keeps the PRD and its later
-	// implementation off the default branch. It's a convenience, not a hard
-	// requirement, so a git failure only warns and lets PRD authoring continue.
-	if git.IsGitRepo(opts.BaseDir) {
-		expectedBranch := fmt.Sprintf("chief/%s", opts.Name)
-		if current, err := git.GetCurrentBranch(opts.BaseDir); err == nil && current != expectedBranch {
-			if err := git.CreateBranch(opts.BaseDir, expectedBranch); err != nil {
-				fmt.Printf("Warning: could not create branch %s: %v\n", expectedBranch, err)
-			} else {
-				fmt.Printf("Created branch %s\n", expectedBranch)
-			}
-		}
-	}
+	// PRD authoring deliberately leaves git alone: it stays on whatever branch
+	// you're on. Branching is the run's job (see tui.startLoopForPRD), and doing
+	// it here too took the choice away — once `chief new` had moved you onto
+	// chief/<name>, starting the PRD no longer saw a protected branch and never
+	// offered the worktree, so the worktree workflow was only reachable by
+	// manually switching back first.
 
 	// Get the init prompt with the PRD directory path
 	prompt := embed.GetInitPrompt(prdDir, opts.Context, opts.Provider.SupportsInteractiveQuestions())

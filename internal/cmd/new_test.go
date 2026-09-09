@@ -1,10 +1,15 @@
 package cmd
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ben182/chief/internal/git"
+	"github.com/ben182/chief/internal/loop"
 )
 
 func TestIsValidPRDName(t *testing.T) {
@@ -165,5 +170,44 @@ func TestRunNewRequiresProvider(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "Provider") {
 		t.Fatalf("expected error to mention Provider, got: %v", err)
+	}
+}
+
+// noopProvider is a Provider whose interactive session does nothing and writes
+// no prd.md, so RunNew can be driven end to end in a test without an agent CLI.
+type noopProvider struct{}
+
+func (noopProvider) Name() string    { return "noop" }
+func (noopProvider) CLIPath() string { return "true" }
+func (noopProvider) LoopCommand(_ context.Context, _, _ string) *exec.Cmd {
+	return exec.Command("true")
+}
+func (noopProvider) InteractiveCommand(_, _ string) *exec.Cmd { return exec.Command("true") }
+func (noopProvider) SupportsInteractiveQuestions() bool       { return false }
+func (noopProvider) CleanOutput(output string) string         { return output }
+func (noopProvider) ParseLine(_ string) *loop.Event           { return nil }
+func (noopProvider) LogFileName() string                      { return "noop.log" }
+
+// TestRunNewLeavesBranchAlone pins down that authoring a PRD never touches git.
+// RunNew used to check out chief/<name> up front, which then hid the worktree
+// option when the PRD was later started, since the run no longer saw a
+// protected branch.
+func TestRunNewLeavesBranchAlone(t *testing.T) {
+	dir := t.TempDir()
+	initGitRepoOnBranch(t, dir, "main")
+
+	if err := RunNew(NewOptions{Name: "auth", BaseDir: dir, Provider: noopProvider{}}); err != nil {
+		t.Fatalf("RunNew() error = %v", err)
+	}
+
+	branch, err := git.GetCurrentBranch(dir)
+	if err != nil {
+		t.Fatalf("GetCurrentBranch() error = %v", err)
+	}
+	if branch != "main" {
+		t.Errorf("current branch = %q, want %q (RunNew must not switch branches)", branch, "main")
+	}
+	if _, err := exec.Command("git", "-C", dir, "rev-parse", "--verify", "chief/auth").Output(); err == nil {
+		t.Error("branch chief/auth exists, want RunNew to create no branch")
 	}
 }

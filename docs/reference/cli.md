@@ -72,7 +72,7 @@ This is a global runaway backstop only. Chief primarily limits work **per story*
 When you run `chief` without a `name`, it resolves the PRD in this order:
 
 1. An explicit `--prd` path, if given
-2. The PRD matching your current branch — if you're on a `chief/<name>` branch and `.chief/prds/<name>/` exists, that PRD is opened (Chief prints `Using PRD "<name>" inferred from current branch chief/<name>`). Since `chief new` and the loop both work on a `chief/<name>` branch per PRD, running bare `chief` from that branch lands you right back on the PRD you were working on.
+2. The PRD matching your current branch — if you're on a `chief/<name>` branch and `.chief/prds/<name>/` exists, that PRD is opened (Chief prints `Using PRD "<name>" inferred from current branch chief/<name>`). Since a run works on a `chief/<name>` branch per PRD, running bare `chief` from that branch lands you right back on the PRD you were working on.
 3. A PRD named `default` (or legacy `main`)
 4. The only/first PRD found in `.chief/prds/`
 5. First-time setup, if no PRD exists yet
@@ -129,7 +129,7 @@ chief new [name] [context]
 **How it works:**
 
 1. When the agent is Claude, Chief first shows a model picker (see below) — pick which Claude model drives the session
-2. If you're in a git repo, Chief creates (or checks out) a `chief/<name>` branch up front — the same branch the loop uses when the PRD is later run — so the PRD and its implementation land off your default branch. If the branch can't be created, Chief warns and continues so PRD authoring is never blocked
+2. Chief leaves git alone — you stay on whatever branch you're on. Branching is the run's job: the `chief/<name>` branch is created when you [start the PRD](#chief-start), which is also where the [worktree option](/concepts/how-it-works#worktree-isolation-for-parallel-prds) is offered. Authoring a PRD on your default branch is therefore fine and keeps that choice open
 3. Chief launches the agent CLI with a specialized PRD-creation prompt. For Claude the session runs with `--dangerously-skip-permissions`, so it can read the repo and write `prd.md` without a permission prompt on every step
 4. The agent first asks, in plain prose, **what you want to build and why** — before touching your codebase (it does not guess the feature from the PRD name). If you passed `context`, it plays that back to confirm instead of asking
 5. Only once the goal is clear does it explore the repository, then grill you in **rounds**: it maps the decisions as a tree and asks the whole *frontier* of currently-answerable questions at once — each one rendered as `❓ **Q1** - **Title**: …` followed by `➡️` its recommended answer — waits for your batch of answers, then recomputes the frontier for the next round. No native multiple-choice picker, just plain prose you can confirm wholesale ("all your recs") or redirect question by question. Facts it needs are looked up rather than asked, and a lookup still running only holds back the questions that depend on it. Codebase exploration always runs on **Opus** (via a subagent), independent of the model you picked for the session — so a lighter session model (e.g. Fable) speeds up the conversation without degrading how well the repo is understood
