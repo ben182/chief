@@ -145,7 +145,7 @@ When the next iteration starts, the agent reads this file and immediately unders
 When running multiple PRDs simultaneously, each PRD can work in its own isolated git worktree. This prevents parallel agent instances from conflicting over files, producing interleaved commits, or stepping on each other's branches.
 
 When you start a PRD, Chief offers to create a worktree:
-- A new branch is created (e.g., `chief/auth-system`) from your default branch
+- A new branch is created (e.g., `chief/auth-system`) from your default branch, or from whatever [`worktree.baseBranch`](../reference/configuration.md#config-keys) names — `develop`, say — when you have set it
 - A worktree is set up at `.chief/worktrees/<prd-name>/`
 - Any configured setup command runs automatically (e.g., `npm install`)
 

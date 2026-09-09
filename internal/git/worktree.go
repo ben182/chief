@@ -56,6 +56,10 @@ type CreateWorktreeOptions struct {
 	// CHIEF_PRD_NAME.
 	PRDName  string
 	Teardown string
+	// BaseBranch is the branch to cut Branch from. Empty means the repository's
+	// detected default branch, which is what every run did before the setting
+	// existed.
+	BaseBranch string
 }
 
 // CreateWorktree creates a branch from the default branch and adds a worktree at the given path.
@@ -102,27 +106,57 @@ func CreateWorktree(opts CreateWorktreeOptions) error {
 		}
 	}
 
-	defaultBranch, err := GetDefaultBranch(opts.RepoDir)
+	baseName, baseRef, err := resolveBaseBranch(opts.RepoDir, opts.BaseBranch)
 	if err != nil {
-		return fmt.Errorf("failed to detect default branch: %w", err)
+		return err
 	}
 
-	// Create the branch from the default branch if it doesn't exist
+	// Create the branch from the base branch if it doesn't exist
 	exists, err := BranchExists(opts.RepoDir, opts.Branch)
 	if err != nil {
 		return fmt.Errorf("failed to check branch existence: %w", err)
 	}
 	if !exists {
-		if err := runGitChecked(opts.RepoDir, "failed to create branch "+opts.Branch, "branch", opts.Branch, defaultBranch); err != nil {
+		if err := runGitChecked(opts.RepoDir, "failed to create branch "+opts.Branch, "branch", opts.Branch, baseRef); err != nil {
 			return err
 		}
-		// Worktree branches are always cut from the default branch, so that is
-		// what a pull request for them has to target.
-		RecordBaseBranch(opts.RepoDir, opts.Branch, defaultBranch)
+		// The branch a worktree branch was cut from is the branch a pull
+		// request for it has to target — recorded under the plain name, because
+		// that is the name GitHub knows, not origin/<branch>.
+		RecordBaseBranch(opts.RepoDir, opts.Branch, baseName)
 	}
 
 	// Add the worktree
 	return runGitChecked(opts.RepoDir, "failed to add worktree", "worktree", "add", absWorktreePath, opts.Branch)
+}
+
+// resolveBaseBranch answers which branch a new worktree branch is cut from. It
+// returns the name to record (what a pull request targets) and the ref to branch
+// off, which differ when the branch exists only on the remote.
+//
+// An empty configured branch keeps the old behaviour: whatever
+// GetDefaultBranch detects. A configured branch is looked up locally first, then
+// on origin, and a name found in neither is an error rather than a silent
+// fallback — branching a run off the wrong place is only discovered when its
+// pull request turns up with the wrong diff.
+func resolveBaseBranch(repoDir, configured string) (name, ref string, err error) {
+	configured = strings.TrimSpace(configured)
+	if configured == "" {
+		defaultBranch, err := GetDefaultBranch(repoDir)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to detect default branch: %w", err)
+		}
+		return defaultBranch, defaultBranch, nil
+	}
+
+	if exists, err := BranchExists(repoDir, "refs/heads/"+configured); err == nil && exists {
+		return configured, configured, nil
+	}
+	remoteRef := "refs/remotes/origin/" + configured
+	if exists, err := BranchExists(repoDir, remoteRef); err == nil && exists {
+		return configured, remoteRef, nil
+	}
+	return "", "", fmt.Errorf("configured worktree.baseBranch %q exists neither locally nor on origin", configured)
 }
 
 // RemoveWorktree removes a git worktree at the given path.

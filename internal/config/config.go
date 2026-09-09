@@ -146,6 +146,13 @@ type WorktreeConfig struct {
 	// default) keeps removal a pure git operation. A failing teardown aborts
 	// the removal so nothing is lost silently.
 	Teardown string `yaml:"teardown"`
+	// BaseBranch is the branch worktree branches are cut from, and therefore
+	// the branch a pull request for them targets. Empty (the default) uses the
+	// repository's detected default branch, which is what a repo whose work
+	// starts at main wants; set it to develop in a repo where it doesn't. The
+	// branch has to exist locally or on origin, otherwise the run refuses to
+	// start rather than branch off the wrong place.
+	BaseBranch string `yaml:"baseBranch"`
 }
 
 // OnCompleteConfig holds post-completion automation settings.

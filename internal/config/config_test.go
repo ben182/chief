@@ -437,3 +437,46 @@ func TestExists(t *testing.T) {
 		t.Error("expected Exists to return true for existing config")
 	}
 }
+
+func TestLoadWorktreeBaseBranch(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".chief"), 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	yaml := "worktree:\n  baseBranch: develop\n"
+	if err := os.WriteFile(filepath.Join(dir, ".chief", "config.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Worktree.BaseBranch != "develop" {
+		t.Errorf("expected base branch %q, got %q", "develop", cfg.Worktree.BaseBranch)
+	}
+}
+
+// An empty base branch is what keeps today's behaviour: branch off whatever
+// GetDefaultBranch detects.
+func TestLoadWithoutBaseBranchKeepsDefault(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".chief"), 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	yaml := "worktree:\n  setup: npm install\n"
+	if err := os.WriteFile(filepath.Join(dir, ".chief", "config.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Worktree.BaseBranch != "" {
+		t.Errorf("expected BaseBranch to stay empty, got %q", cfg.Worktree.BaseBranch)
+	}
+	if Default().Worktree.BaseBranch != "" {
+		t.Errorf("expected Default() BaseBranch to be empty, got %q", Default().Worktree.BaseBranch)
+	}
+}

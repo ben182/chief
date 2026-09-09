@@ -969,3 +969,32 @@ func TestApp_PublishSettingsUpdatesReviewPendingMarker(t *testing.T) {
 		t.Error("disabling the review must switch the marker back")
 	}
 }
+
+// The overlay row is where the base branch is discovered at all, so it has to
+// carry the label and say what an empty value means.
+func TestSettingsOverlay_BaseBranchRow(t *testing.T) {
+	s := NewSettingsOverlay()
+	s.LoadFromConfig(config.Default())
+	s.SetSize(120, 60)
+
+	item := s.items[itemIndex(t, s, "worktree.baseBranch")]
+	if item.Section != "Worktree" {
+		t.Errorf("section = %q, want %q", item.Section, "Worktree")
+	}
+	if item.Label != "Base branch" {
+		t.Errorf("label = %q, want %q", item.Label, "Base branch")
+	}
+	if item.Placeholder != "(default branch)" {
+		t.Errorf("placeholder = %q, want %q", item.Placeholder, "(default branch)")
+	}
+	if !strings.Contains(s.Render(), "(default branch)") {
+		t.Error("expected the placeholder in the rendered overlay")
+	}
+
+	cfg := config.Default()
+	s.items[itemIndex(t, s, "worktree.baseBranch")].StringVal = "develop"
+	s.ApplyToConfig(cfg)
+	if cfg.Worktree.BaseBranch != "develop" {
+		t.Errorf("ApplyToConfig BaseBranch = %q, want %q", cfg.Worktree.BaseBranch, "develop")
+	}
+}

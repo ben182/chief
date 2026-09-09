@@ -854,14 +854,18 @@ func (a App) handleBranchWarningKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			worktreePath := git.WorktreePathForPRD(a.baseDir, prdName)
 			relWorktreePath := fmt.Sprintf(".chief/worktrees/%s/", prdName)
 
-			// Detect default branch for display
-			defaultBranch := "main"
-			if db, err := git.GetDefaultBranch(a.baseDir); err == nil {
-				defaultBranch = db
+			// Name the branch the new one will be cut from: the configured
+			// base branch if there is one, the detected default otherwise.
+			baseBranch := a.baseBranchSetting()
+			if baseBranch == "" {
+				baseBranch = "main"
+				if db, err := git.GetDefaultBranch(a.baseDir); err == nil {
+					baseBranch = db
+				}
 			}
 
 			// Configure and show the spinner
-			a.worktreeSpinner.Configure(prdName, branchName, defaultBranch, relWorktreePath, a.config.Worktree.Setup)
+			a.worktreeSpinner.Configure(prdName, branchName, baseBranch, relWorktreePath, a.config.Worktree.Setup)
 			a.worktreeSpinner.SetSize(a.width, a.height)
 			a.pendingStartPRD = prdName
 			a.pendingWorktreePath = worktreePath
@@ -1167,6 +1171,7 @@ func (a *App) runWorktreeStep(step WorktreeSpinnerStep, baseDir, worktreePath, b
 			Branch:       branchName,
 			PRDName:      a.pendingStartPRD,
 			Teardown:     a.teardownCommand(),
+			BaseBranch:   a.baseBranchSetting(),
 		}
 		return func() tea.Msg {
 			// CreateWorktree handles both branch creation and worktree addition
@@ -1347,6 +1352,16 @@ func (a App) teardownCommand() string {
 		return ""
 	}
 	return strings.TrimSpace(a.config.Worktree.Teardown)
+}
+
+// baseBranchSetting returns the configured branch worktree branches are cut
+// from, trimmed. Empty — no config, or nothing configured — leaves the choice
+// to the repository's detected default branch.
+func (a App) baseBranchSetting() string {
+	if a.config == nil {
+		return ""
+	}
+	return strings.TrimSpace(a.config.Worktree.BaseBranch)
 }
 
 // cleanWorktreeCmd removes a PRD's worktree and, when asked, its branch.

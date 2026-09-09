@@ -568,3 +568,134 @@ func TestDetectOrphanedWorktrees(t *testing.T) {
 		}
 	})
 }
+
+// runGitIn runs a git command in dir and fails the test if it doesn't succeed.
+func runGitIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v in %s failed: %s", args, dir, string(out))
+	}
+}
+
+// addBranchWithMarker creates branch off the current HEAD, commits a file that
+// exists nowhere else, and returns to the branch it started on. A worktree that
+// contains the marker file can only have been cut from this branch.
+func addBranchWithMarker(t *testing.T, dir, branch, marker string) {
+	t.Helper()
+	start, err := GetCurrentBranch(dir)
+	if err != nil {
+		t.Fatalf("GetCurrentBranch() error = %v", err)
+	}
+	runGitIn(t, dir, "checkout", "-b", branch)
+	if err := os.WriteFile(filepath.Join(dir, marker), []byte("marker\n"), 0644); err != nil {
+		t.Fatalf("failed to write marker: %v", err)
+	}
+	runGitIn(t, dir, "add", marker)
+	runGitIn(t, dir, "commit", "-m", "add "+marker)
+	runGitIn(t, dir, "checkout", start)
+}
+
+func TestCreateWorktreeBaseBranch(t *testing.T) {
+	t.Run("cuts the branch from a local base branch", func(t *testing.T) {
+		dir := initTestRepo(t)
+		addBranchWithMarker(t, dir, "develop", "only-on-develop.txt")
+		wtPath := filepath.Join(dir, "worktrees", "test-prd")
+
+		if err := CreateWorktree(CreateWorktreeOptions{
+			RepoDir:      dir,
+			WorktreePath: wtPath,
+			Branch:       "chief/test-prd",
+			BaseBranch:   "develop",
+		}); err != nil {
+			t.Fatalf("CreateWorktree() error = %v", err)
+		}
+
+		if _, err := os.Stat(filepath.Join(wtPath, "only-on-develop.txt")); err != nil {
+			t.Errorf("worktree was not cut from develop: %v", err)
+		}
+		if got := RecordedBaseBranch(dir, "chief/test-prd"); got != "develop" {
+			t.Errorf("RecordedBaseBranch() = %q, want %q", got, "develop")
+		}
+	})
+
+	t.Run("falls back to origin when the base branch is only on the remote", func(t *testing.T) {
+		upstream := initTestRepo(t)
+		addBranchWithMarker(t, upstream, "develop", "only-on-develop.txt")
+
+		clone := filepath.Join(t.TempDir(), "clone")
+		runGitIn(t, upstream, "clone", upstream, clone)
+		runGitIn(t, clone, "config", "user.email", "test@test.com")
+		runGitIn(t, clone, "config", "user.name", "Test")
+		if exists, _ := BranchExists(clone, "refs/heads/develop"); exists {
+			t.Fatal("clone was expected to have no local develop branch")
+		}
+
+		wtPath := filepath.Join(clone, "worktrees", "test-prd")
+		if err := CreateWorktree(CreateWorktreeOptions{
+			RepoDir:      clone,
+			WorktreePath: wtPath,
+			Branch:       "chief/test-prd",
+			BaseBranch:   "develop",
+		}); err != nil {
+			t.Fatalf("CreateWorktree() error = %v", err)
+		}
+
+		if _, err := os.Stat(filepath.Join(wtPath, "only-on-develop.txt")); err != nil {
+			t.Errorf("worktree was not cut from origin/develop: %v", err)
+		}
+		// The plain name, not origin/develop: this is what a pull request has
+		// to target.
+		if got := RecordedBaseBranch(clone, "chief/test-prd"); got != "develop" {
+			t.Errorf("RecordedBaseBranch() = %q, want %q", got, "develop")
+		}
+	})
+
+	t.Run("refuses to start when the configured base branch is nowhere", func(t *testing.T) {
+		dir := initTestRepo(t)
+		wtPath := filepath.Join(dir, "worktrees", "test-prd")
+
+		err := CreateWorktree(CreateWorktreeOptions{
+			RepoDir:      dir,
+			WorktreePath: wtPath,
+			Branch:       "chief/test-prd",
+			BaseBranch:   "develop",
+		})
+		if err == nil {
+			t.Fatal("expected CreateWorktree() to fail on a missing base branch")
+		}
+		for _, want := range []string{"worktree.baseBranch", "develop"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error %v does not mention %q", err, want)
+			}
+		}
+		if exists, _ := BranchExists(dir, "refs/heads/chief/test-prd"); exists {
+			t.Error("branch was created despite the missing base branch")
+		}
+		if _, statErr := os.Stat(wtPath); statErr == nil {
+			t.Error("worktree was created despite the missing base branch")
+		}
+	})
+
+	t.Run("uses the detected default branch when nothing is configured", func(t *testing.T) {
+		dir := initTestRepo(t)
+		addBranchWithMarker(t, dir, "develop", "only-on-develop.txt")
+		wtPath := filepath.Join(dir, "worktrees", "test-prd")
+
+		if err := CreateWorktree(CreateWorktreeOptions{
+			RepoDir:      dir,
+			WorktreePath: wtPath,
+			Branch:       "chief/test-prd",
+		}); err != nil {
+			t.Fatalf("CreateWorktree() error = %v", err)
+		}
+
+		if _, err := os.Stat(filepath.Join(wtPath, "only-on-develop.txt")); err == nil {
+			t.Error("worktree was cut from develop, want the default branch")
+		}
+		if got := RecordedBaseBranch(dir, "chief/test-prd"); got != "main" {
+			t.Errorf("RecordedBaseBranch() = %q, want %q", got, "main")
+		}
+	})
+}
