@@ -130,6 +130,10 @@ func CreateWorktree(opts CreateWorktreeOptions) error {
 		RecordBaseBranch(opts.RepoDir, opts.Branch, baseName)
 	}
 
+	// Before the directory exists, so the checkout never sees the worktree's
+	// files as untracked in the first place.
+	ensureWorktreePathIgnored(opts.RepoDir, absWorktreePath)
+
 	// Add the worktree
 	return runGitChecked(opts.RepoDir, "failed to add worktree", "worktree", "add", absWorktreePath, opts.Branch)
 }
