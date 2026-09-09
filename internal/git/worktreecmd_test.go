@@ -27,7 +27,7 @@ func worktreeFixture(t *testing.T, prdName, branch string) (string, string, Work
 		Branch:       branch,
 		PRDName:      prdName,
 	}
-	if err := CreateWorktree(opts); err != nil {
+	if _, err := CreateWorktree(opts); err != nil {
 		t.Fatalf("CreateWorktree() error = %v", err)
 	}
 	return dir, wtPath, WorktreeContext{
@@ -78,7 +78,7 @@ func TestRunTeardownLeavesAnUnknownBaseBranchEmpty(t *testing.T) {
 		t.Fatalf("branch setup failed: %v", err)
 	}
 	wtPath := filepath.Join(dir, "worktrees", "auth")
-	if err := CreateWorktree(CreateWorktreeOptions{
+	if _, err := CreateWorktree(CreateWorktreeOptions{
 		RepoDir:      dir,
 		WorktreePath: wtPath,
 		Branch:       "chief/auth",

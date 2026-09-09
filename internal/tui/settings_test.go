@@ -928,8 +928,8 @@ func TestSettingsOverlay_GetSelectedItem(t *testing.T) {
 
 	s.MoveDown()
 	item = s.GetSelectedItem()
-	if item.Key != "worktree.teardown" {
-		t.Errorf("expected second item key='worktree.teardown', got '%s'", item.Key)
+	if item.Key != "worktree.setupOnReuse" {
+		t.Errorf("expected second item key='worktree.setupOnReuse', got '%s'", item.Key)
 	}
 }
 
@@ -1025,5 +1025,36 @@ func TestSettingsOverlay_WorktreeDirRow(t *testing.T) {
 	s.ApplyToConfig(cfg)
 	if cfg.Worktree.Dir != "../{repo}-worktrees/{prd}" {
 		t.Errorf("ApplyToConfig Dir = %q, want %q", cfg.Worktree.Dir, "../{repo}-worktrees/{prd}")
+	}
+}
+
+// Whether the setup runs against a worktree that is already there is the same
+// kind of three-way choice as review.enabled: yes, no, or "leave it to chief" —
+// and chief's answer here is yes, unlike the passes that derive theirs.
+func TestSettingsOverlay_SetupOnReuseIsATriState(t *testing.T) {
+	s := NewSettingsOverlay()
+	s.LoadFromConfig(config.Default())
+	s.SetSize(120, 80) // tall enough that nothing scrolls out of view
+	selectKey(t, s, "worktree.setupOnReuse")
+
+	if got := s.GetSelectedItem().Type; got != SettingsItemTriBool {
+		t.Fatalf("worktree.setupOnReuse type = %v, want SettingsItemTriBool", got)
+	}
+	if item := s.GetSelectedItem(); item.TriVal != nil {
+		t.Fatalf("expected worktree.setupOnReuse to start unset, got %v", *item.TriVal)
+	}
+	if !strings.Contains(s.Render(), "Default (on)") {
+		t.Errorf("unset setupOnReuse does not render as 'Default (on)':\n%s", s.Render())
+	}
+
+	s.CycleTriBool() // unset -> yes
+	s.CycleTriBool() // yes -> no
+	cfg := config.Default()
+	s.ApplyToConfig(cfg)
+	if cfg.Worktree.SetupOnReuse == nil {
+		t.Fatal("expected setupOnReuse to be saved, got nil")
+	}
+	if *cfg.Worktree.SetupOnReuse {
+		t.Error("expected setupOnReuse to be saved as false")
 	}
 }

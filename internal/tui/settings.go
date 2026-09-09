@@ -107,6 +107,7 @@ func copyTri(b *bool) *bool {
 func (s *SettingsOverlay) LoadFromConfig(cfg *config.Config) {
 	s.items = []SettingsItem{
 		{Section: "Worktree", Label: "Setup command", Key: "worktree.setup", Type: SettingsItemString, StringVal: cfg.Worktree.Setup},
+		{Section: "Worktree", Label: "Run setup on reuse", Key: "worktree.setupOnReuse", Type: SettingsItemTriBool, TriVal: copyTri(cfg.Worktree.SetupOnReuse), Placeholder: "Default (on)"},
 		{Section: "Worktree", Label: "Teardown command", Key: "worktree.teardown", Type: SettingsItemString, StringVal: cfg.Worktree.Teardown, Placeholder: "(nothing to tear down)"},
 		{Section: "Worktree", Label: "Setup timeout (s)", Key: "worktree.setupTimeoutSeconds", Type: SettingsItemInt, IntVal: cfg.Worktree.SetupTimeoutSeconds, Placeholder: "0 (no timeout)"},
 		{Section: "Worktree", Label: "Base branch", Key: "worktree.baseBranch", Type: SettingsItemString, StringVal: cfg.Worktree.BaseBranch, Placeholder: "(default branch)"},
@@ -150,6 +151,8 @@ func (s *SettingsOverlay) ApplyToConfig(cfg *config.Config) {
 		switch item.Key {
 		case "worktree.setup":
 			cfg.Worktree.Setup = item.StringVal
+		case "worktree.setupOnReuse":
+			cfg.Worktree.SetupOnReuse = copyTri(item.TriVal)
 		case "worktree.teardown":
 			cfg.Worktree.Teardown = item.StringVal
 		case "worktree.setupTimeoutSeconds":
@@ -685,6 +688,11 @@ func (s *SettingsOverlay) renderItemValue(item SettingsItem, isSelected bool, ma
 
 	case SettingsItemTriBool:
 		if item.TriVal == nil {
+			// A switch that names its own fallback says so; only the review and
+			// consolidation passes derive theirs from what else is configured.
+			if item.Placeholder != "" {
+				return valueOffStyle.Render(item.Placeholder)
+			}
 			state := "off"
 			if s.derivedActive(strings.TrimSuffix(item.Key, ".enabled")) {
 				state = "on"

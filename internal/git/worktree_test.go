@@ -103,7 +103,7 @@ func TestCreateWorktree(t *testing.T) {
 		dir := initTestRepo(t)
 		wtPath := filepath.Join(dir, "worktrees", "test-prd")
 
-		err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/test-prd"})
+		_, err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/test-prd"})
 		if err != nil {
 			t.Fatalf("CreateWorktree() error = %v", err)
 		}
@@ -123,7 +123,7 @@ func TestCreateWorktree(t *testing.T) {
 		wtPath := filepath.Join(dir, "worktrees", "test-prd")
 
 		// Create worktree first time
-		if err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/test-prd"}); err != nil {
+		if _, err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/test-prd"}); err != nil {
 			t.Fatalf("first CreateWorktree() error = %v", err)
 		}
 
@@ -134,7 +134,7 @@ func TestCreateWorktree(t *testing.T) {
 		}
 
 		// Create again - should reuse
-		if err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/test-prd"}); err != nil {
+		if _, err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/test-prd"}); err != nil {
 			t.Fatalf("second CreateWorktree() error = %v", err)
 		}
 
@@ -149,12 +149,12 @@ func TestCreateWorktree(t *testing.T) {
 		wtPath := filepath.Join(dir, "worktrees", "test-prd")
 
 		// Create worktree with one branch
-		if err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/branch-a"}); err != nil {
+		if _, err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/branch-a"}); err != nil {
 			t.Fatalf("first CreateWorktree() error = %v", err)
 		}
 
 		// Create again with a different branch - should remove and recreate
-		if err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/branch-b"}); err != nil {
+		if _, err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/branch-b"}); err != nil {
 			t.Fatalf("second CreateWorktree() error = %v", err)
 		}
 
@@ -171,7 +171,7 @@ func TestCreateWorktree(t *testing.T) {
 		dir := initTestRepo(t)
 		wtPath := filepath.Join(dir, "worktrees", "test-prd")
 
-		if err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/branch-a"}); err != nil {
+		if _, err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/branch-a"}); err != nil {
 			t.Fatalf("first CreateWorktree() error = %v", err)
 		}
 
@@ -180,7 +180,7 @@ func TestCreateWorktree(t *testing.T) {
 		// a log naming it proves the command ran in the worktree and before the
 		// removal.
 		logPath := filepath.Join(t.TempDir(), "teardown.log")
-		if err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/branch-b", Teardown: "ls > " + logPath}); err != nil {
+		if _, err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/branch-b", Teardown: "ls > " + logPath}); err != nil {
 			t.Fatalf("second CreateWorktree() error = %v", err)
 		}
 
@@ -197,14 +197,14 @@ func TestCreateWorktree(t *testing.T) {
 		dir := initTestRepo(t)
 		wtPath := filepath.Join(dir, "worktrees", "test-prd")
 
-		if err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/branch-a", PRDName: "test-prd"}); err != nil {
+		if _, err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/branch-a", PRDName: "test-prd"}); err != nil {
 			t.Fatalf("first CreateWorktree() error = %v", err)
 		}
 
 		// The resources the teardown is about to drop belong to the branch the
 		// stale worktree is standing on, not to the one replacing it.
 		logPath := filepath.Join(t.TempDir(), "teardown.log")
-		if err := CreateWorktree(CreateWorktreeOptions{
+		if _, err := CreateWorktree(CreateWorktreeOptions{
 			RepoDir:      dir,
 			WorktreePath: wtPath,
 			Branch:       "chief/branch-b",
@@ -228,12 +228,12 @@ func TestCreateWorktree(t *testing.T) {
 		dir := initTestRepo(t)
 		wtPath := filepath.Join(dir, "worktrees", "test-prd")
 
-		if err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/test-prd"}); err != nil {
+		if _, err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/test-prd"}); err != nil {
 			t.Fatalf("first CreateWorktree() error = %v", err)
 		}
 
 		marker := filepath.Join(t.TempDir(), "teardown-ran")
-		if err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/test-prd", Teardown: "touch " + marker}); err != nil {
+		if _, err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/test-prd", Teardown: "touch " + marker}); err != nil {
 			t.Fatalf("second CreateWorktree() error = %v", err)
 		}
 
@@ -246,12 +246,12 @@ func TestCreateWorktree(t *testing.T) {
 		dir := initTestRepo(t)
 		wtPath := filepath.Join(dir, "worktrees", "test-prd")
 
-		if err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/branch-a"}); err != nil {
+		if _, err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/branch-a"}); err != nil {
 			t.Fatalf("first CreateWorktree() error = %v", err)
 		}
 
 		logDir := t.TempDir()
-		err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/branch-b", Teardown: "echo boom >&2; exit 1", LogDir: logDir})
+		_, err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/branch-b", Teardown: "echo boom >&2; exit 1", LogDir: logDir})
 		if err == nil {
 			t.Fatal("expected CreateWorktree() to fail on a failing teardown")
 		}
@@ -290,7 +290,7 @@ func TestRemoveWorktree(t *testing.T) {
 		dir := initTestRepo(t)
 		wtPath := filepath.Join(dir, "worktrees", "test-prd")
 
-		if err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/test-prd"}); err != nil {
+		if _, err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/test-prd"}); err != nil {
 			t.Fatalf("CreateWorktree() error = %v", err)
 		}
 
@@ -311,7 +311,7 @@ func TestListWorktrees(t *testing.T) {
 		dir := initTestRepo(t)
 		wtPath := filepath.Join(dir, "worktrees", "test-prd")
 
-		if err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/test-prd"}); err != nil {
+		if _, err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/test-prd"}); err != nil {
 			t.Fatalf("CreateWorktree() error = %v", err)
 		}
 
@@ -345,7 +345,7 @@ func TestIsWorktree(t *testing.T) {
 		dir := initTestRepo(t)
 		wtPath := filepath.Join(dir, "worktrees", "test-prd")
 
-		if err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/test-prd"}); err != nil {
+		if _, err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/test-prd"}); err != nil {
 			t.Fatalf("CreateWorktree() error = %v", err)
 		}
 
@@ -518,7 +518,7 @@ func TestDetectOrphanedWorktrees(t *testing.T) {
 	t.Run("detects worktrees at the default location", func(t *testing.T) {
 		dir := initTestRepo(t)
 		for _, name := range []string{"auth", "payments"} {
-			if err := CreateWorktree(CreateWorktreeOptions{
+			if _, err := CreateWorktree(CreateWorktreeOptions{
 				RepoDir:      dir,
 				WorktreePath: filepath.Join(dir, ".chief", "worktrees", name),
 				Branch:       "chief/" + name,
@@ -543,7 +543,7 @@ func TestDetectOrphanedWorktrees(t *testing.T) {
 		dir := initTestRepo(t)
 		template := "../{repo}-worktrees/{branch}"
 		path := filepath.Join(filepath.Dir(dir), filepath.Base(dir)+"-worktrees", "chief-auth")
-		if err := CreateWorktree(CreateWorktreeOptions{
+		if _, err := CreateWorktree(CreateWorktreeOptions{
 			RepoDir:      dir,
 			WorktreePath: path,
 			Branch:       "chief/auth",
@@ -558,7 +558,7 @@ func TestDetectOrphanedWorktrees(t *testing.T) {
 
 		// The same worktree under a template that does name the PRD.
 		named := filepath.Join(filepath.Dir(dir), filepath.Base(dir)+"-worktrees", "auth")
-		if err := CreateWorktree(CreateWorktreeOptions{
+		if _, err := CreateWorktree(CreateWorktreeOptions{
 			RepoDir:      dir,
 			WorktreePath: named,
 			Branch:       "chief/named",
@@ -580,7 +580,7 @@ func TestDetectOrphanedWorktrees(t *testing.T) {
 	t.Run("ignores worktrees outside the template", func(t *testing.T) {
 		dir := initTestRepo(t)
 		outside := filepath.Join(t.TempDir(), "somewhere-else")
-		if err := CreateWorktree(CreateWorktreeOptions{
+		if _, err := CreateWorktree(CreateWorktreeOptions{
 			RepoDir:      dir,
 			WorktreePath: outside,
 			Branch:       "chief/auth",
@@ -639,7 +639,7 @@ func TestCreateWorktreeBaseBranch(t *testing.T) {
 		addBranchWithMarker(t, dir, "develop", "only-on-develop.txt")
 		wtPath := filepath.Join(dir, "worktrees", "test-prd")
 
-		if err := CreateWorktree(CreateWorktreeOptions{
+		if _, err := CreateWorktree(CreateWorktreeOptions{
 			RepoDir:      dir,
 			WorktreePath: wtPath,
 			Branch:       "chief/test-prd",
@@ -669,7 +669,7 @@ func TestCreateWorktreeBaseBranch(t *testing.T) {
 		}
 
 		wtPath := filepath.Join(clone, "worktrees", "test-prd")
-		if err := CreateWorktree(CreateWorktreeOptions{
+		if _, err := CreateWorktree(CreateWorktreeOptions{
 			RepoDir:      clone,
 			WorktreePath: wtPath,
 			Branch:       "chief/test-prd",
@@ -692,7 +692,7 @@ func TestCreateWorktreeBaseBranch(t *testing.T) {
 		dir := initTestRepo(t)
 		wtPath := filepath.Join(dir, "worktrees", "test-prd")
 
-		err := CreateWorktree(CreateWorktreeOptions{
+		_, err := CreateWorktree(CreateWorktreeOptions{
 			RepoDir:      dir,
 			WorktreePath: wtPath,
 			Branch:       "chief/test-prd",
@@ -719,7 +719,7 @@ func TestCreateWorktreeBaseBranch(t *testing.T) {
 		addBranchWithMarker(t, dir, "develop", "only-on-develop.txt")
 		wtPath := filepath.Join(dir, "worktrees", "test-prd")
 
-		if err := CreateWorktree(CreateWorktreeOptions{
+		if _, err := CreateWorktree(CreateWorktreeOptions{
 			RepoDir:      dir,
 			WorktreePath: wtPath,
 			Branch:       "chief/test-prd",
@@ -734,4 +734,37 @@ func TestCreateWorktreeBaseBranch(t *testing.T) {
 			t.Errorf("RecordedBaseBranch() = %q, want %q", got, "main")
 		}
 	})
+}
+
+// Whether the worktree was created or picked up decides whether the caller
+// still has to set it up, so CreateWorktree has to say which of the two it did.
+func TestCreateWorktreeReportsReuse(t *testing.T) {
+	dir := initTestRepo(t)
+	wtPath := filepath.Join(dir, "worktrees", "test-prd")
+
+	res, err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/branch-a"})
+	if err != nil {
+		t.Fatalf("CreateWorktree() error = %v", err)
+	}
+	if res.Reused {
+		t.Error("a freshly created worktree was reported as reused")
+	}
+
+	res, err = CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/branch-a"})
+	if err != nil {
+		t.Fatalf("second CreateWorktree() error = %v", err)
+	}
+	if !res.Reused {
+		t.Error("an existing worktree on the expected branch was not reported as reused")
+	}
+
+	// A stale worktree is torn down and replaced, so what the caller ends up
+	// with is a new checkout, not the one that was standing there.
+	res, err = CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/branch-b"})
+	if err != nil {
+		t.Fatalf("third CreateWorktree() error = %v", err)
+	}
+	if res.Reused {
+		t.Error("a recreated stale worktree was reported as reused")
+	}
 }

@@ -63,6 +63,17 @@ type CreateWorktreeOptions struct {
 	LogDir string
 }
 
+// CreateWorktreeResult says what CreateWorktree did, which the caller cannot
+// tell from the directory afterwards.
+type CreateWorktreeResult struct {
+	// Reused is true when the worktree was already sitting at the path on the
+	// expected branch and was picked up as it stood. False covers both a
+	// worktree created from scratch and one that replaced a stale checkout —
+	// either way the caller is looking at a fresh directory that has never been
+	// set up.
+	Reused bool
+}
+
 // CreateWorktree creates a branch from the default branch and adds a worktree at the given path.
 // If the worktree path already exists and is a valid worktree on the expected branch, it is reused.
 // If the worktree path exists but is stale (wrong branch or invalid), it is removed and recreated.
@@ -70,10 +81,10 @@ type CreateWorktreeOptions struct {
 // A non-empty opts.Teardown runs inside a stale worktree before that worktree is
 // removed, and a failing teardown aborts the whole call so nothing outside git
 // is left orphaned. A reused worktree is not torn down.
-func CreateWorktree(opts CreateWorktreeOptions) error {
+func CreateWorktree(opts CreateWorktreeOptions) (CreateWorktreeResult, error) {
 	absWorktreePath, err := filepath.Abs(opts.WorktreePath)
 	if err != nil {
-		return fmt.Errorf("failed to resolve worktree path: %w", err)
+		return CreateWorktreeResult{}, fmt.Errorf("failed to resolve worktree path: %w", err)
 	}
 
 	// Check if the path already exists as a worktree
@@ -82,7 +93,7 @@ func CreateWorktree(opts CreateWorktreeOptions) error {
 		currentBranch, err := GetCurrentBranch(absWorktreePath)
 		if err == nil && currentBranch == opts.Branch {
 			// Valid worktree on the expected branch, reuse it
-			return nil
+			return CreateWorktreeResult{Reused: true}, nil
 		}
 		// Stale worktree (wrong branch or invalid), remove and recreate. Its
 		// resources belong to the branch it is standing on, not to the one we
@@ -103,26 +114,26 @@ func CreateWorktree(opts CreateWorktreeOptions) error {
 		// into a spinner modal, and a thousand lines of `docker compose down`
 		// have no business there.
 		if res, err := RunTeardown(stale, opts.Teardown, RunOptions{LogDir: opts.LogDir}); err != nil {
-			return fmt.Errorf("worktree teardown failed: %w%s", err, logHint(res.LogPath))
+			return CreateWorktreeResult{}, fmt.Errorf("worktree teardown failed: %w%s", err, logHint(res.LogPath))
 		}
 		if err := RemoveWorktree(opts.RepoDir, absWorktreePath); err != nil {
-			return fmt.Errorf("failed to remove stale worktree: %w", err)
+			return CreateWorktreeResult{}, fmt.Errorf("failed to remove stale worktree: %w", err)
 		}
 	}
 
 	baseName, baseRef, err := resolveBaseBranch(opts.RepoDir, opts.BaseBranch)
 	if err != nil {
-		return err
+		return CreateWorktreeResult{}, err
 	}
 
 	// Create the branch from the base branch if it doesn't exist
 	exists, err := BranchExists(opts.RepoDir, opts.Branch)
 	if err != nil {
-		return fmt.Errorf("failed to check branch existence: %w", err)
+		return CreateWorktreeResult{}, fmt.Errorf("failed to check branch existence: %w", err)
 	}
 	if !exists {
 		if err := runGitChecked(opts.RepoDir, "failed to create branch "+opts.Branch, "branch", opts.Branch, baseRef); err != nil {
-			return err
+			return CreateWorktreeResult{}, err
 		}
 		// The branch a worktree branch was cut from is the branch a pull
 		// request for it has to target — recorded under the plain name, because
@@ -135,7 +146,10 @@ func CreateWorktree(opts CreateWorktreeOptions) error {
 	ensureWorktreePathIgnored(opts.RepoDir, absWorktreePath)
 
 	// Add the worktree
-	return runGitChecked(opts.RepoDir, "failed to add worktree", "worktree", "add", absWorktreePath, opts.Branch)
+	if err := runGitChecked(opts.RepoDir, "failed to add worktree", "worktree", "add", absWorktreePath, opts.Branch); err != nil {
+		return CreateWorktreeResult{}, err
+	}
+	return CreateWorktreeResult{}, nil
 }
 
 // resolveBaseBranch answers which branch a new worktree branch is cut from. It

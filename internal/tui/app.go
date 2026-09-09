@@ -1190,10 +1190,11 @@ func (a *App) runWorktreeStep(step WorktreeSpinnerStep, baseDir, worktreePath, b
 		}
 		return func() tea.Msg {
 			// CreateWorktree handles both branch creation and worktree addition
-			if err := git.CreateWorktree(opts); err != nil {
+			res, err := git.CreateWorktree(opts)
+			if err != nil {
 				return worktreeStepResultMsg{step: SpinnerStepCreateBranch, err: err}
 			}
-			return worktreeStepResultMsg{step: SpinnerStepCreateBranch}
+			return worktreeStepResultMsg{step: SpinnerStepCreateBranch, reused: res.Reused}
 		}
 
 	case SpinnerStepRunSetup:
@@ -1268,6 +1269,13 @@ func (a App) handleWorktreeStepResult(msg worktreeStepResultMsg) (tea.Model, tea
 
 		// Check if we need to run setup
 		if a.worktreeSpinner.HasSetupCommand() {
+			// A worktree that was picked up as it stands has been set up before.
+			// Whether that means it needs setting up again is the user's call:
+			// an `npm install` is cheap and idempotent, a database seed is not.
+			if msg.reused && !a.setupOnReuse() {
+				a.worktreeSpinner.SkipSetupStep()
+				return a.finishWorktreeSetup()
+			}
 			return a, a.runWorktreeStep(SpinnerStepRunSetup, a.baseDir, a.pendingWorktreePath, a.worktreeSpinner.branchName)
 		}
 
@@ -1402,6 +1410,16 @@ func (a App) setupTimeout() time.Duration {
 		return 0
 	}
 	return time.Duration(a.config.Worktree.SetupTimeoutSeconds) * time.Second
+}
+
+// setupOnReuse answers whether the setup command also runs against a worktree
+// that was already there. Unset — and no config at all — means yes, which is
+// what every run did before the setting existed.
+func (a App) setupOnReuse() bool {
+	if a.config == nil || a.config.Worktree.SetupOnReuse == nil {
+		return true
+	}
+	return *a.config.Worktree.SetupOnReuse
 }
 
 // cleanWorktreeCmd removes a PRD's worktree and, when asked, its branch.

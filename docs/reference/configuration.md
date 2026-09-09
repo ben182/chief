@@ -19,6 +19,7 @@ agent:
   model: ""          # optional model passed via --model (Claude only)
 worktree:
   setup: "npm install"
+  setupOnReuse: true # run setup again when an existing worktree is picked up; omit = yes
   teardown: ""       # shell command run in a worktree right before it is removed
   baseBranch: ""     # branch worktree branches are cut from; empty = the detected default branch
   dir: ""            # where worktrees live; empty = .chief/worktrees/{prd}
@@ -53,7 +54,8 @@ consolidate:
 | `agent.provider` | string | `"claude"` | Agent CLI to use: `claude`, `codex`, `opencode`, `cursor`, or `gemini` |
 | `agent.cliPath` | string | `""` | Optional path to the agent binary (e.g. `/usr/local/bin/opencode`). If empty, Chief uses the provider name from PATH. |
 | `agent.model` | string | `""` | Optional model passed to the Claude CLI via `--model`. Needed when Claude Code's `-p` mode ignores `~/.claude/settings.json` (e.g. local models via LM Studio). |
-| `worktree.setup` | string | `""` | Shell command to run in new worktrees (e.g., `npm install`, `go mod download`). Runs with the PRD name, branch and paths in its environment — see [Worktree command environment](#worktree-command-environment). |
+| `worktree.setup` | string | `""` | Shell command to run in new worktrees (e.g., `npm install`, `go mod download`). Runs with the PRD name, branch and paths in its environment — see [Worktree command environment](#worktree-command-environment). **Write it to be idempotent:** by default it also runs when Chief picks up a worktree that already exists, so it has to survive being run against a checkout it has already set up — `npm install` and `go mod download` do, `createdb chief_$CHIEF_PRD_NAME` does not. Either make the command tolerate a second run (`createdb … || true`, `migrate --if-not-exists`) or set `worktree.setupOnReuse: false`. |
+| `worktree.setupOnReuse` | bool | *(unset)* | Whether `worktree.setup` also runs when Chief picks up a worktree that is **already there** — a run resumed after a crash or a PRD started again. Unset (the default) runs it, which is what every run did before this key existed. Set it to `false` when the setup is expensive or not idempotent; then only a freshly created worktree gets one, and the spinner shows the step as `Skipped setup (worktree reused)`. A worktree that was standing on the wrong branch does not count as reused: it is torn down and recreated, so its replacement is set up like any new one. Leaving this unset means **setup commands should be idempotent**, since they will be run against checkouts they have already set up. |
 | `worktree.teardown` | string | `""` | Shell command run **inside** a worktree right before Chief removes it, so resources that live outside git — a per-worktree database, a web-server link, containers — disappear with the directory instead of being orphaned. Runs on both clean options (`c` in the picker) and before a stale worktree on the wrong branch is recreated. A non-zero exit **cancels the removal**: the worktree is kept, the tail of the command's output and the path of its log file are shown, with the option to remove it anyway. Empty (the default) keeps removal a pure git operation. Make it idempotent — it may run against a worktree it already tore down. Gets the same environment as `worktree.setup` — see [Worktree command environment](#worktree-command-environment). |
 | `worktree.baseBranch` | string | `""` | Branch that worktree branches are cut from, and therefore the branch their pull request targets. Empty (the default) uses the repository's detected default branch (`main`/`master`); set it to `develop` in a repo where work doesn't start at `main`. Looked up locally first, then as `origin/<branch>`; a name that exists in neither **aborts the start** with a message naming this key, rather than branching off somewhere else. Reaches the run's setup and teardown commands as `CHIEF_BASE_BRANCH` — see [Worktree command environment](#worktree-command-environment). |
 | `worktree.setupTimeoutSeconds` | int | `0` | Seconds a `worktree.setup` command may run before Chief kills it and the whole process tree it started. `0` (the default) waits forever, which is the right answer for a setup that is merely slow — a cold `npm install` on a big project takes minutes. Set it for the setup that *hangs*: one waiting on a lock, a password prompt or a network that never answers, which would otherwise block the run for good. A killed setup fails the worktree creation and names its log file. |
@@ -188,6 +190,7 @@ worktree:
   teardown: ""
   baseBranch: ""
   dir: ""
+  # setupOnReuse omitted: setup runs again on a reused worktree
 onComplete:
   push: false
   createPR: false
@@ -198,6 +201,7 @@ onComplete:
 ```yaml
 worktree:
   setup: "npm install && npm run build"
+  setupOnReuse: false
   teardown: "./scripts/worktree.sh remove --self"
   baseBranch: "develop"
   dir: "../{repo}-worktrees/{prd}"
@@ -213,14 +217,14 @@ Press `,` from any view in the TUI to open the Settings overlay. This provides a
 
 Every key documented above has a row here — nothing is reachable only by hand-editing the YAML. Settings are organized by section:
 
-- **Worktree** — Setup command (text), Teardown command (text), Setup timeout in seconds (number; empty = no timeout), Base branch (text; empty = the detected default branch), Directory (text; empty = `.chief/worktrees/{prd}`)
+- **Worktree** — Setup command (text), Run setup on reuse (three-way; Default = yes), Teardown command (text), Setup timeout in seconds (number; empty = no timeout), Base branch (text; empty = the detected default branch), Directory (text; empty = `.chief/worktrees/{prd}`)
 - **On Complete** — Push to remote (toggle), Create pull request (toggle), PR base branch (text; empty = the branch the run's branch was cut from), Write run summary (toggle), Desktop notification (toggle)
 - **Loop** — Keep machine awake (toggle), Watchdog timeout in seconds (number; empty = the built-in default)
 - **Agent** — Provider (cycles through the supported CLIs; empty = `claude`), CLI path (text), Model (text)
 - **Review** — Enabled (three-way), Model (text; empty = `sonnet`), Skill (text), Instructions (text)
 - **Consolidate** — Enabled (three-way), Model (text; empty = `sonnet`), Skill (text), Instructions (text)
 
-The two **Enabled** switches are three-way rather than on/off, matching the config: `Enter` cycles them **Default → Yes → No → Default**. On *Default* the value column shows what the setting currently resolves to — `Default (on)` once a skill or instructions are set, `Default (off)` otherwise — and no `enabled:` key is written to the file. Leaving a switch on *Default* is not the same as setting it to No, so editing an unrelated setting never freezes a derived pass at whatever it happened to resolve to at the time.
+The two **Enabled** switches and **Run setup on reuse** are three-way rather than on/off, matching the config: `Enter` cycles them **Default → Yes → No → Default**. On *Default* the value column shows what the setting currently resolves to — for the passes, `Default (on)` once a skill or instructions are set and `Default (off)` otherwise; for **Run setup on reuse**, always `Default (on)` — and no key is written to the file. Leaving a switch on *Default* is not the same as setting it to No, so editing an unrelated setting never freezes a derived pass at whatever it happened to resolve to at the time.
 
 Changes are saved immediately to `.chief/config.yaml` on every edit.
 
@@ -235,6 +239,7 @@ Most of these reach a run that is already in flight, so you can react to what yo
 | `loop.keepAwake` | Within a few seconds, in either direction. |
 | `onComplete.*` | Read when the run finishes, so anything you change before then counts. |
 | `worktree.setup` | The next worktree created. Existing worktrees are not re-run. |
+| `worktree.setupOnReuse` | The next worktree start. A setup already running is not called off. |
 | `worktree.teardown` | The next worktree removal, so a command added mid-run still applies when you clean up afterwards. |
 | `worktree.setupTimeoutSeconds` | The next setup command. One already running keeps the timeout it started with. |
 | `worktree.baseBranch` | The next worktree created. A branch that already exists keeps the base it was cut from, which is also what its pull request targets. |

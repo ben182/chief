@@ -122,6 +122,10 @@ type confettiTickMsg struct{}
 type worktreeStepResultMsg struct {
 	step WorktreeSpinnerStep
 	err  error
+	// reused reports, for SpinnerStepCreateBranch, that the worktree was already
+	// there on the expected branch. It decides whether the setup step still has
+	// to run when worktree.setupOnReuse is off.
+	reused bool
 }
 
 // worktreeSpinnerTickMsg is sent to animate the worktree setup spinner.

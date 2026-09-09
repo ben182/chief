@@ -136,6 +136,19 @@ func (w *WorktreeSpinner) AdvanceStep() {
 	}
 }
 
+// SkipSetupStep finishes the spinner without running the setup command,
+// relabelling the step so the modal says the setup was skipped rather than
+// silently dropping a step the user configured.
+func (w *WorktreeSpinner) SkipSetupStep() {
+	idx := int(SpinnerStepRunSetup)
+	if idx < len(w.steps) {
+		w.steps[idx].label = fmt.Sprintf("Skipped setup (worktree reused): %s", w.setupCommand)
+		w.steps[idx].complete = true
+		w.steps[idx].active = false
+	}
+	w.currentStep = SpinnerStepDone
+}
+
 // SetError sets an error on the current step.
 func (w *WorktreeSpinner) SetError(err string) {
 	w.errMsg = err

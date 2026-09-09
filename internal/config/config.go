@@ -140,6 +140,13 @@ type WorktreeConfig struct {
 	// .env, a database. Empty (the default) skips the step. Like Teardown it
 	// gets the worktree's context in its environment, see git.WorktreeContext.
 	Setup string `yaml:"setup"`
+	// SetupOnReuse decides whether Setup also runs when chief picks up a
+	// worktree that is already there — a run resumed after a crash, a PRD
+	// started again. Unset (the default) runs it, which is what every run did
+	// before this key existed and what a setup that only installs dependencies
+	// wants. Set it to false when the setup is expensive or not idempotent; then
+	// only a freshly created worktree gets one.
+	SetupOnReuse *bool `yaml:"setupOnReuse,omitempty"`
 	// Teardown is a shell command run inside a worktree right before chief
 	// removes it, so resources living outside git — databases, web-server
 	// links, containers — disappear along with the directory. Empty (the

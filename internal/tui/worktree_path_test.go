@@ -114,7 +114,7 @@ func TestPickerFindsOrphanedWorktreeAtConfiguredPath(t *testing.T) {
 
 	template := "../{repo}-worktrees/{prd}"
 	worktreePath := filepath.Join(filepath.Dir(dir), filepath.Base(dir)+"-worktrees", "auth")
-	if err := git.CreateWorktree(git.CreateWorktreeOptions{
+	if _, err := git.CreateWorktree(git.CreateWorktreeOptions{
 		RepoDir:      dir,
 		WorktreePath: worktreePath,
 		Branch:       "chief/auth",

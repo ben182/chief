@@ -41,7 +41,7 @@ func addWorktreeForPRD(t *testing.T, dir, template, prdName, branch string) stri
 	if err != nil {
 		t.Fatalf("WorktreePathForPRD(%q) error = %v", template, err)
 	}
-	if err := CreateWorktree(CreateWorktreeOptions{
+	if _, err := CreateWorktree(CreateWorktreeOptions{
 		RepoDir:      dir,
 		WorktreePath: worktreePath,
 		Branch:       branch,

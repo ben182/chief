@@ -522,3 +522,49 @@ func TestLoadWithoutWorktreeDirKeepsDefault(t *testing.T) {
 		t.Errorf("expected Default() Dir to be empty, got %q", Default().Worktree.Dir)
 	}
 }
+
+// setupOnReuse is a tri-state: absent means "run the setup every time", which is
+// what every run did before the key existed.
+func TestLoadWorktreeSetupOnReuse(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".chief"), 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	yaml := "worktree:\n  setup: npm install\n  setupOnReuse: false\n"
+	if err := os.WriteFile(filepath.Join(dir, ".chief", "config.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Worktree.SetupOnReuse == nil {
+		t.Fatal("expected setupOnReuse to be set, got nil")
+	}
+	if *cfg.Worktree.SetupOnReuse {
+		t.Error("expected setupOnReuse to be false")
+	}
+}
+
+func TestLoadWithoutSetupOnReuseStaysUnset(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".chief"), 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	yaml := "worktree:\n  setup: npm install\n"
+	if err := os.WriteFile(filepath.Join(dir, ".chief", "config.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Worktree.SetupOnReuse != nil {
+		t.Errorf("expected setupOnReuse to stay nil, got %v", *cfg.Worktree.SetupOnReuse)
+	}
+	if Default().Worktree.SetupOnReuse != nil {
+		t.Error("expected Default() setupOnReuse to be nil")
+	}
+}
