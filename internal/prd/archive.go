@@ -13,12 +13,6 @@ func ChiefDir(baseDir string) string {
 	return filepath.Join(baseDir, ".chief")
 }
 
-// WorktreesDir returns the directory holding chief-managed git worktrees
-// (.chief/worktrees).
-func WorktreesDir(baseDir string) string {
-	return filepath.Join(ChiefDir(baseDir), "worktrees")
-}
-
 // PrdsDir returns the directory holding active PRDs (.chief/prds).
 func PrdsDir(baseDir string) string {
 	return filepath.Join(ChiefDir(baseDir), "prds")

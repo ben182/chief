@@ -49,7 +49,7 @@ func pickerApp(t *testing.T, base, currentPRD string) *App {
 	a.baseDir = base
 	a.prdName = currentPRD
 	a.manager = m
-	a.picker = NewPRDPicker(base, currentPRD, m)
+	a.picker = NewPRDPicker(base, currentPRD, m, "")
 	a.tabBar = NewTabBar(base, currentPRD, m)
 	a.logViewer = NewLogViewer()
 	a.quitConfirm = NewQuitConfirmation()

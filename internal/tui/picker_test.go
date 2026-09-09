@@ -1081,7 +1081,7 @@ func TestPickerRefreshIncludesArchivedPRDs(t *testing.T) {
 	mkPRDFile(t, filepath.Join(base, ".chief", "prds", "active"))
 	mkPRDFile(t, filepath.Join(base, ".chief", "archive", "old"))
 
-	p := NewPRDPicker(base, "active", nil)
+	p := NewPRDPicker(base, "active", nil, "")
 
 	var active, archived *PRDEntry
 	for i := range p.entries {

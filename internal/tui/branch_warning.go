@@ -48,7 +48,7 @@ type BranchWarning struct {
 	height        int
 	currentBranch string
 	prdName       string
-	worktreePath  string // Relative worktree path (e.g., ".chief/worktrees/auth/")
+	worktreePath  string // Where the worktree would go, as resolved from worktree.dir
 	selectedIndex int
 	editMode      bool   // Whether we're editing the branch name
 	branchName    string // The current branch name (editable)
@@ -74,7 +74,7 @@ func (b *BranchWarning) SetSize(width, height int) {
 func (b *BranchWarning) SetContext(currentBranch, prdName, worktreePath string) {
 	b.currentBranch = currentBranch
 	b.prdName = prdName
-	b.branchName = fmt.Sprintf("chief/%s", prdName)
+	b.branchName = worktreeBranchFor(prdName)
 	b.worktreePath = worktreePath
 }
 

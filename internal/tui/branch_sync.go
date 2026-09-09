@@ -64,7 +64,13 @@ func (a App) handleBranchSyncCheck(msg branchSyncCheckMsg) (tea.Model, tea.Cmd) 
 	}
 
 	a.branchWarning.SetSize(a.width, a.height)
-	a.branchWarning.SetContext(msg.branch, msg.prdName, git.WorktreePathForPRD(a.baseDir, msg.prdName))
+	// The hint only describes where a worktree would go; a template that cannot
+	// be resolved is reported when the run actually tries to create one.
+	hint := ""
+	if path, err := a.worktreePathFor(msg.prdName, worktreeBranchFor(msg.prdName)); err == nil {
+		hint = displayWorktreePath(a.baseDir, path)
+	}
+	a.branchWarning.SetContext(msg.branch, msg.prdName, hint)
 	a.branchWarning.SetSyncState(msg.branch, msg.sync)
 	a.branchWarning.SetDialogContext(DialogBranchBehindRemote)
 	a.branchWarning.Reset()

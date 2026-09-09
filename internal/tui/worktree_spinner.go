@@ -33,7 +33,7 @@ type WorktreeSpinner struct {
 	prdName       string
 	branchName    string
 	defaultBranch string
-	worktreePath  string // Relative path for display (e.g., ".chief/worktrees/auth/")
+	worktreePath  string // Worktree path for display, as resolved from worktree.dir
 	setupCommand  string // Empty if no setup command configured
 
 	currentStep  WorktreeSpinnerStep

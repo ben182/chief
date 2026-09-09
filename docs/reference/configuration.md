@@ -21,6 +21,7 @@ worktree:
   setup: "npm install"
   teardown: ""       # shell command run in a worktree right before it is removed
   baseBranch: ""     # branch worktree branches are cut from; empty = the detected default branch
+  dir: ""            # where worktrees live; empty = .chief/worktrees/{prd}
 onComplete:
   push: true
   createPR: true
@@ -54,6 +55,7 @@ consolidate:
 | `worktree.setup` | string | `""` | Shell command to run in new worktrees (e.g., `npm install`, `go mod download`). Runs with the PRD name, branch and paths in its environment — see [Worktree command environment](#worktree-command-environment). |
 | `worktree.teardown` | string | `""` | Shell command run **inside** a worktree right before Chief removes it, so resources that live outside git — a per-worktree database, a web-server link, containers — disappear with the directory instead of being orphaned. Runs on both clean options (`c` in the picker) and before a stale worktree on the wrong branch is recreated. A non-zero exit **cancels the removal**: the worktree is kept and the command's output is shown, with the option to remove it anyway. Empty (the default) keeps removal a pure git operation. Make it idempotent — it may run against a worktree it already tore down. Gets the same environment as `worktree.setup` — see [Worktree command environment](#worktree-command-environment). |
 | `worktree.baseBranch` | string | `""` | Branch that worktree branches are cut from, and therefore the branch their pull request targets. Empty (the default) uses the repository's detected default branch (`main`/`master`); set it to `develop` in a repo where work doesn't start at `main`. Looked up locally first, then as `origin/<branch>`; a name that exists in neither **aborts the start** with a message naming this key, rather than branching off somewhere else. Reaches the run's setup and teardown commands as `CHIEF_BASE_BRANCH` — see [Worktree command environment](#worktree-command-environment). |
+| `worktree.dir` | string | `""` | Path template saying where a PRD's worktree goes. Empty (the default) means `.chief/worktrees/{prd}`. Placeholders: `{prd}` (the PRD name), `{repo}` (the basename of the main checkout) and `{branch}` (the worktree's branch, with `/` replaced by `-`). A relative template is resolved against the main checkout, so `../{repo}-worktrees/{prd}` puts worktrees beside the project — useful when a bundler, test runner or editor index trips over checkouts nested inside the checkout. A template resolving to the main checkout itself or to its bare parent directory is **rejected before anything is created**, with a message naming this key. Chief finds worktrees at the configured location again through `git worktree list`, so orphan detection and cleanup follow the template. |
 | `onComplete.push` | bool | `false` | Automatically push the branch to remote when a PRD completes. Only runs if the branch has at least one commit. |
 | `onComplete.createPR` | bool | `false` | Automatically create a pull request when a PRD completes (requires `gh` CLI). Only runs after a successful push, so a run with no commits creates no PR. The PR targets the branch the run's branch was cut from, and an already-open PR for the branch is reported instead of a second one being opened — see [Pull request target](#pull-request-target). |
 | `onComplete.prBaseBranch` | string | `""` | Forces the branch pull requests merge into. Empty (the default) lets Chief use the branch the run's branch was cut from. Set this only when that answer is wrong for your workflow. A branch `origin` doesn't have is ignored, leaving the choice to `gh`. |
@@ -170,6 +172,7 @@ worktree:
   setup: ""
   teardown: ""
   baseBranch: ""
+  dir: ""
 onComplete:
   push: false
   createPR: false
@@ -182,6 +185,7 @@ worktree:
   setup: "npm install && npm run build"
   teardown: "./scripts/worktree.sh remove --self"
   baseBranch: "develop"
+  dir: "../{repo}-worktrees/{prd}"
 onComplete:
   push: true
   createPR: true
@@ -193,7 +197,7 @@ Press `,` from any view in the TUI to open the Settings overlay. This provides a
 
 Every key documented above has a row here — nothing is reachable only by hand-editing the YAML. Settings are organized by section:
 
-- **Worktree** — Setup command (text), Teardown command (text), Base branch (text; empty = the detected default branch)
+- **Worktree** — Setup command (text), Teardown command (text), Base branch (text; empty = the detected default branch), Directory (text; empty = `.chief/worktrees/{prd}`)
 - **On Complete** — Push to remote (toggle), Create pull request (toggle), PR base branch (text; empty = the branch the run's branch was cut from), Write run summary (toggle), Desktop notification (toggle)
 - **Loop** — Keep machine awake (toggle), Watchdog timeout in seconds (number; empty = the built-in default)
 - **Agent** — Provider (cycles through the supported CLIs; empty = `claude`), CLI path (text), Model (text)
@@ -217,6 +221,7 @@ Most of these reach a run that is already in flight, so you can react to what yo
 | `worktree.setup` | The next worktree created. Existing worktrees are not re-run. |
 | `worktree.teardown` | The next worktree removal, so a command added mid-run still applies when you clean up afterwards. |
 | `worktree.baseBranch` | The next worktree created. A branch that already exists keeps the base it was cut from, which is also what its pull request targets. |
+| `worktree.dir` | The next worktree created, and the picker's next refresh. Worktrees already on disk stay where they are — move or clean them up yourself. |
 | `agent.provider`, `agent.cliPath`, `agent.model` | **After restarting Chief.** The agent CLI is resolved once at startup; the new value is written to the file but the running instance keeps the provider it launched with. |
 
 When toggling "Create pull request" to Yes, Chief validates that the `gh` CLI is installed and authenticated. If validation fails, the toggle reverts and an error message is shown with installation instructions.

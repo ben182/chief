@@ -153,6 +153,12 @@ type WorktreeConfig struct {
 	// branch has to exist locally or on origin, otherwise the run refuses to
 	// start rather than branch off the wrong place.
 	BaseBranch string `yaml:"baseBranch"`
+	// Dir is a path template saying where a PRD's worktree lives. Empty (the
+	// default) means .chief/worktrees/{prd}, which keeps worktrees inside the
+	// project; point it outside when a tool in the repo — a bundler, a test
+	// runner, an editor index — trips over checkouts nested in the checkout.
+	// Placeholders are {prd}, {repo} and {branch}; see git.WorktreePathForPRD.
+	Dir string `yaml:"dir"`
 }
 
 // OnCompleteConfig holds post-completion automation settings.

@@ -229,13 +229,26 @@ func TestGetWorktreeInfo_WithBranch(t *testing.T) {
 	mgr := loop.NewManager(10, agent.NewClaudeProvider(""))
 	mgr.RegisterWithWorktree("auth", "/tmp/prd.json", "/tmp/.chief/worktrees/auth", "chief/auth")
 
-	app := &App{prdName: "auth", manager: mgr}
+	app := &App{prdName: "auth", manager: mgr, baseDir: "/tmp"}
 	branch, dir := app.getWorktreeInfo()
 	if branch != "chief/auth" {
 		t.Errorf("branch = %q, want %q", branch, "chief/auth")
 	}
 	if dir != ".chief/worktrees/auth/" {
 		t.Errorf("dir = %q, want %q", dir, ".chief/worktrees/auth/")
+	}
+}
+
+// A worktree the template put outside the checkout has no useful relative
+// spelling, so the header shows where it really is.
+func TestGetWorktreeInfo_WorktreeOutsideCheckout(t *testing.T) {
+	mgr := loop.NewManager(10, agent.NewClaudeProvider(""))
+	mgr.RegisterWithWorktree("auth", "/tmp/project/prd.json", "/tmp/project-worktrees/auth", "chief/auth")
+
+	app := &App{prdName: "auth", manager: mgr, baseDir: "/tmp/project"}
+	_, dir := app.getWorktreeInfo()
+	if dir != "/tmp/project-worktrees/auth/" {
+		t.Errorf("dir = %q, want %q", dir, "/tmp/project-worktrees/auth/")
 	}
 }
 

@@ -215,16 +215,21 @@ tail -100 .chief/prds/your-prd/claude-*.log
 
 **Symptom:** Worktree creation fails when starting a PRD.
 
-**Cause:** The branch already exists, the worktree path is in use, or git state is corrupted.
+**Cause:** The branch already exists, the worktree path is in use, git state is corrupted, or `worktree.dir` points somewhere a worktree can't live.
 
 **Solution:**
 
 1. Chief automatically handles common cases (reuses valid worktrees, cleans stale ones). If it still fails:
 
-2. Manually clean up:
+2. Find out where the worktree actually is. Its location comes from the `worktree.dir` template (Settings → Worktree → Directory), which defaults to `.chief/worktrees/{prd}` but can put worktrees anywhere — so ask git rather than guessing:
+   ```bash
+   git worktree list
+   ```
+
+3. Manually clean up, using the path from that listing:
    ```bash
    # Remove the worktree
-   git worktree remove .chief/worktrees/<prd-name> --force
+   git worktree remove <path-from-the-listing> --force
 
    # Delete the branch if needed
    git branch -D chief/<prd-name>
@@ -233,7 +238,9 @@ tail -100 .chief/prds/your-prd/claude-*.log
    git worktree prune
    ```
 
-3. Restart Chief and try again
+4. If the error names `worktree.dir`, the template resolves to the main checkout itself or to its bare parent directory. Give it a subdirectory — `../{repo}-worktrees/{prd}` rather than `..` — and try again.
+
+5. Restart Chief and try again
 
 ## PR Creation Failures
 

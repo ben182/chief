@@ -48,10 +48,11 @@ const (
 
 // CleanConfirmation holds the state of the clean confirmation dialog.
 type CleanConfirmation struct {
-	EntryName   string // Name of the PRD being cleaned
-	Branch      string // Branch name to display
-	WorktreeDir string // Worktree path to display
-	SelectedIdx int    // Selected option index (0-2)
+	EntryName    string // Name of the PRD being cleaned
+	Branch       string // Branch name to display
+	WorktreeDir  string // Worktree path to display
+	WorktreePath string // Absolute worktree path, the one that gets removed
+	SelectedIdx  int    // Selected option index (0-2)
 }
 
 // CleanResult holds the result of a clean operation for display.
@@ -88,11 +89,12 @@ type PRDPicker struct {
 	mergeResult       *MergeResult       // Result of the last merge operation (nil = none)
 	cleanConfirmation *CleanConfirmation // Active clean confirmation dialog (nil = none)
 	cleanResult       *CleanResult       // Result of the last clean operation (nil = none)
+	worktreeDir       string             // Configured worktree.dir template (empty = default)
 	teardownFailure   *TeardownFailure   // Failed teardown awaiting a decision (nil = none)
 }
 
 // NewPRDPicker creates a new PRD picker.
-func NewPRDPicker(basePath string, currentPRDName string, manager *loop.Manager) *PRDPicker {
+func NewPRDPicker(basePath string, currentPRDName string, manager *loop.Manager, worktreeDir string) *PRDPicker {
 	p := &PRDPicker{
 		entries:       make([]PRDEntry, 0),
 		selectedIndex: 0,
@@ -101,9 +103,17 @@ func NewPRDPicker(basePath string, currentPRDName string, manager *loop.Manager)
 		inputMode:     false,
 		inputValue:    "",
 		manager:       manager,
+		worktreeDir:   worktreeDir,
 	}
 	p.Refresh()
 	return p
+}
+
+// SetWorktreeDir updates the worktree.dir template the picker looks for
+// orphaned worktrees under, so an edit in the settings overlay reaches the next
+// Refresh instead of waiting for a restart.
+func (p *PRDPicker) SetWorktreeDir(template string) {
+	p.worktreeDir = template
 }
 
 // SetManager sets the loop manager reference.
@@ -168,7 +178,7 @@ func (p *PRDPicker) Refresh() {
 	}
 
 	// Detect orphaned worktrees - worktrees on disk not tracked by any manager instance
-	diskWorktrees := git.DetectOrphanedWorktrees(p.basePath)
+	diskWorktrees := git.DetectOrphanedWorktrees(p.basePath, p.worktreeDir)
 	if len(diskWorktrees) > 0 {
 		// Build set of tracked worktree dirs from manager
 		trackedDirs := make(map[string]bool)
@@ -423,10 +433,11 @@ func (p *PRDPicker) StartCleanConfirmation() {
 		return
 	}
 	p.cleanConfirmation = &CleanConfirmation{
-		EntryName:   entry.Name,
-		Branch:      entry.Branch,
-		WorktreeDir: p.worktreeDisplayPath(*entry),
-		SelectedIdx: 0,
+		EntryName:    entry.Name,
+		Branch:       entry.Branch,
+		WorktreeDir:  p.worktreeDisplayPath(*entry),
+		WorktreePath: entry.WorktreeDir,
+		SelectedIdx:  0,
 	}
 }
 
@@ -747,12 +758,7 @@ func (p *PRDPicker) worktreeDisplayPath(entry PRDEntry) string {
 	if entry.WorktreeDir == "" {
 		return "(current directory)"
 	}
-	// Show relative path from base dir
-	rel, err := filepath.Rel(p.basePath, entry.WorktreeDir)
-	if err != nil {
-		return entry.WorktreeDir
-	}
-	return rel + "/"
+	return displayWorktreePath(p.basePath, entry.WorktreeDir)
 }
 
 // formatBranchPath formats branch and path info to fit within maxWidth.

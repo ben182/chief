@@ -31,8 +31,12 @@ func (a App) startLoopForPRD(prdName string) (tea.Model, tea.Cmd) {
 		return a.doStartLoop(prdName, prdDir)
 	}
 
-	worktreePath := git.WorktreePathForPRD(a.baseDir, prdName)
-	relWorktreePath := fmt.Sprintf(".chief/worktrees/%s/", prdName)
+	worktreePath, err := a.worktreePathFor(prdName, worktreeBranchFor(prdName))
+	if err != nil {
+		a.lastActivity = "Error: " + err.Error()
+		return a, nil
+	}
+	relWorktreePath := displayWorktreePath(a.baseDir, worktreePath)
 
 	// Determine dialog context
 	isProtected := git.IsProtectedBranch(branch)

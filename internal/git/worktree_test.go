@@ -351,14 +351,6 @@ func TestIsWorktree(t *testing.T) {
 	})
 }
 
-func TestWorktreePathForPRD(t *testing.T) {
-	result := WorktreePathForPRD("/home/user/project", "auth")
-	expected := filepath.Join("/home/user/project", ".chief", "worktrees", "auth")
-	if result != expected {
-		t.Errorf("WorktreePathForPRD() = %q, want %q", result, expected)
-	}
-}
-
 func TestPruneWorktrees(t *testing.T) {
 	t.Run("prune succeeds on clean repo", func(t *testing.T) {
 		dir := initTestRepo(t)
@@ -491,80 +483,107 @@ func TestMergeBranch(t *testing.T) {
 }
 
 func TestDetectOrphanedWorktrees(t *testing.T) {
-	t.Run("returns nil when worktrees directory does not exist", func(t *testing.T) {
-		dir := t.TempDir()
-		result := DetectOrphanedWorktrees(dir)
+	t.Run("returns nil outside a git repository", func(t *testing.T) {
+		result := DetectOrphanedWorktrees(t.TempDir(), "")
 		if result != nil {
 			t.Errorf("expected nil, got %v", result)
 		}
 	})
 
-	t.Run("returns empty map when worktrees directory is empty", func(t *testing.T) {
-		dir := t.TempDir()
-		worktreesDir := filepath.Join(dir, ".chief", "worktrees")
-		if err := os.MkdirAll(worktreesDir, 0755); err != nil {
-			t.Fatalf("failed to create worktrees dir: %v", err)
-		}
-		result := DetectOrphanedWorktrees(dir)
+	t.Run("returns no entries for a repository without worktrees", func(t *testing.T) {
+		dir := initTestRepo(t)
+		result := DetectOrphanedWorktrees(dir, "")
 		if len(result) != 0 {
-			t.Errorf("expected empty map, got %v", result)
+			t.Errorf("expected no entries, got %v", result)
 		}
 	})
 
-	t.Run("detects worktree directories on disk", func(t *testing.T) {
-		dir := t.TempDir()
-		worktreesDir := filepath.Join(dir, ".chief", "worktrees")
-
-		// Create some worktree directories
+	t.Run("detects worktrees at the default location", func(t *testing.T) {
+		dir := initTestRepo(t)
 		for _, name := range []string{"auth", "payments"} {
-			if err := os.MkdirAll(filepath.Join(worktreesDir, name), 0755); err != nil {
-				t.Fatalf("failed to create dir: %v", err)
+			if err := CreateWorktree(CreateWorktreeOptions{
+				RepoDir:      dir,
+				WorktreePath: filepath.Join(dir, ".chief", "worktrees", name),
+				Branch:       "chief/" + name,
+			}); err != nil {
+				t.Fatalf("CreateWorktree(%s) error = %v", name, err)
 			}
 		}
 
-		result := DetectOrphanedWorktrees(dir)
+		result := DetectOrphanedWorktrees(dir, "")
 		if len(result) != 2 {
 			t.Fatalf("expected 2 entries, got %d: %v", len(result), result)
 		}
-
-		authPath, ok := result["auth"]
-		if !ok {
-			t.Error("expected 'auth' in result")
-		}
-		if authPath != filepath.Join(worktreesDir, "auth") {
-			t.Errorf("expected auth path %q, got %q", filepath.Join(worktreesDir, "auth"), authPath)
-		}
-
-		paymentsPath, ok := result["payments"]
-		if !ok {
-			t.Error("expected 'payments' in result")
-		}
-		if paymentsPath != filepath.Join(worktreesDir, "payments") {
-			t.Errorf("expected payments path %q, got %q", filepath.Join(worktreesDir, "payments"), paymentsPath)
+		for _, name := range []string{"auth", "payments"} {
+			want := filepath.Join(dir, ".chief", "worktrees", name)
+			if result[name] != want {
+				t.Errorf("result[%q] = %q, want %q", name, result[name], want)
+			}
 		}
 	})
 
-	t.Run("ignores files in worktrees directory", func(t *testing.T) {
-		dir := t.TempDir()
-		worktreesDir := filepath.Join(dir, ".chief", "worktrees")
-		if err := os.MkdirAll(worktreesDir, 0755); err != nil {
-			t.Fatalf("failed to create worktrees dir: %v", err)
+	t.Run("detects worktrees at a configured location outside the checkout", func(t *testing.T) {
+		dir := initTestRepo(t)
+		template := "../{repo}-worktrees/{branch}"
+		path := filepath.Join(filepath.Dir(dir), filepath.Base(dir)+"-worktrees", "chief-auth")
+		if err := CreateWorktree(CreateWorktreeOptions{
+			RepoDir:      dir,
+			WorktreePath: path,
+			Branch:       "chief/auth",
+		}); err != nil {
+			t.Fatalf("CreateWorktree() error = %v", err)
 		}
 
-		// Create a directory and a file
-		if err := os.MkdirAll(filepath.Join(worktreesDir, "auth"), 0755); err != nil {
-			t.Fatalf("failed to create dir: %v", err)
-		}
-		if err := os.WriteFile(filepath.Join(worktreesDir, "stale-file.txt"), []byte("junk"), 0644); err != nil {
-			t.Fatalf("failed to create file: %v", err)
+		// {prd} is missing from this template, so nothing can be attributed.
+		if result := DetectOrphanedWorktrees(dir, template); len(result) != 0 {
+			t.Errorf("expected no entries for a template without {prd}, got %v", result)
 		}
 
-		result := DetectOrphanedWorktrees(dir)
-		if len(result) != 1 {
-			t.Fatalf("expected 1 entry (only dirs), got %d: %v", len(result), result)
+		// The same worktree under a template that does name the PRD.
+		named := filepath.Join(filepath.Dir(dir), filepath.Base(dir)+"-worktrees", "auth")
+		if err := CreateWorktree(CreateWorktreeOptions{
+			RepoDir:      dir,
+			WorktreePath: named,
+			Branch:       "chief/named",
+		}); err != nil {
+			t.Fatalf("CreateWorktree() error = %v", err)
 		}
-		if _, ok := result["auth"]; !ok {
-			t.Error("expected 'auth' in result")
+		result := DetectOrphanedWorktrees(dir, "../{repo}-worktrees/{prd}")
+		if len(result) != 2 {
+			t.Fatalf("expected 2 entries, got %d: %v", len(result), result)
+		}
+		if result["auth"] != named {
+			t.Errorf("result[\"auth\"] = %q, want %q", result["auth"], named)
+		}
+		if result["chief-auth"] != path {
+			t.Errorf("result[\"chief-auth\"] = %q, want %q", result["chief-auth"], path)
+		}
+	})
+
+	t.Run("ignores worktrees outside the template", func(t *testing.T) {
+		dir := initTestRepo(t)
+		outside := filepath.Join(t.TempDir(), "somewhere-else")
+		if err := CreateWorktree(CreateWorktreeOptions{
+			RepoDir:      dir,
+			WorktreePath: outside,
+			Branch:       "chief/auth",
+		}); err != nil {
+			t.Fatalf("CreateWorktree() error = %v", err)
+		}
+
+		result := DetectOrphanedWorktrees(dir, "")
+		if len(result) != 0 {
+			t.Errorf("expected no entries, got %v", result)
+		}
+	})
+
+	t.Run("ignores the main checkout even when the template matches it", func(t *testing.T) {
+		// "../{prd}" puts worktrees beside the checkout, so the checkout's own
+		// directory matches the pattern with {prd} = its basename.
+		dir := initTestRepo(t)
+		result := DetectOrphanedWorktrees(dir, "../{prd}")
+		if len(result) != 0 {
+			t.Errorf("expected the main checkout to be ignored, got %v", result)
 		}
 	})
 }

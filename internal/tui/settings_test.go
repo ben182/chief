@@ -998,3 +998,32 @@ func TestSettingsOverlay_BaseBranchRow(t *testing.T) {
 		t.Errorf("ApplyToConfig BaseBranch = %q, want %q", cfg.Worktree.BaseBranch, "develop")
 	}
 }
+
+// The overlay row is where the worktree location is discovered at all, so it
+// has to carry the label and show the default template as its placeholder.
+func TestSettingsOverlay_WorktreeDirRow(t *testing.T) {
+	s := NewSettingsOverlay()
+	s.LoadFromConfig(config.Default())
+	s.SetSize(120, 60)
+
+	item := s.items[itemIndex(t, s, "worktree.dir")]
+	if item.Section != "Worktree" {
+		t.Errorf("section = %q, want %q", item.Section, "Worktree")
+	}
+	if item.Label != "Directory" {
+		t.Errorf("label = %q, want %q", item.Label, "Directory")
+	}
+	if item.Placeholder != ".chief/worktrees/{prd}" {
+		t.Errorf("placeholder = %q, want %q", item.Placeholder, ".chief/worktrees/{prd}")
+	}
+	if !strings.Contains(s.Render(), ".chief/worktrees/{prd}") {
+		t.Error("expected the default template in the rendered overlay")
+	}
+
+	cfg := config.Default()
+	s.items[itemIndex(t, s, "worktree.dir")].StringVal = "../{repo}-worktrees/{prd}"
+	s.ApplyToConfig(cfg)
+	if cfg.Worktree.Dir != "../{repo}-worktrees/{prd}" {
+		t.Errorf("ApplyToConfig Dir = %q, want %q", cfg.Worktree.Dir, "../{repo}-worktrees/{prd}")
+	}
+}

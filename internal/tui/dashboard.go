@@ -118,7 +118,7 @@ func (a *App) getWorktreeInfo() (branch, dir string) {
 	branch = instance.Branch
 	if instance.WorktreeDir != "" {
 		// Convert absolute worktree path to relative for display
-		dir = fmt.Sprintf(".chief/worktrees/%s/", a.prdName)
+		dir = displayWorktreePath(a.baseDir, instance.WorktreeDir)
 	} else {
 		dir = "./ (current directory)"
 	}

@@ -480,3 +480,45 @@ func TestLoadWithoutBaseBranchKeepsDefault(t *testing.T) {
 		t.Errorf("expected Default() BaseBranch to be empty, got %q", Default().Worktree.BaseBranch)
 	}
 }
+
+func TestLoadWorktreeDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".chief"), 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	yaml := "worktree:\n  dir: ../{repo}-worktrees/{prd}\n"
+	if err := os.WriteFile(filepath.Join(dir, ".chief", "config.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Worktree.Dir != "../{repo}-worktrees/{prd}" {
+		t.Errorf("expected dir %q, got %q", "../{repo}-worktrees/{prd}", cfg.Worktree.Dir)
+	}
+}
+
+// An empty dir is what keeps today's behaviour: .chief/worktrees/<prd>.
+func TestLoadWithoutWorktreeDirKeepsDefault(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".chief"), 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	yaml := "worktree:\n  setup: npm install\n"
+	if err := os.WriteFile(filepath.Join(dir, ".chief", "config.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Worktree.Dir != "" {
+		t.Errorf("expected Dir to stay empty, got %q", cfg.Worktree.Dir)
+	}
+	if Default().Worktree.Dir != "" {
+		t.Errorf("expected Default() Dir to be empty, got %q", Default().Worktree.Dir)
+	}
+}

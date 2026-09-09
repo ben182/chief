@@ -2,12 +2,9 @@ package git
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"github.com/ben182/chief/internal/prd"
 )
 
 // Worktree represents a git worktree entry.
@@ -217,33 +214,43 @@ func IsWorktree(path string) bool {
 	return strings.TrimSpace(string(output)) == "true"
 }
 
-// WorktreePathForPRD returns the worktree path for a given PRD name.
-func WorktreePathForPRD(baseDir, prdName string) string {
-	return filepath.Join(prd.WorktreesDir(baseDir), prdName)
-}
-
 // PruneWorktrees runs `git worktree prune` to clean up stale worktree tracking.
 func PruneWorktrees(repoDir string) error {
 	return runGitChecked(repoDir, "failed to prune worktrees", "worktree", "prune")
 }
 
-// DetectOrphanedWorktrees scans .chief/worktrees/ and returns a map of PRD name -> absolute worktree path
-// for worktrees that exist on disk. The caller is responsible for determining which are orphaned
-// (i.e., have no corresponding registered/running PRD).
-func DetectOrphanedWorktrees(baseDir string) map[string]string {
-	worktreesDir := prd.WorktreesDir(baseDir)
-	entries, err := os.ReadDir(worktreesDir)
+// DetectOrphanedWorktrees returns a map of PRD name -> absolute worktree path
+// for every worktree git has registered at a location the configured
+// worktree.dir template describes. The caller is responsible for determining
+// which are orphaned (i.e., have no corresponding registered/running PRD).
+//
+// It asks git rather than scanning a directory because the template can put
+// worktrees anywhere — outside the checkout, in a path that also holds
+// unrelated directories — and only git knows which of those are worktrees.
+func DetectOrphanedWorktrees(baseDir, template string) map[string]string {
+	worktrees, err := ListWorktrees(baseDir)
 	if err != nil {
 		return nil
 	}
 
+	mainPath := normalizePath(baseDir)
 	result := make(map[string]string)
-	for _, entry := range entries {
-		if !entry.IsDir() {
+	for _, wt := range worktrees {
+		if normalizePath(wt.Path) == mainPath {
 			continue
 		}
-		absPath := filepath.Join(worktreesDir, entry.Name())
-		result[entry.Name()] = absPath
+		name, ok := prdNameFromWorktree(baseDir, template, wt)
+		if !ok {
+			continue
+		}
+		// Report the path the template produces, not the one git printed: that
+		// is the spelling every other caller works with, and comparing the two
+		// is how the picker tells a tracked worktree from an orphan.
+		path, err := WorktreePathForPRD(baseDir, template, name, wt.Branch)
+		if err != nil {
+			continue
+		}
+		result[name] = path
 	}
 	return result
 }

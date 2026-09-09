@@ -231,7 +231,11 @@ func NewAppWithOptions(prdPath string, maxIter int, provider loop.Provider) (*Ap
 	tabBar := NewTabBar(baseDir, prdName, manager)
 
 	// Create picker with manager reference (for creating new PRDs)
-	picker := NewPRDPicker(baseDir, prdName, manager)
+	worktreeDir := ""
+	if cfg != nil {
+		worktreeDir = cfg.Worktree.Dir
+	}
+	picker := NewPRDPicker(baseDir, prdName, manager, worktreeDir)
 
 	app := &App{
 		prd:              p,
@@ -851,8 +855,12 @@ func (a App) handleBranchWarningKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		case BranchOptionCreateWorktree:
 			branchName := a.branchWarning.GetSuggestedBranch()
-			worktreePath := git.WorktreePathForPRD(a.baseDir, prdName)
-			relWorktreePath := fmt.Sprintf(".chief/worktrees/%s/", prdName)
+			worktreePath, err := a.worktreePathFor(prdName, branchName)
+			if err != nil {
+				a.lastActivity = "Error: " + err.Error()
+				return a, nil
+			}
+			relWorktreePath := displayWorktreePath(a.baseDir, worktreePath)
 
 			// Name the branch the new one will be cut from: the configured
 			// base branch if there is one, the detected default otherwise.
@@ -991,6 +999,11 @@ func (a *App) publishSettings() {
 	// run is still waiting on a review — or vice versa.
 	if a.logViewer != nil {
 		a.logViewer.SetReviewPending(next.Review.Active())
+	}
+	// The picker looks for orphaned worktrees under the configured template, so
+	// a changed path has to reach it before the next Refresh.
+	if a.picker != nil {
+		a.picker.SetWorktreeDir(next.Worktree.Dir)
 	}
 	// A failed save used to be silent, so a config that could not be persisted
 	// (read-only checkout, bad permissions) looked like it applied and then
@@ -1334,7 +1347,7 @@ func (a App) handleCleanConfirmationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		prdName := cc.EntryName
 		branch := cc.Branch
 		clearBranch := option == CleanOptionRemoveAll
-		worktreePath := git.WorktreePathForPRD(a.baseDir, prdName)
+		worktreePath := cc.WorktreePath
 
 		// Both removal options tear down first: the branch is beside the point,
 		// what matters is that the directory is about to go away.
