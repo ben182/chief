@@ -83,7 +83,9 @@ Git worktrees let you have multiple checkouts of a repository at the same time, 
 
 ### Do I have to use worktrees?
 
-No. When you start a PRD, Chief offers worktree creation as an option. You can choose "Run in current directory" to skip it. Worktrees are most useful when running multiple PRDs simultaneously.
+No. When Chief asks, you can choose "Run in current directory" to skip it. Worktrees are most useful when running multiple PRDs simultaneously.
+
+The reverse case trips people up more often: the question only comes up when you start the PRD from a protected branch (`main`/`master`) or while another PRD runs in the same directory. Start a PRD from some other branch and Chief just uses `chief/<name>` in your current checkout without asking. So if you want a worktree, be on your default branch when you press `s`.
 
 ### How do I merge a completed branch?
 
