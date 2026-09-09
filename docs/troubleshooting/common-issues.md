@@ -242,6 +242,40 @@ tail -100 .chief/prds/your-prd/claude-*.log
 
 5. Restart Chief and try again
 
+### When the setup command is what failed
+
+A `worktree.setup` that exits non-zero aborts the start, but the worktree itself has already been created and is kept. The error message names the log file — `.chief/prds/<prd>/setup-<timestamp>.log` — which holds the command's full output rather than the few lines the modal has room for.
+
+Fix the script, then re-run it against the existing worktree instead of deleting and recreating everything:
+
+```bash
+chief worktree setup <prd-name>
+```
+
+**If the setup hangs** rather than fails — waiting on a lock, a password prompt, or a network that never answers — Chief waits forever by default, which is correct for a setup that is merely slow (a cold `npm install`). Set `worktree.setupTimeoutSeconds` (Settings → Worktree) to bound it: the command and the whole process tree it started are killed after that many seconds, and the failure names its log file like any other.
+
+**If the setup re-runs when you don't want it to:** by default it also runs for a worktree that already exists (a resumed run, or a PRD started again), so a non-idempotent command like `createdb` fails the second time. Either make it idempotent or set `worktree.setupOnReuse: false`, which limits setup to freshly created worktrees — the spinner then shows `Skipped setup (worktree reused)`.
+
+## Worktree Teardown Failed
+
+**Symptom:** Cleaning a worktree with `c` opens a **"Teardown Failed"** dialog instead of removing it, offering "Remove anyway" and "Keep the worktree".
+
+**Cause:** The configured `worktree.teardown` command exited non-zero. Since that command is what disposes of the things git knows nothing about — a per-worktree database, a web-server link, containers — Chief treats its failure as a reason *not* to remove the directory: deleting the checkout would leave those resources orphaned and invisible.
+
+**Solution:**
+
+1. Read why it failed. The dialog shows the last lines of the output and the path of the full log, `.chief/prds/<prd>/teardown-<timestamp>.log`.
+
+2. Choose **Keep the worktree**, fix the cause (start the container the script talks to, drop the database by hand, correct the script), and retry the teardown on its own — this does *not* remove the worktree, so it can be repeated until it works:
+   ```bash
+   chief worktree teardown <prd-name>
+   ```
+   Then clean up with `c` again.
+
+3. Choose **Remove anyway** when you have dealt with the outside resources yourself, or there were none. It removes the worktree without running the teardown a second time — a command that just failed would only fail again and trap you in the same dialog.
+
+Make the teardown idempotent: it may well run against a worktree it has already torn down (a retry, or a stale worktree being recreated).
+
 ## PR Creation Failures
 
 **Symptom:** Auto-PR creation fails after a PRD completes.

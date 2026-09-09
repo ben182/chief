@@ -341,7 +341,7 @@ Both commands fail with a non-zero exit status when:
 
 - the PRD has no worktree at the resolved path (nothing is run — start the PRD in chief to create it),
 - no `worktree.setup` / `worktree.teardown` command is configured in `.chief/config.yaml`,
-- the command itself exits non-zero or hits `worktree.setupTimeoutSeconds`.
+- the command itself exits non-zero, or a setup outlives `worktree.setupTimeoutSeconds` (that key bounds the setup only — a teardown is never killed).
 
 **Arguments:**
 
@@ -390,7 +390,7 @@ When Chief is running, the TUI provides real-time feedback and interactive contr
 | `1-9` | **Quick switch** to PRD tabs 1-9 |
 | `e` | **Edit** current PRD (from any main view) |
 | `m` | **Merge** completed PRD's branch into main (in picker or completion screen) |
-| `c` | **Clean** worktree and optionally delete branch (in picker or completion screen) |
+| `c` | **Clean** worktree and optionally delete branch (in picker or completion screen). Runs `worktree.teardown` inside the worktree first; a non-zero exit keeps the worktree and asks |
 
 ### Settings
 

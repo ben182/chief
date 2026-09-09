@@ -146,8 +146,8 @@ When running multiple PRDs simultaneously, each PRD can work in its own isolated
 
 When you start a PRD, Chief offers to create a worktree:
 - A new branch is created (e.g., `chief/auth-system`) from your default branch, or from whatever [`worktree.baseBranch`](../reference/configuration.md#config-keys) names — `develop`, say — when you have set it
-- A worktree is set up at `.chief/worktrees/<prd-name>/`
-- Any configured setup command runs automatically (e.g., `npm install`)
+- A worktree is set up at `.chief/worktrees/<prd-name>/`, or wherever the [`worktree.dir`](../reference/configuration.md#config-keys) template points when you have changed it — `git worktree list` always says where
+- Any configured setup command runs automatically (e.g., `npm install`), streamed into the spinner while it runs and written to `.chief/prds/<prd-name>/setup-<timestamp>.log`
 
 Each worktree is a full checkout of your project, so the agent can read, write, and run tests independently. When the PRD completes, you can merge the branch back, push it to a remote, or have Chief automatically create a pull request.
 
@@ -166,7 +166,7 @@ Autonomous doesn't mean unattended. The TUI lets you:
 - **Switch projects**: Press `l` to list PRDs, `n` to create a new one, or `1-9` to jump directly
 - **Resume anytime**: Walk away, come back, press `s`. Chief picks up where you left off
 - **Merge branches**: Press `m` in the picker to merge a completed branch
-- **Clean worktrees**: Press `c` in the picker to remove a worktree and optionally delete the branch
+- **Clean worktrees**: Press `c` in the picker to remove a worktree and optionally delete the branch — a configured [`worktree.teardown`](../reference/configuration.md#config-keys) runs inside it first, and cancels the removal if it fails
 - **Configure settings**: Press `,` to open the Settings overlay
 
 ## After the Loop: Follow-ups

@@ -21,10 +21,12 @@ your-project/
     │       ├── prd.md                        # Structured PRD (you write, Chief reads/updates)
     │       ├── progress.md                   # Progress log (Chief appends after each story)
     │       ├── todos.md                       # Optional follow-up inbox (fed to `chief followup`)
-    │       └── claude-<timestamp>.log        # Raw agent output — one file per run (for debugging)
+    │       ├── claude-<timestamp>.log        # Raw agent output — one file per run (for debugging)
+    │       ├── setup-<timestamp>.log         # Output of a worktree.setup run
+    │       └── teardown-<timestamp>.log      # Output of a worktree.teardown run
     ├── archive/                # Archived PRDs (hidden from the tab bar)
     │   └── old-feature/        # Same layout as a prds/ entry, restorable
-    └── worktrees/              # Isolated checkouts for parallel PRDs
+    └── worktrees/              # Isolated checkouts for parallel PRDs (default location)
         └── my-feature/         # Git worktree (full project checkout)
 ```
 
@@ -32,7 +34,7 @@ The root `.chief/` directory contains:
 - `config.yaml` — Project-level settings (see [Configuration](/reference/configuration))
 - `prds/` — One subdirectory per PRD with requirements, state, and logs
 - `archive/` — Archived PRDs, moved out of `prds/` so they no longer clutter the tab bar (created on first archive)
-- `worktrees/` — Git worktrees for parallel PRD isolation (created on demand)
+- `worktrees/` — Git worktrees for parallel PRD isolation (created on demand, and only where [`worktree.dir`](/reference/configuration#config-keys) leaves them — the default)
 
 ## The `prds/` Subdirectory
 
@@ -118,7 +120,7 @@ Each run writes its own timestamped file — `claude-2026-02-18-143012.log` (or 
 
 ## The `worktrees/` Subdirectory
 
-When you run multiple PRDs in parallel, each PRD can get its own isolated git worktree under `.chief/worktrees/`. A worktree is a full checkout of your project on a separate branch, so parallel agent instances never conflict over files or git state.
+When you run multiple PRDs in parallel, each PRD can get its own isolated git worktree — by default under `.chief/worktrees/`. A worktree is a full checkout of your project on a separate branch, so parallel agent instances never conflict over files or git state.
 
 ```
 .chief/worktrees/
@@ -127,11 +129,34 @@ When you run multiple PRDs in parallel, each PRD can get its own isolated git wo
 ```
 
 Worktrees are created when you choose "Create worktree + branch" from the start dialog. Each worktree:
-- Has its own branch (named `chief/<prd-name>`)
+- Has its own branch (named `chief/<prd-name>`), cut from your default branch or from [`worktree.baseBranch`](/reference/configuration#config-keys) when you have set one
 - Is a complete copy of your project
-- Runs the configured setup command (e.g., `npm install`) automatically
+- Runs the configured [`worktree.setup`](/reference/configuration#config-keys) command (e.g., `npm install`) automatically, with the PRD name, branch and paths in its environment
 
-You can merge completed branches via `m` in the picker, and clean up worktrees via `c`.
+### Where they live
+
+`.chief/worktrees/<prd-name>` is a default, not a rule. [`worktree.dir`](/reference/configuration#config-keys) is a path template — `{prd}`, `{repo}` and `{branch}` are substituted — and a relative template is resolved against the main checkout, so `../{repo}-worktrees/{prd}` puts worktrees *beside* the project. That is the setting for a bundler, test runner or editor index that trips over a second copy of the repo nested inside the project.
+
+Because the location is configurable, don't assume the path: `git worktree list` is the reliable way to see where a PRD's worktree actually sits. Chief resolves them the same way, so orphan detection and cleanup follow the template.
+
+A worktree **inside** the checkout is a second full copy of your tree, which the containing repository would otherwise report as hundreds of untracked files. So before creating one, Chief adds the directory that *holds* the worktrees — `.chief/worktrees/` for the default template, one line covering every PRD — to the main checkout's `.gitignore`, under a `# chief worktrees` comment. It writes nothing when `git check-ignore` says the path is already covered (a global ignore file, or an existing `.chief` entry), and nothing at all for a location outside the repository or directly in its root.
+
+### Setup and teardown output
+
+Both worktree commands are recorded in the PRD's own directory, one file per run:
+
+```
+.chief/prds/<prd>/setup-2026-09-09-142530.log
+.chief/prds/<prd>/teardown-2026-09-09-151204.log
+```
+
+Each file starts with the command that was run, and the PRD directory's `.gitignore` already ignores `*.log`, so these stay out of version control like the agent logs next to them. While a setup runs, its last few lines are shown live in the spinner; when one fails, the TUI names the log file instead of pasting the whole output into a modal.
+
+You can also run either command by hand, against a worktree that already exists, with [`chief worktree setup <prd>` / `chief worktree teardown <prd>`](/reference/cli#chief-worktree) — the way to retry a setup after fixing the script.
+
+### Removing them
+
+You can merge completed branches via `m` in the picker, and clean up worktrees via `c`. If [`worktree.teardown`](/reference/configuration#config-keys) is configured, it runs **inside** the worktree right before `git worktree remove`, so resources that live outside git — a per-worktree database, a web-server link, containers — disappear with the directory instead of being orphaned. A teardown that exits non-zero **cancels the removal**: the worktree is kept, and a dialog shows the tail of the output plus the path of its log file, with the option to remove it anyway.
 
 ## Archiving PRDs
 
