@@ -164,3 +164,29 @@ func TestWorktreeSpinnerGivesEverySetupLineExactlyOneRow(t *testing.T) {
 		t.Errorf("a long setup line renders %d rows where a short one renders %d — it wrapped instead of being shortened", long, short)
 	}
 }
+
+// A failed teardown gets the same treatment as a failed setup: the dialog keeps
+// the tail that usually holds the error, and names the file holding the rest.
+func TestTeardownFailureDialogNamesTheLogFile(t *testing.T) {
+	a := cleanApp(t, "make drop-db", "chief/auth", 1) // "Remove worktree only"
+	logPath := filepath.Join(a.baseDir, ".chief", "prds", "auth", "teardown-2026-09-09-151204.log")
+
+	a.runTeardown = func(wt git.WorktreeContext, teardown string, opts git.RunOptions) (git.RunResult, error) {
+		return git.RunResult{Output: "database is still in use", LogPath: logPath}, errors.New("exit status 1")
+	}
+	a.removeWorktree = func(repoDir, worktreePath string) error { return nil }
+
+	_, cmd := a.handlePickerKeys(key("enter"))
+	if cmd == nil {
+		t.Fatal("expected a clean command")
+	}
+	model, _ := a.handleTeardownFailed(cmd().(teardownFailedMsg))
+
+	tf := model.(App).picker.GetTeardownFailure()
+	if tf == nil {
+		t.Fatal("expected the teardown failure dialog")
+	}
+	if want := filepath.Join(".chief", "prds", "auth", "teardown-2026-09-09-151204.log"); tf.LogPath != want {
+		t.Errorf("dialog log path = %q, want %q relative to the repository", tf.LogPath, want)
+	}
+}
