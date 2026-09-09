@@ -1,11 +1,14 @@
 package tui
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/ben182/chief/internal/config"
 	"github.com/ben182/chief/internal/loop"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -547,5 +550,177 @@ func TestParseMergeSuccessMessageWithoutRepoFallsBackToGenericTarget(t *testing.
 	}
 	if !strings.Contains(got, "current branch") {
 		t.Errorf("expected the generic target fallback, got %q", got)
+	}
+}
+
+// cleanApp builds a picker App whose selected entry has a worktree, with the
+// clean confirmation already open on the given option.
+func cleanApp(t *testing.T, teardown, branch string, option int) *App {
+	t.Helper()
+	base := t.TempDir()
+	writePRDFixture(t, base, "auth", "todo")
+	a := pickerApp(t, base, "auth")
+	a.config = &config.Config{Worktree: config.WorktreeConfig{Teardown: teardown}}
+	a.picker.entries = []PRDEntry{{
+		Name:        "auth",
+		Path:        filepath.Join(base, ".chief", "prds", "auth", "prd.md"),
+		Branch:      branch,
+		WorktreeDir: filepath.Join(base, ".chief", "worktrees", "auth"),
+		LoopState:   loop.LoopStateReady,
+	}}
+	a.picker.selectedIndex = 0
+	a.picker.StartCleanConfirmation()
+	for i := 0; i < option; i++ {
+		a.picker.CleanConfirmMoveDown()
+	}
+	return a
+}
+
+// recordCleanCalls replaces the teardown and the removal with recorders, so a
+// test can assert which ran and in which order. The returned slice pointer is
+// filled when the clean command runs.
+func recordCleanCalls(a *App, teardownOut string, teardownErr error) *[]string {
+	calls := &[]string{}
+	a.runTeardown = func(worktreePath, teardown string) (string, error) {
+		*calls = append(*calls, "teardown:"+teardown)
+		return teardownOut, teardownErr
+	}
+	a.removeWorktree = func(repoDir, worktreePath string) error {
+		*calls = append(*calls, "remove")
+		return nil
+	}
+	return calls
+}
+
+// The teardown owns what git does not — databases, web-server links. It has to
+// run while the worktree is still there, so the order is the behaviour.
+func TestCleanRunsTeardownBeforeRemovingTheWorktree(t *testing.T) {
+	a := cleanApp(t, "make drop-db", "", 0) // "Remove worktree + delete branch"
+	calls := recordCleanCalls(a, "", nil)
+
+	_, cmd := a.handlePickerKeys(key("enter"))
+	if cmd == nil {
+		t.Fatal("expected a clean command")
+	}
+	msg := cmd()
+
+	want := []string{"teardown:make drop-db", "remove"}
+	if got := *calls; !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected %v, got %v", want, got)
+	}
+	res, ok := msg.(cleanResultMsg)
+	if !ok {
+		t.Fatalf("expected a cleanResultMsg, got %T", msg)
+	}
+	if !res.success {
+		t.Errorf("expected success, got message %q", res.message)
+	}
+}
+
+func TestCleanWorktreeOnlyOptionRunsTeardownToo(t *testing.T) {
+	a := cleanApp(t, "make drop-db", "chief/auth", 1) // "Remove worktree only"
+	calls := recordCleanCalls(a, "", nil)
+
+	_, cmd := a.handlePickerKeys(key("enter"))
+	if cmd == nil {
+		t.Fatal("expected a clean command")
+	}
+	msg := cmd()
+
+	want := []string{"teardown:make drop-db", "remove"}
+	if got := *calls; !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected %v, got %v", want, got)
+	}
+	if res := msg.(cleanResultMsg); res.clearBranch {
+		t.Error("expected the branch kept for the worktree-only option")
+	}
+}
+
+// Without a configured teardown the clean flow stays what it was: one git call.
+func TestCleanWithoutTeardownOnlyRemoves(t *testing.T) {
+	a := cleanApp(t, "", "", 0)
+	calls := recordCleanCalls(a, "", nil)
+
+	_, cmd := a.handlePickerKeys(key("enter"))
+	if cmd == nil {
+		t.Fatal("expected a clean command")
+	}
+	msg := cmd()
+
+	if got := *calls; !reflect.DeepEqual(got, []string{"remove"}) {
+		t.Fatalf("expected the removal alone, got %v", got)
+	}
+	if res := msg.(cleanResultMsg); res.message != "Removed worktree for auth" {
+		t.Errorf("unexpected message %q", res.message)
+	}
+}
+
+func TestCleanKeepsTheWorktreeWhenTeardownFails(t *testing.T) {
+	a := cleanApp(t, "make drop-db", "chief/auth", 0)
+	calls := recordCleanCalls(a, "dropdb: database in use", errors.New("exit status 1"))
+
+	_, cmd := a.handlePickerKeys(key("enter"))
+	if cmd == nil {
+		t.Fatal("expected a clean command")
+	}
+	msg := cmd()
+
+	if got := *calls; !reflect.DeepEqual(got, []string{"teardown:make drop-db"}) {
+		t.Fatalf("expected the removal skipped, got %v", got)
+	}
+
+	after, _ := a.Update(msg)
+	failure := after.(App).picker.GetTeardownFailure()
+	if failure == nil {
+		t.Fatal("expected the failure offered to the user")
+	}
+	if !strings.Contains(failure.Output, "database in use") {
+		t.Errorf("expected the command's output, got %q", failure.Output)
+	}
+	if !failure.ClearBranch {
+		t.Error("expected the pending branch deletion carried over")
+	}
+}
+
+func TestTeardownFailureRemoveAnywaySkipsTheTeardown(t *testing.T) {
+	a := cleanApp(t, "make drop-db", "", 0)
+	a.picker.SetTeardownFailure(&TeardownFailure{
+		EntryName:    "auth",
+		WorktreePath: filepath.Join(a.baseDir, ".chief", "worktrees", "auth"),
+		Command:      "make drop-db",
+		Output:       "dropdb: database in use",
+	})
+	calls := recordCleanCalls(a, "", errors.New("exit status 1"))
+
+	_, cmd := a.handlePickerKeys(key("enter")) // "Remove anyway" is the first option
+	if cmd == nil {
+		t.Fatal("expected a clean command")
+	}
+	msg := cmd()
+
+	// Retrying the teardown would fail again and trap the user in the dialog.
+	if got := *calls; !reflect.DeepEqual(got, []string{"remove"}) {
+		t.Fatalf("expected the removal alone, got %v", got)
+	}
+	if res, ok := msg.(cleanResultMsg); !ok || !res.success {
+		t.Errorf("expected a successful clean, got %#v", msg)
+	}
+}
+
+func TestTeardownFailureKeepsTheWorktreeOnCancel(t *testing.T) {
+	a := cleanApp(t, "make drop-db", "", 0)
+	a.picker.SetTeardownFailure(&TeardownFailure{EntryName: "auth", Output: "boom"})
+	calls := recordCleanCalls(a, "", nil)
+
+	model, cmd := a.handlePickerKeys(key("esc"))
+
+	if cmd != nil {
+		t.Error("expected no command after cancelling")
+	}
+	if got := *calls; len(got) != 0 {
+		t.Errorf("expected nothing run, got %v", got)
+	}
+	if model.(App).picker.HasTeardownFailure() {
+		t.Error("expected the dialog dismissed")
 	}
 }

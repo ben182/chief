@@ -673,6 +673,70 @@ func TestCleanResultErrorRendering(t *testing.T) {
 	}
 }
 
+// A failed teardown leaves resources behind that only its own output explains,
+// so the dialog has to show that output — and a way past it.
+func TestTeardownFailureRendering(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		width:    80,
+		height:   24,
+		entries: []PRDEntry{
+			{Name: "auth"},
+		},
+		teardownFailure: &TeardownFailure{
+			EntryName:    "auth",
+			WorktreePath: "/project/.chief/worktrees/auth",
+			Command:      "make drop-db",
+			Output:       "dropdb: database is being accessed by other users",
+			Error:        "exit status 1",
+		},
+	}
+
+	result := p.Render()
+	if !containsText(result, "Teardown Failed") {
+		t.Errorf("expected 'Teardown Failed' in render, got: %s", stripAnsi(result))
+	}
+	if !containsText(result, "make drop-db") {
+		t.Errorf("expected the failed command in render, got: %s", stripAnsi(result))
+	}
+	if !containsText(result, "database is being accessed") {
+		t.Errorf("expected the command's output in render, got: %s", stripAnsi(result))
+	}
+	if !containsText(result, "Remove anyway") {
+		t.Errorf("expected the 'Remove anyway' option in render, got: %s", stripAnsi(result))
+	}
+	if !containsText(result, "worktree was kept") {
+		t.Errorf("expected the kept worktree stated in render, got: %s", stripAnsi(result))
+	}
+}
+
+func TestTeardownFailureNavigation(t *testing.T) {
+	p := &PRDPicker{
+		teardownFailure: &TeardownFailure{EntryName: "auth"},
+	}
+
+	// "Remove anyway" is first, so the default answer is not to keep going.
+	if !p.TeardownRemoveAnyway() {
+		t.Error("expected the first option to be 'Remove anyway'")
+	}
+
+	p.TeardownFailureMoveDown()
+	if p.TeardownRemoveAnyway() {
+		t.Error("expected the second option to keep the worktree")
+	}
+
+	p.TeardownFailureMoveDown()
+	if p.teardownFailure.SelectedIdx != 1 {
+		t.Errorf("expected the selection clamped at 1, got %d", p.teardownFailure.SelectedIdx)
+	}
+
+	p.TeardownFailureMoveUp()
+	p.TeardownFailureMoveUp()
+	if p.teardownFailure.SelectedIdx != 0 {
+		t.Errorf("expected the selection clamped at 0, got %d", p.teardownFailure.SelectedIdx)
+	}
+}
+
 func TestCleanResultClearsOnDismiss(t *testing.T) {
 	p := &PRDPicker{
 		basePath: "/project",

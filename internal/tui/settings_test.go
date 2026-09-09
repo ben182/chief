@@ -35,6 +35,28 @@ func configLeafKeys(t *testing.T, typ reflect.Type, prefix string) []string {
 	return keys
 }
 
+// itemIndex returns the position of the row carrying the given config key.
+// Tests address rows by key rather than by number so inserting a setting —
+// "worktree.teardown" landed in the middle of the list — doesn't renumber them.
+func itemIndex(t *testing.T, s *SettingsOverlay, key string) int {
+	t.Helper()
+
+	for i, item := range s.items {
+		if item.Key == key {
+			return i
+		}
+	}
+	t.Fatalf("no settings row for key %q", key)
+	return -1
+}
+
+// selectItem moves the selection onto the row carrying the given config key.
+func selectItem(t *testing.T, s *SettingsOverlay, key string) {
+	t.Helper()
+
+	s.selectedIndex = itemIndex(t, s, key)
+}
+
 // TestSettingsOverlay_CoversEveryConfigKey pins the overlay to the config
 // struct. The overlay used to expose a hand-picked seven of the config's
 // settings, so every key added since — the per-phase review and consolidation
@@ -126,7 +148,8 @@ func TestSettingsOverlay_LoadFromConfig(t *testing.T) {
 	s := NewSettingsOverlay()
 	cfg := &config.Config{
 		Worktree: config.WorktreeConfig{
-			Setup: "npm install",
+			Setup:    "npm install",
+			Teardown: "make drop-db",
 		},
 		OnComplete: config.OnCompleteConfig{
 			Push:         true,
@@ -136,27 +159,25 @@ func TestSettingsOverlay_LoadFromConfig(t *testing.T) {
 	}
 	s.LoadFromConfig(cfg)
 
-	if s.items[0].Key != "worktree.setup" || s.items[0].StringVal != "npm install" {
-		t.Errorf("worktree.setup item: got key=%s val=%s", s.items[0].Key, s.items[0].StringVal)
+	if got := s.items[itemIndex(t, s, "worktree.setup")].StringVal; got != "npm install" {
+		t.Errorf("worktree.setup item: got val=%s", got)
 	}
-	if s.items[1].Key != "onComplete.push" || !s.items[1].BoolVal {
-		t.Errorf("onComplete.push item: got key=%s val=%v", s.items[1].Key, s.items[1].BoolVal)
+	if got := s.items[itemIndex(t, s, "worktree.teardown")].StringVal; got != "make drop-db" {
+		t.Errorf("worktree.teardown item: got val=%s", got)
 	}
-	if s.items[2].Key != "onComplete.createPR" || s.items[2].BoolVal {
-		t.Errorf("onComplete.createPR item: got key=%s val=%v", s.items[2].Key, s.items[2].BoolVal)
+	if !s.items[itemIndex(t, s, "onComplete.push")].BoolVal {
+		t.Error("onComplete.push item: expected true")
 	}
-	if s.items[3].Key != "onComplete.prBaseBranch" || s.items[3].StringVal != "develop" {
-		t.Errorf("onComplete.prBaseBranch item: got key=%s val=%s", s.items[3].Key, s.items[3].StringVal)
+	if s.items[itemIndex(t, s, "onComplete.createPR")].BoolVal {
+		t.Error("onComplete.createPR item: expected false")
 	}
-	if s.items[4].Key != "onComplete.summary" {
-		t.Errorf("onComplete.summary item: got key=%s", s.items[4].Key)
+	if got := s.items[itemIndex(t, s, "onComplete.prBaseBranch")].StringVal; got != "develop" {
+		t.Errorf("onComplete.prBaseBranch item: got val=%s", got)
 	}
-	if s.items[5].Key != "onComplete.notify" {
-		t.Errorf("onComplete.notify item: got key=%s", s.items[5].Key)
-	}
-	if s.items[6].Key != "loop.keepAwake" {
-		t.Errorf("loop.keepAwake item: got key=%s", s.items[6].Key)
-	}
+	// The remaining keys only need to exist; itemIndex fails the test otherwise.
+	itemIndex(t, s, "onComplete.summary")
+	itemIndex(t, s, "onComplete.notify")
+	itemIndex(t, s, "loop.keepAwake")
 	if s.selectedIndex != 0 {
 		t.Errorf("expected selectedIndex=0, got %d", s.selectedIndex)
 	}
@@ -168,16 +189,20 @@ func TestSettingsOverlay_ApplyToConfig(t *testing.T) {
 	s.LoadFromConfig(cfg)
 
 	// Modify items
-	s.items[0].StringVal = "go mod download"
-	s.items[1].BoolVal = true
-	s.items[2].BoolVal = true
-	s.items[3].StringVal = "develop"
+	s.items[itemIndex(t, s, "worktree.setup")].StringVal = "go mod download"
+	s.items[itemIndex(t, s, "worktree.teardown")].StringVal = "make drop-db"
+	s.items[itemIndex(t, s, "onComplete.push")].BoolVal = true
+	s.items[itemIndex(t, s, "onComplete.createPR")].BoolVal = true
+	s.items[itemIndex(t, s, "onComplete.prBaseBranch")].StringVal = "develop"
 
 	resultCfg := config.Default()
 	s.ApplyToConfig(resultCfg)
 
 	if resultCfg.Worktree.Setup != "go mod download" {
 		t.Errorf("expected setup='go mod download', got '%s'", resultCfg.Worktree.Setup)
+	}
+	if resultCfg.Worktree.Teardown != "make drop-db" {
+		t.Errorf("expected teardown='make drop-db', got '%s'", resultCfg.Worktree.Teardown)
 	}
 	if !resultCfg.OnComplete.Push {
 		t.Error("expected push=true")
@@ -246,8 +271,7 @@ func TestSettingsOverlay_ToggleBool(t *testing.T) {
 	}
 	s.LoadFromConfig(cfg)
 
-	// Select "Push to remote" (index 1)
-	s.MoveDown()
+	selectItem(t, s, "onComplete.push")
 
 	key, val := s.ToggleBool()
 	if key != "onComplete.push" {
@@ -283,14 +307,15 @@ func TestSettingsOverlay_RevertToggle(t *testing.T) {
 	}
 	s.LoadFromConfig(cfg)
 
-	s.MoveDown() // Select "Push to remote"
+	selectItem(t, s, "onComplete.push")
+	push := itemIndex(t, s, "onComplete.push")
 	s.ToggleBool()
-	if !s.items[1].BoolVal {
+	if !s.items[push].BoolVal {
 		t.Fatal("expected true after toggle")
 	}
 
 	s.RevertToggle()
-	if s.items[1].BoolVal {
+	if s.items[push].BoolVal {
 		t.Error("expected false after revert")
 	}
 }
@@ -355,7 +380,7 @@ func TestSettingsOverlay_CancelEdit(t *testing.T) {
 func TestSettingsOverlay_StartEditingOnBoolItem(t *testing.T) {
 	s := NewSettingsOverlay()
 	s.LoadFromConfig(config.Default())
-	s.MoveDown() // Select "Push to remote" (bool)
+	selectItem(t, s, "onComplete.push")
 
 	s.StartEditing()
 	if s.IsEditing() {
@@ -903,8 +928,8 @@ func TestSettingsOverlay_GetSelectedItem(t *testing.T) {
 
 	s.MoveDown()
 	item = s.GetSelectedItem()
-	if item.Key != "onComplete.push" {
-		t.Errorf("expected second item key='onComplete.push', got '%s'", item.Key)
+	if item.Key != "worktree.teardown" {
+		t.Errorf("expected second item key='worktree.teardown', got '%s'", item.Key)
 	}
 }
 

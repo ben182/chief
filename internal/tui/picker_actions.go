@@ -43,6 +43,12 @@ func (a App) handlePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Handle the teardown failure dialog: it asks whether to remove the worktree
+	// anyway, so it can't be dismissed by just any key.
+	if a.picker.HasTeardownFailure() {
+		return a.handleTeardownFailureKeys(msg)
+	}
+
 	// Dismiss clean result on any key
 	if a.picker.HasCleanResult() {
 		a.picker.ClearCleanResult()

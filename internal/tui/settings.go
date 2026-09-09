@@ -106,6 +106,7 @@ func copyTri(b *bool) *bool {
 func (s *SettingsOverlay) LoadFromConfig(cfg *config.Config) {
 	s.items = []SettingsItem{
 		{Section: "Worktree", Label: "Setup command", Key: "worktree.setup", Type: SettingsItemString, StringVal: cfg.Worktree.Setup},
+		{Section: "Worktree", Label: "Teardown command", Key: "worktree.teardown", Type: SettingsItemString, StringVal: cfg.Worktree.Teardown, Placeholder: "(nothing to tear down)"},
 		{Section: "On Complete", Label: "Push to remote", Key: "onComplete.push", Type: SettingsItemBool, BoolVal: cfg.OnComplete.Push},
 		{Section: "On Complete", Label: "Create pull request", Key: "onComplete.createPR", Type: SettingsItemBool, BoolVal: cfg.OnComplete.CreatePR},
 		{Section: "On Complete", Label: "PR base branch", Key: "onComplete.prBaseBranch", Type: SettingsItemString, StringVal: cfg.OnComplete.PRBaseBranch, Placeholder: "(branch it came from)"},
@@ -145,6 +146,8 @@ func (s *SettingsOverlay) ApplyToConfig(cfg *config.Config) {
 		switch item.Key {
 		case "worktree.setup":
 			cfg.Worktree.Setup = item.StringVal
+		case "worktree.teardown":
+			cfg.Worktree.Teardown = item.StringVal
 		case "onComplete.push":
 			cfg.OnComplete.Push = item.BoolVal
 		case "onComplete.createPR":

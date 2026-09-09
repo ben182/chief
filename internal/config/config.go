@@ -136,6 +136,12 @@ type AgentConfig struct {
 // WorktreeConfig holds worktree-related settings.
 type WorktreeConfig struct {
 	Setup string `yaml:"setup"`
+	// Teardown is a shell command run inside a worktree right before chief
+	// removes it, so resources living outside git — databases, web-server
+	// links, containers — disappear along with the directory. Empty (the
+	// default) keeps removal a pure git operation. A failing teardown aborts
+	// the removal so nothing is lost silently.
+	Teardown string `yaml:"teardown"`
 }
 
 // OnCompleteConfig holds post-completion automation settings.

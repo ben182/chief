@@ -95,6 +95,13 @@ type App struct {
 	// Worktree setup spinner
 	worktreeSpinner *WorktreeSpinner
 
+	// runTeardown and removeWorktree are the two halves of cleaning a worktree.
+	// Fields rather than direct calls so a test can pin the order — the teardown
+	// has to finish before the directory goes away — without staging a real
+	// worktree and a real database. Nil means the real implementation.
+	runTeardown    func(worktreePath, teardown string) (string, error)
+	removeWorktree func(repoDir, worktreePath string) error
+
 	// Completion screen
 	completionScreen *CompletionScreen
 
@@ -374,6 +381,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case cleanResultMsg:
 		return a.handleCleanResult(msg)
+
+	case teardownFailedMsg:
+		return a.handleTeardownFailed(msg)
 
 	case autoActionResultMsg:
 		return a.handleAutoActionResult(msg)
@@ -1147,9 +1157,12 @@ func (a App) handleCompletionKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (a *App) runWorktreeStep(step WorktreeSpinnerStep, baseDir, worktreePath, branchName string) tea.Cmd {
 	switch step {
 	case SpinnerStepCreateBranch:
+		// A stale worktree on the wrong branch is removed here, so the teardown
+		// has to come along.
+		teardown := a.teardownCommand()
 		return func() tea.Msg {
 			// CreateWorktree handles both branch creation and worktree addition
-			if err := git.CreateWorktree(baseDir, worktreePath, branchName); err != nil {
+			if err := git.CreateWorktree(baseDir, worktreePath, branchName, teardown); err != nil {
 				return worktreeStepResultMsg{step: SpinnerStepCreateBranch, err: err}
 			}
 			return worktreeStepResultMsg{step: SpinnerStepCreateBranch}
@@ -1289,42 +1302,136 @@ func (a App) handleCleanConfirmationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		prdName := cc.EntryName
 		branch := cc.Branch
 		clearBranch := option == CleanOptionRemoveAll
-		baseDir := a.baseDir
-		worktreePath := git.WorktreePathForPRD(baseDir, prdName)
+		worktreePath := git.WorktreePathForPRD(a.baseDir, prdName)
 
-		return a, func() tea.Msg {
-			// Remove the worktree
-			if err := git.RemoveWorktree(baseDir, worktreePath); err != nil {
-				return cleanResultMsg{
-					prdName: prdName,
-					success: false,
-					message: fmt.Sprintf("Failed to remove worktree: %s", err.Error()),
+		// Both removal options tear down first: the branch is beside the point,
+		// what matters is that the directory is about to go away.
+		return a, a.cleanWorktreeCmd(prdName, branch, worktreePath, a.teardownCommand(), clearBranch)
+	}
+
+	return a, nil
+}
+
+// teardownCommand returns the configured worktree teardown command, trimmed.
+// Empty — no config, or nothing configured — means removal stays a pure git
+// operation.
+func (a App) teardownCommand() string {
+	if a.config == nil {
+		return ""
+	}
+	return strings.TrimSpace(a.config.Worktree.Teardown)
+}
+
+// cleanWorktreeCmd removes a PRD's worktree and, when asked, its branch.
+//
+// teardown is passed in rather than read from the config here so "Remove
+// anyway" can retry the removal without it: re-running a command that just
+// failed would only trap the user in the same dialog. A failing teardown stops
+// the removal — it owns databases and web-server links that git knows nothing
+// about, and a removed directory would orphan them.
+func (a App) cleanWorktreeCmd(prdName, branch, worktreePath, teardown string, clearBranch bool) tea.Cmd {
+	runTeardown := a.runTeardown
+	if runTeardown == nil {
+		runTeardown = git.RunTeardown
+	}
+	removeWorktree := a.removeWorktree
+	if removeWorktree == nil {
+		removeWorktree = git.RemoveWorktree
+	}
+	baseDir := a.baseDir
+
+	return func() tea.Msg {
+		if teardown != "" {
+			out, err := runTeardown(worktreePath, teardown)
+			if err != nil {
+				return teardownFailedMsg{
+					prdName:      prdName,
+					branch:       branch,
+					worktreePath: worktreePath,
+					command:      teardown,
+					output:       out,
+					err:          err,
+					clearBranch:  clearBranch,
 				}
-			}
-
-			// Delete branch if requested
-			if clearBranch && branch != "" {
-				if err := git.DeleteBranch(baseDir, branch); err != nil {
-					return cleanResultMsg{
-						prdName:     prdName,
-						success:     true,
-						message:     fmt.Sprintf("Removed worktree but failed to delete branch: %s", err.Error()),
-						clearBranch: false,
-					}
-				}
-			}
-
-			msg := fmt.Sprintf("Removed worktree for %s", prdName)
-			if clearBranch && branch != "" {
-				msg = fmt.Sprintf("Removed worktree and deleted branch %s", branch)
-			}
-			return cleanResultMsg{
-				prdName:     prdName,
-				success:     true,
-				message:     msg,
-				clearBranch: clearBranch,
 			}
 		}
+
+		// Remove the worktree
+		if err := removeWorktree(baseDir, worktreePath); err != nil {
+			return cleanResultMsg{
+				prdName: prdName,
+				success: false,
+				message: fmt.Sprintf("Failed to remove worktree: %s", err.Error()),
+			}
+		}
+
+		// Delete branch if requested
+		if clearBranch && branch != "" {
+			if err := git.DeleteBranch(baseDir, branch); err != nil {
+				return cleanResultMsg{
+					prdName:     prdName,
+					success:     true,
+					message:     fmt.Sprintf("Removed worktree but failed to delete branch: %s", err.Error()),
+					clearBranch: false,
+				}
+			}
+		}
+
+		msg := fmt.Sprintf("Removed worktree for %s", prdName)
+		if clearBranch && branch != "" {
+			msg = fmt.Sprintf("Removed worktree and deleted branch %s", branch)
+		}
+		return cleanResultMsg{
+			prdName:     prdName,
+			success:     true,
+			message:     msg,
+			clearBranch: clearBranch,
+		}
+	}
+}
+
+// handleTeardownFailed shows a failed teardown and lets the user decide: fix the
+// cause and clean again, or remove the worktree anyway.
+func (a App) handleTeardownFailed(msg teardownFailedMsg) (tea.Model, tea.Cmd) {
+	a.picker.CancelCleanConfirmation()
+	a.picker.SetTeardownFailure(&TeardownFailure{
+		EntryName:    msg.prdName,
+		Branch:       msg.branch,
+		WorktreePath: msg.worktreePath,
+		ClearBranch:  msg.clearBranch,
+		Command:      msg.command,
+		Output:       msg.output,
+		Error:        msg.err.Error(),
+	})
+	a.lastActivity = fmt.Sprintf("Teardown failed for %s", msg.prdName)
+	return a, nil
+}
+
+// handleTeardownFailureKeys handles keyboard input for the teardown failure dialog.
+func (a App) handleTeardownFailureKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	tf := a.picker.GetTeardownFailure()
+	if tf == nil {
+		return a, nil
+	}
+
+	switch msg.String() {
+	case "esc":
+		a.picker.ClearTeardownFailure()
+		return a, nil
+	case "up", "k":
+		a.picker.TeardownFailureMoveUp()
+		return a, nil
+	case "down", "j":
+		a.picker.TeardownFailureMoveDown()
+		return a, nil
+	case "enter":
+		if !a.picker.TeardownRemoveAnyway() {
+			a.picker.ClearTeardownFailure()
+			return a, nil
+		}
+		prdName, branch, worktreePath, clearBranch := tf.EntryName, tf.Branch, tf.WorktreePath, tf.ClearBranch
+		a.picker.ClearTeardownFailure()
+		return a, a.cleanWorktreeCmd(prdName, branch, worktreePath, "", clearBranch)
 	}
 
 	return a, nil

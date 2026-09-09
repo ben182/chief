@@ -24,6 +24,52 @@ func TestDefault(t *testing.T) {
 	if cfg.OnComplete.PRBaseBranch != "" {
 		t.Errorf("expected PRBaseBranch to be empty, got %q", cfg.OnComplete.PRBaseBranch)
 	}
+	// Empty means "nothing to tear down", so removing a worktree stays a pure
+	// git operation.
+	if cfg.Worktree.Teardown != "" {
+		t.Errorf("expected Teardown to be empty, got %q", cfg.Worktree.Teardown)
+	}
+}
+
+func TestLoadWorktreeTeardown(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".chief"), 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	yaml := "worktree:\n  setup: npm install\n  teardown: ./scripts/worktree.sh remove --self\n"
+	if err := os.WriteFile(filepath.Join(dir, ".chief", "config.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Worktree.Teardown != "./scripts/worktree.sh remove --self" {
+		t.Errorf("expected teardown command, got %q", cfg.Worktree.Teardown)
+	}
+	if cfg.Worktree.Setup != "npm install" {
+		t.Errorf("expected setup %q, got %q", "npm install", cfg.Worktree.Setup)
+	}
+}
+
+func TestLoadWithoutTeardownKeepsDefault(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".chief"), 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	yaml := "worktree:\n  setup: npm install\n"
+	if err := os.WriteFile(filepath.Join(dir, ".chief", "config.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Worktree.Teardown != "" {
+		t.Errorf("expected Teardown to stay empty, got %q", cfg.Worktree.Teardown)
+	}
 }
 
 func TestLoadPRBaseBranch(t *testing.T) {

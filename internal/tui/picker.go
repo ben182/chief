@@ -60,6 +60,20 @@ type CleanResult struct {
 	Message string // Success or error message
 }
 
+// TeardownFailure holds a worktree teardown that exited non-zero. The worktree
+// is still there: the dialog offers to remove it anyway, and keeps enough of the
+// original clean around to finish it.
+type TeardownFailure struct {
+	EntryName    string // Name of the PRD being cleaned
+	Branch       string // Branch of the pending clean
+	WorktreePath string // Worktree that was not removed
+	ClearBranch  bool   // Whether the pending clean was going to delete the branch
+	Command      string // The teardown command that failed
+	Output       string // Its stdout/stderr, the only clue about what went wrong
+	Error        string // Exit status
+	SelectedIdx  int    // Selected option index (0 = remove anyway, 1 = keep it)
+}
+
 // PRDPicker manages the PRD picker modal state.
 type PRDPicker struct {
 	entries           []PRDEntry
@@ -74,6 +88,7 @@ type PRDPicker struct {
 	mergeResult       *MergeResult       // Result of the last merge operation (nil = none)
 	cleanConfirmation *CleanConfirmation // Active clean confirmation dialog (nil = none)
 	cleanResult       *CleanResult       // Result of the last clean operation (nil = none)
+	teardownFailure   *TeardownFailure   // Failed teardown awaiting a decision (nil = none)
 }
 
 // NewPRDPicker creates a new PRD picker.
@@ -476,6 +491,45 @@ func (p *PRDPicker) HasCleanResult() bool {
 	return p.cleanResult != nil
 }
 
+// SetTeardownFailure opens the teardown failure dialog.
+func (p *PRDPicker) SetTeardownFailure(failure *TeardownFailure) {
+	p.teardownFailure = failure
+}
+
+// ClearTeardownFailure closes the teardown failure dialog.
+func (p *PRDPicker) ClearTeardownFailure() {
+	p.teardownFailure = nil
+}
+
+// HasTeardownFailure returns true if the teardown failure dialog is active.
+func (p *PRDPicker) HasTeardownFailure() bool {
+	return p.teardownFailure != nil
+}
+
+// GetTeardownFailure returns the current teardown failure state.
+func (p *PRDPicker) GetTeardownFailure() *TeardownFailure {
+	return p.teardownFailure
+}
+
+// TeardownFailureMoveUp moves the selection up in the teardown failure dialog.
+func (p *PRDPicker) TeardownFailureMoveUp() {
+	if p.teardownFailure != nil && p.teardownFailure.SelectedIdx > 0 {
+		p.teardownFailure.SelectedIdx--
+	}
+}
+
+// TeardownFailureMoveDown moves the selection down in the teardown failure dialog.
+func (p *PRDPicker) TeardownFailureMoveDown() {
+	if p.teardownFailure != nil && p.teardownFailure.SelectedIdx < 1 {
+		p.teardownFailure.SelectedIdx++
+	}
+}
+
+// TeardownRemoveAnyway reports whether the user picked "Remove anyway".
+func (p *PRDPicker) TeardownRemoveAnyway() bool {
+	return p.teardownFailure != nil && p.teardownFailure.SelectedIdx == 0
+}
+
 // Render renders the PRD picker modal.
 func (p *PRDPicker) Render() string {
 	// Modal dimensions
@@ -487,6 +541,11 @@ func (p *PRDPicker) Render() string {
 	}
 	if modalHeight < 10 {
 		modalHeight = 10
+	}
+
+	// If a teardown failed, that decision comes first
+	if p.teardownFailure != nil {
+		return p.renderTeardownFailure(modalWidth, modalHeight)
 	}
 
 	// If there's a clean result, render that instead
@@ -1005,6 +1064,86 @@ func (p *PRDPicker) renderCleanConfirmation(modalWidth, modalHeight int) string 
 
 	modal := modalStyle.Render(content.String())
 	return centerModal(modal, p.width, p.height)
+}
+
+// renderTeardownFailure renders the dialog for a teardown that exited non-zero.
+// The command's output is the interesting part — it says why the database or the
+// web-server link is still there — so it gets the room, and the offer to remove
+// the worktree anyway sits below it.
+func (p *PRDPicker) renderTeardownFailure(modalWidth, modalHeight int) string {
+	var content strings.Builder
+	tf := p.teardownFailure
+
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ErrorColor).
+		Padding(0, 1)
+	content.WriteString(titleStyle.Render("Teardown Failed"))
+	content.WriteString("\n")
+	content.WriteString(dividerLine(modalWidth))
+	content.WriteString("\n\n")
+
+	infoStyle := lipgloss.NewStyle().
+		Foreground(TextColor).
+		Padding(0, 1)
+	content.WriteString(infoStyle.Render(fmt.Sprintf("PRD: %s", tf.EntryName)))
+	content.WriteString("\n")
+	content.WriteString(infoStyle.Render(fmt.Sprintf("Command: %s", tf.Command)))
+	content.WriteString("\n")
+	if tf.Error != "" {
+		content.WriteString(infoStyle.Render(fmt.Sprintf("Exit: %s", tf.Error)))
+		content.WriteString("\n")
+	}
+	content.WriteString(infoStyle.Render("The worktree was kept."))
+	content.WriteString("\n")
+
+	if output := strings.TrimSpace(tf.Output); output != "" {
+		content.WriteString("\n")
+		outputStyle := lipgloss.NewStyle().Foreground(MutedColor).Padding(0, 1)
+		for _, line := range lastLines(output, teardownOutputLines) {
+			content.WriteString(outputStyle.Render(line))
+			content.WriteString("\n")
+		}
+	}
+	content.WriteString("\n")
+
+	options := []string{"Remove anyway", "Keep the worktree"}
+	for i, label := range options {
+		prefix := "  "
+		style := lipgloss.NewStyle().Foreground(TextColor)
+		if i == tf.SelectedIdx {
+			prefix = "▸ "
+			style = style.Bold(true).Foreground(TextBrightColor)
+		}
+		content.WriteString(style.Render(prefix + label))
+		content.WriteString("\n")
+	}
+
+	content.WriteString("\n")
+	content.WriteString(dividerLine(modalWidth))
+	content.WriteString("\n")
+	footerStyle := lipgloss.NewStyle().
+		Foreground(MutedColor).
+		Padding(0, 1)
+	content.WriteString(footerStyle.Render("↑/k ↓/j: nav  │  Enter: confirm  │  Esc: cancel"))
+
+	modalStyle := modalBoxStyle(ErrorColor).Width(modalWidth).Height(modalHeight)
+
+	modal := modalStyle.Render(content.String())
+	return centerModal(modal, p.width, p.height)
+}
+
+// teardownOutputLines caps how much of a failed teardown's output the dialog
+// shows; the tail is where the error usually is.
+const teardownOutputLines = 8
+
+// lastLines returns at most n trailing lines of s.
+func lastLines(s string, n int) []string {
+	lines := strings.Split(s, "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return lines
 }
 
 // renderCleanResult renders the clean result dialog.

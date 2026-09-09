@@ -46,7 +46,12 @@ func GetDefaultBranch(repoDir string) (string, error) {
 // CreateWorktree creates a branch from the default branch and adds a worktree at the given path.
 // If the worktree path already exists and is a valid worktree on the expected branch, it is reused.
 // If the worktree path exists but is stale (wrong branch or invalid), it is removed and recreated.
-func CreateWorktree(repoDir, worktreePath, branch string) error {
+//
+// teardown, when non-empty, is the configured worktree teardown command; it runs
+// inside a stale worktree before that worktree is removed, and a failing
+// teardown aborts the whole call so nothing outside git is left orphaned. A
+// reused worktree is not torn down.
+func CreateWorktree(repoDir, worktreePath, branch, teardown string) error {
 	absWorktreePath, err := filepath.Abs(worktreePath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve worktree path: %w", err)
@@ -61,6 +66,9 @@ func CreateWorktree(repoDir, worktreePath, branch string) error {
 			return nil
 		}
 		// Stale worktree (wrong branch or invalid), remove and recreate
+		if out, err := RunTeardown(absWorktreePath, teardown); err != nil {
+			return fmt.Errorf("worktree teardown failed: %w\n%s", err, out)
+		}
 		if err := RemoveWorktree(repoDir, absWorktreePath); err != nil {
 			return fmt.Errorf("failed to remove stale worktree: %w", err)
 		}
@@ -87,6 +95,25 @@ func CreateWorktree(repoDir, worktreePath, branch string) error {
 
 	// Add the worktree
 	return runGitChecked(repoDir, "failed to add worktree", "worktree", "add", absWorktreePath, branch)
+}
+
+// RunTeardown runs the configured worktree teardown command inside worktreePath
+// and returns its combined output. An empty command is a no-op, which is what
+// keeps removal a pure git operation for projects that configure nothing.
+//
+// Callers run this before removing a worktree and must not remove it when this
+// returns an error: the teardown owns resources git knows nothing about —
+// databases, web-server links — and removing the directory anyway would orphan
+// them.
+func RunTeardown(worktreePath, teardown string) (string, error) {
+	if strings.TrimSpace(teardown) == "" {
+		return "", nil
+	}
+
+	cmd := exec.Command("sh", "-c", teardown)
+	cmd.Dir = worktreePath
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
 }
 
 // RemoveWorktree removes a git worktree at the given path.

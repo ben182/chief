@@ -73,6 +73,20 @@ type mergeResultMsg struct {
 	err       error
 }
 
+// teardownFailedMsg is sent when a worktree's teardown command exits non-zero,
+// which stops the removal. It carries what the retry needs — the pending branch
+// deletion included — plus the command's output, since that is the only clue the
+// user gets about why their database or web-server link is still there.
+type teardownFailedMsg struct {
+	prdName      string
+	branch       string
+	worktreePath string
+	command      string
+	output       string
+	err          error
+	clearBranch  bool
+}
+
 // cleanResultMsg is sent when a clean operation completes.
 type cleanResultMsg struct {
 	prdName     string

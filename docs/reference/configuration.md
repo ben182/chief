@@ -19,6 +19,7 @@ agent:
   model: ""          # optional model passed via --model (Claude only)
 worktree:
   setup: "npm install"
+  teardown: ""       # shell command run in a worktree right before it is removed
 onComplete:
   push: true
   createPR: true
@@ -50,6 +51,7 @@ consolidate:
 | `agent.cliPath` | string | `""` | Optional path to the agent binary (e.g. `/usr/local/bin/opencode`). If empty, Chief uses the provider name from PATH. |
 | `agent.model` | string | `""` | Optional model passed to the Claude CLI via `--model`. Needed when Claude Code's `-p` mode ignores `~/.claude/settings.json` (e.g. local models via LM Studio). |
 | `worktree.setup` | string | `""` | Shell command to run in new worktrees (e.g., `npm install`, `go mod download`) |
+| `worktree.teardown` | string | `""` | Shell command run **inside** a worktree right before Chief removes it, so resources that live outside git — a per-worktree database, a web-server link, containers — disappear with the directory instead of being orphaned. Runs on both clean options (`c` in the picker) and before a stale worktree on the wrong branch is recreated. A non-zero exit **cancels the removal**: the worktree is kept and the command's output is shown, with the option to remove it anyway. Empty (the default) keeps removal a pure git operation. Make it idempotent — it may run against a worktree it already tore down. |
 | `onComplete.push` | bool | `false` | Automatically push the branch to remote when a PRD completes. Only runs if the branch has at least one commit. |
 | `onComplete.createPR` | bool | `false` | Automatically create a pull request when a PRD completes (requires `gh` CLI). Only runs after a successful push, so a run with no commits creates no PR. The PR targets the branch the run's branch was cut from, and an already-open PR for the branch is reported instead of a second one being opened — see [Pull request target](#pull-request-target). |
 | `onComplete.prBaseBranch` | string | `""` | Forces the branch pull requests merge into. Empty (the default) lets Chief use the branch the run's branch was cut from. Set this only when that answer is wrong for your workflow. A branch `origin` doesn't have is ignored, leaving the choice to `gh`. |
@@ -113,6 +115,7 @@ A base that `origin` doesn't have is dropped rather than passed to `gh`, which w
 ```yaml
 worktree:
   setup: ""
+  teardown: ""
 onComplete:
   push: false
   createPR: false
@@ -123,6 +126,7 @@ onComplete:
 ```yaml
 worktree:
   setup: "npm install && npm run build"
+  teardown: "./scripts/worktree.sh remove --self"
 onComplete:
   push: true
   createPR: true
@@ -134,7 +138,7 @@ Press `,` from any view in the TUI to open the Settings overlay. This provides a
 
 Every key documented above has a row here — nothing is reachable only by hand-editing the YAML. Settings are organized by section:
 
-- **Worktree** — Setup command (text)
+- **Worktree** — Setup command (text), Teardown command (text)
 - **On Complete** — Push to remote (toggle), Create pull request (toggle), PR base branch (text; empty = the branch the run's branch was cut from), Write run summary (toggle), Desktop notification (toggle)
 - **Loop** — Keep machine awake (toggle), Watchdog timeout in seconds (number; empty = the built-in default)
 - **Agent** — Provider (cycles through the supported CLIs; empty = `claude`), CLI path (text), Model (text)
@@ -156,6 +160,7 @@ Most of these reach a run that is already in flight, so you can react to what yo
 | `loop.keepAwake` | Within a few seconds, in either direction. |
 | `onComplete.*` | Read when the run finishes, so anything you change before then counts. |
 | `worktree.setup` | The next worktree created. Existing worktrees are not re-run. |
+| `worktree.teardown` | The next worktree removal, so a command added mid-run still applies when you clean up afterwards. |
 | `agent.provider`, `agent.cliPath`, `agent.model` | **After restarting Chief.** The agent CLI is resolved once at startup; the new value is written to the file but the running instance keeps the provider it launched with. |
 
 When toggling "Create pull request" to Yes, Chief validates that the `gh` CLI is installed and authenticated. If validation fails, the toggle reverts and an error message is shown with installation instructions.
