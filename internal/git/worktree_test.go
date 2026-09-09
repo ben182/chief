@@ -250,12 +250,29 @@ func TestCreateWorktree(t *testing.T) {
 			t.Fatalf("first CreateWorktree() error = %v", err)
 		}
 
-		err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/branch-b", Teardown: "echo boom >&2; exit 1"})
+		logDir := t.TempDir()
+		err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/branch-b", Teardown: "echo boom >&2; exit 1", LogDir: logDir})
 		if err == nil {
 			t.Fatal("expected CreateWorktree() to fail on a failing teardown")
 		}
-		if !strings.Contains(err.Error(), "boom") {
-			t.Errorf("expected the teardown output in the error, got %v", err)
+		// The output belongs in the log, and the error belongs on one line of a
+		// modal — so the error says where to read the rest.
+		if strings.Contains(err.Error(), "boom") {
+			t.Errorf("the error carries the teardown output instead of pointing at the log: %v", err)
+		}
+		logs, _ := filepath.Glob(filepath.Join(logDir, "teardown-*.log"))
+		if len(logs) != 1 {
+			t.Fatalf("teardown logs = %v, want exactly one", logs)
+		}
+		if !strings.Contains(err.Error(), logs[0]) {
+			t.Errorf("error = %v, want it to name %s", err, logs[0])
+		}
+		data, readErr := os.ReadFile(logs[0])
+		if readErr != nil {
+			t.Fatalf("reading the teardown log: %v", readErr)
+		}
+		if !strings.Contains(string(data), "boom") {
+			t.Errorf("teardown log = %q, want the command output in it", string(data))
 		}
 
 		branch, branchErr := GetCurrentBranch(wtPath)

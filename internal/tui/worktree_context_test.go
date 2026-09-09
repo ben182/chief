@@ -41,9 +41,9 @@ func TestWorktreeSetupGetsTheWorktreeContext(t *testing.T) {
 
 	var got git.WorktreeContext
 	var gotCommand string
-	a.runSetup = func(wt git.WorktreeContext, setup string) (string, error) {
+	a.runSetup = func(wt git.WorktreeContext, setup string, opts git.RunOptions) (git.RunResult, error) {
 		got, gotCommand = wt, setup
-		return "", nil
+		return git.RunResult{}, nil
 	}
 
 	// The branch and worktree are in place; the setup step is what comes next.
@@ -75,9 +75,9 @@ func TestCleanGivesTheTeardownTheWorktreeContext(t *testing.T) {
 	initRepoWithRecordedBase(t, a.baseDir, "chief/auth", "develop")
 
 	var got git.WorktreeContext
-	a.runTeardown = func(wt git.WorktreeContext, teardown string) (string, error) {
+	a.runTeardown = func(wt git.WorktreeContext, teardown string, opts git.RunOptions) (git.RunResult, error) {
 		got = wt
-		return "", nil
+		return git.RunResult{}, nil
 	}
 	a.removeWorktree = func(repoDir, worktreePath string) error { return nil }
 

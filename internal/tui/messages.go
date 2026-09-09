@@ -83,6 +83,7 @@ type teardownFailedMsg struct {
 	worktreePath string
 	command      string
 	output       string
+	logPath      string
 	err          error
 	clearBranch  bool
 }

@@ -70,7 +70,8 @@ type TeardownFailure struct {
 	WorktreePath string // Worktree that was not removed
 	ClearBranch  bool   // Whether the pending clean was going to delete the branch
 	Command      string // The teardown command that failed
-	Output       string // Its stdout/stderr, the only clue about what went wrong
+	Output       string // The tail of its stdout/stderr, the first clue about what went wrong
+	LogPath      string // The log file holding all of it, empty when none was written
 	Error        string // Exit status
 	SelectedIdx  int    // Selected option index (0 = remove anyway, 1 = keep it)
 }
@@ -1102,6 +1103,11 @@ func (p *PRDPicker) renderTeardownFailure(modalWidth, modalHeight int) string {
 	}
 	content.WriteString(infoStyle.Render("The worktree was kept."))
 	content.WriteString("\n")
+
+	if tf.LogPath != "" {
+		content.WriteString(infoStyle.Render(fmt.Sprintf("Full output: %s", tf.LogPath)))
+		content.WriteString("\n")
+	}
 
 	if output := strings.TrimSpace(tf.Output); output != "" {
 		content.WriteString("\n")

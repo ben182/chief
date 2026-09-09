@@ -45,3 +45,18 @@ func displayWorktreePath(baseDir, worktreePath string) string {
 	}
 	return rel + string(filepath.Separator)
 }
+
+// displayFilePath names a file the way the user would refer to it: relative to
+// the repository when it lives inside, absolute otherwise. Log files are the
+// reason it exists — an error that says ".chief/prds/auth/setup-....log" is a
+// path you can paste, an absolute one wraps twice in a modal.
+func displayFilePath(baseDir, path string) string {
+	if path == "" {
+		return ""
+	}
+	rel, err := filepath.Rel(baseDir, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return path
+	}
+	return rel
+}

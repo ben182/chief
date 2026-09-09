@@ -153,6 +153,11 @@ type WorktreeConfig struct {
 	// branch has to exist locally or on origin, otherwise the run refuses to
 	// start rather than branch off the wrong place.
 	BaseBranch string `yaml:"baseBranch"`
+	// SetupTimeoutSeconds aborts a setup command that outlives it, killing the
+	// whole process tree it started. Zero — the default — waits forever, which
+	// is right for a setup that is merely slow; a number is for the one that
+	// hangs on a prompt or a lock and would otherwise block the run for good.
+	SetupTimeoutSeconds int `yaml:"setupTimeoutSeconds"`
 	// Dir is a path template saying where a PRD's worktree lives. Empty (the
 	// default) means .chief/worktrees/{prd}, which keeps worktrees inside the
 	// project; point it outside when a tool in the repo — a bundler, a test

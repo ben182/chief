@@ -582,9 +582,9 @@ func cleanApp(t *testing.T, teardown, branch string, option int) *App {
 // filled when the clean command runs.
 func recordCleanCalls(a *App, teardownOut string, teardownErr error) *[]string {
 	calls := &[]string{}
-	a.runTeardown = func(wt git.WorktreeContext, teardown string) (string, error) {
+	a.runTeardown = func(wt git.WorktreeContext, teardown string, opts git.RunOptions) (git.RunResult, error) {
 		*calls = append(*calls, "teardown:"+teardown)
-		return teardownOut, teardownErr
+		return git.RunResult{Output: teardownOut}, teardownErr
 	}
 	a.removeWorktree = func(repoDir, worktreePath string) error {
 		*calls = append(*calls, "remove")

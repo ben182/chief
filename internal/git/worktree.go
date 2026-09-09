@@ -57,6 +57,10 @@ type CreateWorktreeOptions struct {
 	// detected default branch, which is what every run did before the setting
 	// existed.
 	BaseBranch string
+	// LogDir is where a stale worktree's teardown writes its log, normally the
+	// PRD directory. Empty writes no log, which is what a caller that never
+	// configured a teardown gets anyway.
+	LogDir string
 }
 
 // CreateWorktree creates a branch from the default branch and adds a worktree at the given path.
@@ -95,8 +99,11 @@ func CreateWorktree(opts CreateWorktreeOptions) error {
 			WorktreePath: absWorktreePath,
 			RepoDir:      opts.RepoDir,
 		}
-		if out, err := RunTeardown(stale, opts.Teardown); err != nil {
-			return fmt.Errorf("worktree teardown failed: %w\n%s", err, out)
+		// The output goes to the log, not into the error: this error travels
+		// into a spinner modal, and a thousand lines of `docker compose down`
+		// have no business there.
+		if res, err := RunTeardown(stale, opts.Teardown, RunOptions{LogDir: opts.LogDir}); err != nil {
+			return fmt.Errorf("worktree teardown failed: %w%s", err, logHint(res.LogPath))
 		}
 		if err := RemoveWorktree(opts.RepoDir, absWorktreePath); err != nil {
 			return fmt.Errorf("failed to remove stale worktree: %w", err)

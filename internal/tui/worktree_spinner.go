@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -41,7 +42,19 @@ type WorktreeSpinner struct {
 	steps        []stepInfo
 	errMsg       string // Overall error message
 	cancelled    bool
+
+	// setupOutput is the tail of what the setup command has printed so far, so a
+	// setup that takes minutes is something to watch rather than a frozen
+	// spinner. The lines arrive on the goroutine running the command and are
+	// read while rendering, hence the mutex.
+	setupMu     sync.Mutex
+	setupOutput []string
 }
+
+// setupOutputLines is how much of the running setup's output the spinner shows.
+// Enough to see that something is happening and what it is; a modal has no room
+// for a scrollback, and the log file has the rest.
+const setupOutputLines = 8
 
 // NewWorktreeSpinner creates a new worktree setup spinner.
 func NewWorktreeSpinner() *WorktreeSpinner {
@@ -59,6 +72,9 @@ func (w *WorktreeSpinner) Configure(prdName, branchName, defaultBranch, worktree
 	w.spinnerFrame = 0
 	w.errMsg = ""
 	w.cancelled = false
+	w.setupMu.Lock()
+	w.setupOutput = nil
+	w.setupMu.Unlock()
 
 	// Build steps list
 	w.steps = []stepInfo{
@@ -73,6 +89,24 @@ func (w *WorktreeSpinner) Configure(prdName, branchName, defaultBranch, worktree
 	if len(w.steps) > 0 {
 		w.steps[0].active = true
 	}
+}
+
+// AppendSetupOutput records one line the setup command just printed. Safe to
+// call from the goroutine running the command.
+func (w *WorktreeSpinner) AppendSetupOutput(line string) {
+	w.setupMu.Lock()
+	defer w.setupMu.Unlock()
+	w.setupOutput = append(w.setupOutput, line)
+	if len(w.setupOutput) > setupOutputLines {
+		w.setupOutput = w.setupOutput[len(w.setupOutput)-setupOutputLines:]
+	}
+}
+
+// recentSetupOutput returns a copy of the lines the spinner should show.
+func (w *WorktreeSpinner) recentSetupOutput() []string {
+	w.setupMu.Lock()
+	defer w.setupMu.Unlock()
+	return append([]string(nil), w.setupOutput...)
 }
 
 // SetSize sets the spinner dimensions.
@@ -184,14 +218,21 @@ func (w *WorktreeSpinner) Render() string {
 			content.WriteString(errorStyle.Render("✗"))
 			content.WriteString(" ")
 			content.WriteString(errorStyle.Render(step.label))
-			content.WriteString("\n")
-			content.WriteString("  ")
-			content.WriteString(errorStyle.Render(step.errMsg))
+			// The message names a log file rather than carrying the output, so
+			// it is short enough to wrap into the modal instead of bursting it.
+			for _, line := range strings.Split(wrapText(step.errMsg, modalWidth-6), "\n") {
+				content.WriteString("\n  ")
+				content.WriteString(errorStyle.Render(line))
+			}
 		} else if step.active {
 			frame := spinnerFrames[w.spinnerFrame%len(spinnerFrames)]
 			content.WriteString(spinnerStyle.Render(frame))
 			content.WriteString(" ")
 			content.WriteString(textStyle.Render(step.label))
+			for _, line := range w.recentSetupOutput() {
+				content.WriteString("\n    ")
+				content.WriteString(mutedStyle.Render(truncateWithEllipsis(line, modalWidth-8)))
+			}
 		} else {
 			content.WriteString(mutedStyle.Render("○"))
 			content.WriteString(" ")

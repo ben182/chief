@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -100,8 +101,8 @@ type App struct {
 	// before the directory goes away — and inspect the context handed to a
 	// command, without staging a real worktree and a real database. Nil means
 	// the real implementation.
-	runSetup       func(wt git.WorktreeContext, setup string) (string, error)
-	runTeardown    func(wt git.WorktreeContext, teardown string) (string, error)
+	runSetup       func(wt git.WorktreeContext, setup string, opts git.RunOptions) (git.RunResult, error)
+	runTeardown    func(wt git.WorktreeContext, teardown string, opts git.RunOptions) (git.RunResult, error)
 	removeWorktree func(repoDir, worktreePath string) error
 
 	// Completion screen
@@ -1185,6 +1186,7 @@ func (a *App) runWorktreeStep(step WorktreeSpinnerStep, baseDir, worktreePath, b
 			PRDName:      a.pendingStartPRD,
 			Teardown:     a.teardownCommand(),
 			BaseBranch:   a.baseBranchSetting(),
+			LogDir:       prd.PRDDir(baseDir, a.pendingStartPRD),
 		}
 		return func() tea.Msg {
 			// CreateWorktree handles both branch creation and worktree addition
@@ -1203,11 +1205,26 @@ func (a *App) runWorktreeStep(step WorktreeSpinnerStep, baseDir, worktreePath, b
 		// The branch exists by now, so its recorded base is known and the setup
 		// script can diff against it.
 		wt := a.worktreeContext(a.pendingStartPRD, branchName, worktreePath)
+		// The spinner is a pointer and its own lock, so the goroutine running
+		// the setup can feed it directly; the spinner tick already repaints.
+		spinner := a.worktreeSpinner
+		opts := git.RunOptions{
+			LogDir:  prd.PRDDir(baseDir, a.pendingStartPRD),
+			Timeout: a.setupTimeout(),
+			OnLine:  spinner.AppendSetupOutput,
+		}
+		logDisplayBase := a.baseDir
 		return func() tea.Msg {
-			if out, err := runSetup(wt, setupCmd); err != nil {
+			if res, err := runSetup(wt, setupCmd, opts); err != nil {
+				// The output stays in the log: a failed `composer install` fills
+				// a screen, and the modal has room for a sentence.
+				msg := err.Error()
+				if path := displayFilePath(logDisplayBase, res.LogPath); path != "" {
+					msg += " — full output in " + path
+				}
 				return worktreeStepResultMsg{
 					step: SpinnerStepRunSetup,
-					err:  fmt.Errorf("%s\n%s", err.Error(), out),
+					err:  errors.New(msg),
 				}
 			}
 			return worktreeStepResultMsg{step: SpinnerStepRunSetup}
@@ -1377,6 +1394,16 @@ func (a App) baseBranchSetting() string {
 	return strings.TrimSpace(a.config.Worktree.BaseBranch)
 }
 
+// setupTimeout returns how long a setup command may run before it is killed.
+// Zero — no config, or nothing configured — waits forever, which is right for a
+// setup that is slow rather than stuck.
+func (a App) setupTimeout() time.Duration {
+	if a.config == nil || a.config.Worktree.SetupTimeoutSeconds <= 0 {
+		return 0
+	}
+	return time.Duration(a.config.Worktree.SetupTimeoutSeconds) * time.Second
+}
+
 // cleanWorktreeCmd removes a PRD's worktree and, when asked, its branch.
 //
 // teardown is passed in rather than read from the config here so "Remove
@@ -1395,17 +1422,19 @@ func (a App) cleanWorktreeCmd(prdName, branch, worktreePath, teardown string, cl
 	}
 	baseDir := a.baseDir
 	wt := a.worktreeContext(prdName, branch, worktreePath)
+	opts := git.RunOptions{LogDir: prd.PRDDir(baseDir, prdName)}
 
 	return func() tea.Msg {
 		if teardown != "" {
-			out, err := runTeardown(wt, teardown)
+			res, err := runTeardown(wt, teardown, opts)
 			if err != nil {
 				return teardownFailedMsg{
 					prdName:      prdName,
 					branch:       branch,
 					worktreePath: worktreePath,
 					command:      teardown,
-					output:       out,
+					output:       res.Output,
+					logPath:      displayFilePath(baseDir, res.LogPath),
 					err:          err,
 					clearBranch:  clearBranch,
 				}
@@ -1457,6 +1486,7 @@ func (a App) handleTeardownFailed(msg teardownFailedMsg) (tea.Model, tea.Cmd) {
 		ClearBranch:  msg.clearBranch,
 		Command:      msg.command,
 		Output:       msg.output,
+		LogPath:      msg.logPath,
 		Error:        msg.err.Error(),
 	})
 	a.lastActivity = fmt.Sprintf("Teardown failed for %s", msg.prdName)
