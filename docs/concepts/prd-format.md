@@ -25,6 +25,8 @@ Each PRD lives in its own subdirectory inside `.chief/prds/`:
 - **`progress.md`** — Written by the agent. Tracks what was done, what changed, and what was learned.
 - **`claude-<timestamp>.log`** (or `codex-` / `opencode-` / `cursor-` / `gemini-`) — Written by Chief. Each run writes its own timestamped log for debugging; older runs' logs are kept alongside.
 
+A run working in a [worktree](/concepts/chief-directory#the-prd-s-working-files-follow-the-run) keeps the same directory inside that worktree and works from there, so the project's copy stays as you left it while the run's state travels on its branch.
+
 ## prd.md — The PRD File
 
 The `prd.md` file has two parts: **freeform context** at the top and **structured user stories** below. The freeform section gives the agent background on your project. The structured stories use specific markdown patterns that Chief parses to drive execution.

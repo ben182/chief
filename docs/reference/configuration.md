@@ -124,6 +124,8 @@ The complete output lands in the PRD directory, one file per run:
 .chief/prds/<prd>/teardown-2026-09-09-151204.log
 ```
 
+That directory is the worktree's own — a run keeps [the PRD's working files there](/concepts/chief-directory#the-prd-s-working-files-follow-the-run), and the setup belongs to the worktree it prepares. A teardown whose worktree is about to be removed is the exception: its log would go with the directory, so it is written in the project instead.
+
 Each file starts with the command that was run. The PRD directory's `.gitignore` already ignores `*.log`, so these stay out of version control alongside the run logs. When a command fails, the message in the TUI names its log file instead of dumping hundreds of lines of `composer install` into a modal.
 
 This is what lets one script serve every worktree instead of parsing the directory it happens to sit in:

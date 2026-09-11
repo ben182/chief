@@ -36,6 +36,8 @@ The root `.chief/` directory contains:
 - `archive/` — Archived PRDs, moved out of `prds/` so they no longer clutter the tab bar (created on first archive)
 - `worktrees/` — Git worktrees for parallel PRD isolation (created on demand, and only where [`worktree.dir`](/reference/configuration#config-keys) leaves them — the default)
 
+While a PRD's run works in a [worktree](#the-prd-s-working-files-follow-the-run), this same `prds/<name>/` layout exists inside that worktree, and it is the one the run reads and writes. The project keeps its copy; the run's state comes back on the branch, or when the worktree is cleaned.
+
 ## The `prds/` Subdirectory
 
 Every PRD lives in its own named folder under `.chief/prds/`. The folder name is what you pass to Chief when running a specific PRD:
@@ -118,6 +120,8 @@ Raw output from the agent during execution. This file captures everything the ag
 
 Each run writes its own timestamped file — `claude-2026-02-18-143012.log` (or `codex-`, `opencode-`, `cursor-`, `gemini-` depending on your agent), so previous runs' logs stay around rather than being overwritten. These files can get large (multiple megabytes per run). You typically don't need to read them unless you're investigating an issue, and you can safely delete old ones.
 
+A run working in a worktree writes its log in the worktree's copy of the PRD directory, next to the files it is working from. Logs are the one thing never copied between the two — they belong to the run that produced them, and they are far too large to duplicate.
+
 ## The `worktrees/` Subdirectory
 
 When you run multiple PRDs in parallel, each PRD can get its own isolated git worktree — by default under `.chief/worktrees/`. A worktree is a full checkout of your project on a separate branch, so parallel agent instances never conflict over files or git state.
@@ -166,7 +170,7 @@ Both worktree commands are recorded in the PRD's own directory, one file per run
 .chief/prds/<prd>/teardown-2026-09-09-151204.log
 ```
 
-For a worktree run that directory is the one inside the worktree, alongside the PRD's other working files. The exception is the teardown the TUI runs while cleaning up: its log has to outlive the directory it describes, so that one is written in the project.
+For a worktree run that directory is the one inside the worktree, alongside the PRD's other working files. The exception is a teardown whose worktree is about to disappear — the one the TUI runs while cleaning up, and the one that replaces a stale worktree: those logs have to outlive the directory they describe, so they are written in the project.
 
 Each file starts with the command that was run, and the PRD directory's `.gitignore` already ignores `*.log`, so these stay out of version control like the agent logs next to them. While a setup runs, its last few lines are shown live in the spinner; when one fails, the TUI names the log file instead of pasting the whole output into a modal.
 

@@ -247,7 +247,7 @@ tail -100 .chief/prds/your-prd/claude-*.log
 
 ### When the setup command is what failed
 
-A `worktree.setup` that exits non-zero aborts the start, but the worktree itself has already been created and is kept. The error message names the log file — `.chief/prds/<prd>/setup-<timestamp>.log` — which holds the command's full output rather than the few lines the modal has room for.
+A `worktree.setup` that exits non-zero aborts the start, but the worktree itself has already been created and is kept. The error message names the log file — `<worktree>/.chief/prds/<prd>/setup-<timestamp>.log`, inside the worktree the setup was preparing — which holds the command's full output rather than the few lines the modal has room for.
 
 Fix the script, then re-run it against the existing worktree instead of deleting and recreating everything:
 

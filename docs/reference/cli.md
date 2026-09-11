@@ -193,6 +193,8 @@ chief edit
 
 Launches the agent with your PRD loaded, allowing you to refine requirements, add stories, or update `prd.md` conversationally. When you `/exit`, Chief validates the updated `prd.md` can be parsed.
 
+The PRD it opens is the one being worked from: a run in a [worktree](/concepts/chief-directory#the-prd-s-working-files-follow-the-run) keeps its own copy, and editing the project's would change a file the run never reads. Chief says so and names the path before the session starts.
+
 Like `chief new`, this shows the [Claude model picker](#chief-new) before the session starts (Claude only; skipped when `--model` is set).
 
 **Arguments:**
@@ -245,6 +247,12 @@ appended to `prd.md`:
 - Converted items are flipped to `- [x]` in the inbox with their new story ID, so
   re-running is idempotent.
 
+Write the inbox in your normal checkout, whatever the run is doing. A PRD running
+in a [worktree](/concepts/chief-directory#the-prd-s-working-files-follow-the-run)
+keeps its own copy of every PRD file, but the inbox is the one you fill in by
+hand: yours is carried over for the ingest, the stories are appended to the copy
+the run reads, and the ticked-off list is written back to the file you keep open.
+
 Like `chief new`/`chief edit`, this shows the [Claude model picker](#chief-new)
 before the session starts (Claude only; skipped when `--model` is set). It only
 grills you about items whose intended behavior is genuinely ambiguous — clear
@@ -281,6 +289,8 @@ chief status
 - The project name (from the PRD's top-level heading)
 - An `X/Y stories complete` count
 - A list of the incomplete stories, with `(in progress)` next to the one currently being worked on (or `All stories complete!` when none remain)
+
+The progress reported is the running one: a PRD whose run works in a [worktree](/concepts/chief-directory#the-prd-s-working-files-follow-the-run) keeps its working files there, and that is the copy read — the project's would still show the state the run started from. The same holds for [`chief list`](#chief-list).
 
 **Examples:**
 
@@ -335,7 +345,7 @@ chief worktree teardown <prd>
 
 Both subcommands resolve the worktree exactly the way the TUI does: the branch is `chief/<prd>`, and the directory comes from the [`worktree.dir`](/reference/configuration#config-keys) template (default `.chief/worktrees/<prd>`). The command runs in that directory with the same [`CHIEF_*` environment variables](/reference/configuration#worktree-command-environment) a run would give it, so a script cannot tell the two apart.
 
-Output is streamed to your terminal while the command runs and written to `.chief/prds/<prd>/setup-<timestamp>.log` or `teardown-<timestamp>.log` at the same time — the same log files a run produces. The path is printed when the command finishes.
+Output is streamed to your terminal while the command runs and written to `<worktree>/.chief/prds/<prd>/setup-<timestamp>.log` or `teardown-<timestamp>.log` at the same time — the same log files a run produces, in the same place: a run keeps [the PRD's working files inside its worktree](/concepts/chief-directory#the-prd-s-working-files-follow-the-run), and neither subcommand removes the worktree, so the log stays readable where it belongs. The path is printed when the command finishes.
 
 `chief worktree setup` is the way to re-run a setup after fixing the script, or after configuring `worktree.setupOnReuse: false`. `chief worktree teardown` **does not remove the worktree** — it only runs the command, which makes it the way to retry a teardown that failed, or to drop a worktree's outside resources while keeping the checkout. Removing a worktree stays the job of the TUI's clean flow (`c` on a finished PRD), which runs the teardown itself.
 
