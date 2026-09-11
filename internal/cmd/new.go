@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/ben182/chief/embed"
+	"github.com/ben182/chief/internal/config"
+	"github.com/ben182/chief/internal/git"
 	"github.com/ben182/chief/internal/loop"
 	"github.com/ben182/chief/internal/prd"
 )
@@ -51,6 +54,24 @@ func preparePRDPaths(name, baseDir string) (resolvedName, resolvedBase, prdDir, 
 	}
 	prdDir = prd.PRDDir(baseDir, name)
 	return name, baseDir, prdDir, filepath.Join(prdDir, "prd.md"), nil
+}
+
+// livePRDPaths points a command that works on an *existing* PRD at the copy its
+// run is currently using. A run given a worktree keeps the PRD's working files
+// there; editing or extending the project's copy would write to a file the run
+// does not read and the branch will not carry. Returns the given paths unchanged
+// when no worktree holds a copy — the normal case, and the answer whenever the
+// config cannot be read.
+func livePRDPaths(baseDir, name, prdDir, prdMdPath string) (string, string) {
+	cfg, err := config.Load(baseDir)
+	if err != nil {
+		return prdDir, prdMdPath
+	}
+	liveDir := git.LivePRDDir(baseDir, strings.TrimSpace(cfg.Worktree.Dir), name, prdDir)
+	if liveDir == prdDir {
+		return prdDir, prdMdPath
+	}
+	return liveDir, filepath.Join(liveDir, filepath.Base(prdMdPath))
 }
 
 // resolvePRDName applies branch-based PRD inference: when name is empty and the

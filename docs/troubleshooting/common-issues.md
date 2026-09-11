@@ -226,8 +226,11 @@ tail -100 .chief/prds/your-prd/claude-*.log
    git worktree list
    ```
 
-3. Manually clean up, using the path from that listing:
+3. Manually clean up, using the path from that listing. A run keeps the PRD's working files inside its worktree, and `c` in the picker copies them back before removing it — doing this by hand does not, so if `.chief/` is gitignored in your project (where the branch never carried them), save them first:
    ```bash
+   # Keep the run's record: its prd.md, progress.md and summaries
+   cp <path-from-the-listing>/.chief/prds/<prd-name>/*.md .chief/prds/<prd-name>/
+
    # Remove the worktree
    git worktree remove <path-from-the-listing> --force
 

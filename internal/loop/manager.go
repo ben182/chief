@@ -3,6 +3,7 @@ package loop
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -45,8 +46,13 @@ func (s LoopState) String() string {
 
 // LoopInstance represents a single loop with its metadata.
 type LoopInstance struct {
-	Name        string
-	PRDPath     string
+	Name    string
+	PRDPath string
+	// HomePRDPath is where this PRD lives in the project when PRDPath points
+	// somewhere else — during a worktree run, where the working files follow the
+	// run into its checkout so the project's copy stays untouched. Empty means
+	// PRDPath already is the project's copy.
+	HomePRDPath string
 	WorktreeDir string // Working directory for this PRD (empty = project root)
 	Branch      string // Git branch for this PRD (empty = current branch)
 	// StartRef is the branch HEAD hash captured when this run started, so the run
@@ -61,6 +67,13 @@ type LoopInstance struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	mu        sync.Mutex
+}
+
+// fileExists reports whether path names something that is readable now. Used to
+// decide whether a worktree holds a PRD copy to follow.
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // ManagerEvent represents an event from any managed loop.
@@ -142,6 +155,13 @@ func (m *Manager) SetBaseDir(baseDir string) {
 	m.baseDir = baseDir
 }
 
+// BaseDir returns the project root directory, or "" when none was set.
+func (m *Manager) BaseDir() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.baseDir
+}
+
 // SetConfig sets the project config for post-completion actions.
 func (m *Manager) SetConfig(cfg *config.Config) {
 	m.mu.Lock()
@@ -189,15 +209,46 @@ func (m *Manager) RegisterWithWorktree(name, prdPath, worktreeDir, branch string
 		return fmt.Errorf("PRD %s is already registered", name)
 	}
 
-	m.instances[name] = &LoopInstance{
+	instance := &LoopInstance{
 		Name:        name,
 		PRDPath:     prdPath,
 		WorktreeDir: worktreeDir,
 		Branch:      branch,
 		State:       LoopStateReady,
 	}
+	instance.followWorktree(m.baseDir)
+	m.instances[name] = instance
 
 	return nil
+}
+
+// followWorktree points the instance's PRD path at the checkout its run works
+// in: inside the worktree while one is configured, back in the project when it
+// is gone. Everything downstream reads PRDPath — the prompt handed to the agent,
+// the in-progress status, progress.md, the run log, the per-story commit — so
+// moving this one field is what keeps a worktree run out of the project's
+// working tree, and keeps the branch carrying the PRD state it recorded.
+//
+// A PRD that lives outside the project has no counterpart in a worktree and
+// stays where it is. Call with the instance's own lock held.
+func (i *LoopInstance) followWorktree(baseDir string) {
+	home := i.HomePRDPath
+	if home == "" {
+		home = i.PRDPath
+	}
+	if i.WorktreeDir != "" && baseDir != "" {
+		// Only follow a copy that is actually there. The mirroring at worktree
+		// creation puts it there; an instance pointed at a worktree that holds no
+		// PRD (one removed behind chief's back, a path template changed mid-flight)
+		// keeps working out of the project rather than writing into thin air.
+		if mapped, ok := prd.PathIn(baseDir, home, i.WorktreeDir); ok && fileExists(mapped) {
+			i.HomePRDPath = home
+			i.PRDPath = mapped
+			return
+		}
+	}
+	i.PRDPath = home
+	i.HomePRDPath = ""
 }
 
 // Unregister removes a PRD from the manager (stops it first if running).
@@ -504,12 +555,14 @@ func (m *Manager) UpdateWorktreeInfo(name, worktreeDir, branch string) error {
 	if err != nil {
 		return err
 	}
+	baseDir := m.BaseDir()
 
 	instance.mu.Lock()
 	defer instance.mu.Unlock()
 
 	instance.WorktreeDir = worktreeDir
 	instance.Branch = branch
+	instance.followWorktree(baseDir)
 
 	return nil
 }
@@ -520,11 +573,13 @@ func (m *Manager) ClearWorktreeInfo(name string, clearBranch bool) error {
 	if err != nil {
 		return err
 	}
+	baseDir := m.BaseDir()
 
 	instance.mu.Lock()
 	defer instance.mu.Unlock()
 
 	instance.WorktreeDir = ""
+	instance.followWorktree(baseDir)
 	if clearBranch {
 		instance.Branch = ""
 	}
@@ -555,6 +610,7 @@ func (i *LoopInstance) snapshot() *LoopInstance {
 	return &LoopInstance{
 		Name:        i.Name,
 		PRDPath:     i.PRDPath,
+		HomePRDPath: i.HomePRDPath,
 		WorktreeDir: i.WorktreeDir,
 		Branch:      i.Branch,
 		StartRef:    i.StartRef,

@@ -87,6 +87,18 @@ No. Chief asks on every start, and "Create branch only" — the recommended answ
 
 The other direction is just as easy: whatever branch you press `s` from, "Create worktree + branch" is the option directly below the recommended one.
 
+### A worktree run changed files in my main checkout — why?
+
+It shouldn't, and as of the current version it doesn't. A run given a worktree keeps the PRD's working files inside that worktree and writes its story statuses, `progress.md`, logs and summary there.
+
+Earlier versions moved only the agent into the worktree and left chief's own bookkeeping in the project, so starting a PRD marked a story `in-progress` in the copy your branch had checked out — showing up as a modified `prd.md` and a new `.chief/prds/<prd>/.gitignore` on `main` or `develop`. Those changes could not even be committed: staging a path in the project from inside a worktree fails, so they accumulated as an uncommitted change and the merged branch came back without the progress the run had recorded.
+
+If your checkout still carries those leftovers, they are safe to discard — the branch has the run's state, or the [worktree cleanup](/concepts/chief-directory#removing-them) will bring it home:
+
+```bash
+git checkout -- .chief/prds/<prd-name>/prd.md
+```
+
 ### How do I merge a completed branch?
 
 Press `n` to open the PRD picker, select the completed PRD, and press `m` to merge. If there are conflicts, Chief shows the conflicting files and instructions for manual resolution.

@@ -219,6 +219,13 @@ func (a App) switchToPRD(name, prdPath string) (tea.Model, tea.Cmd) {
 	// Stop current watcher (but NOT the loop - it can keep running)
 	a.stopWatcher()
 
+	// The picker hands over where the PRD lives in the project; a run working in
+	// a worktree keeps its own copy there, and that is the one to show. The
+	// manager is still registered with the project path, which is the PRD's
+	// identity and where its state comes home to.
+	homePath := prdPath
+	prdPath = a.livePRDPath(name, homePath)
+
 	// Load the new PRD
 	newPRD, err := prd.LoadPRD(prdPath)
 	if err != nil {
@@ -230,7 +237,7 @@ func (a App) switchToPRD(name, prdPath string) (tea.Model, tea.Cmd) {
 	// Register with manager if not already registered
 	if instance := a.manager.GetInstance(name); instance == nil {
 		// Guarded by the GetInstance check, so "already registered" cannot fire.
-		_ = a.manager.Register(name, prdPath)
+		_ = a.manager.Register(name, homePath)
 	}
 
 	// Create new watcher for the new PRD

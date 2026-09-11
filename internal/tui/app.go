@@ -74,7 +74,12 @@ type App struct {
 	branchWarning       *BranchWarning
 	pendingStartPRD     string // PRD name waiting to start after branch decision
 	pendingWorktreePath string // Absolute worktree path for pending PRD
-	pendingSyncBranch   string // Branch awaiting reconciliation with origin, for DialogBranchBehindRemote
+	// pendingWorktreeReused says the worktree for the pending start was picked up
+	// as it stood rather than created. It decides whose copy of the PRD the run
+	// works from: a reused worktree carries the state of an earlier run, a fresh
+	// one only has whatever its branch happens to hold.
+	pendingWorktreeReused bool
+	pendingSyncBranch     string // Branch awaiting reconciliation with origin, for DialogBranchBehindRemote
 
 	// Pre-run sleep warning dialog
 	sleepWarning *SleepWarning
@@ -947,18 +952,77 @@ func (a *App) cleanupWorktreeSetup() {
 	}
 }
 
-// prdPathForPRD returns the prd.md path for a PRD by name, or "" if unknown.
+// prdPathForPRD returns the prd.md path a PRD is currently worked from, or ""
+// if unknown. The manager is asked first: it holds the path a worktree run
+// moved its working files to, and that copy — not the project's — is the one
+// the run reads and writes.
 func (a *App) prdPathForPRD(prdName string) string {
+	if a.manager != nil {
+		if inst := a.manager.GetInstance(prdName); inst != nil {
+			return inst.PRDPath
+		}
+	}
 	if prdName == a.prdName {
 		return a.prdPath
 	}
-	if a.manager == nil {
+	return ""
+}
+
+// livePRDPath answers which copy of a PRD's prd.md is the current one, given
+// where it lives in the project. A registered PRD is answered by the manager,
+// which knows whether this run works in a worktree. For one nobody has started
+// in this session the worktree on disk is asked directly — a chief restarted
+// mid-run would otherwise show the project's copy, which the running worktree
+// has long since left behind.
+func (a *App) livePRDPath(prdName, homePath string) string {
+	if homePath == "" {
 		return ""
 	}
-	if inst := a.manager.GetInstance(prdName); inst != nil {
-		return inst.PRDPath
+	if a.manager != nil {
+		if inst := a.manager.GetInstance(prdName); inst != nil && inst.PRDPath != "" {
+			return inst.PRDPath
+		}
 	}
-	return ""
+	dir := git.LivePRDDir(a.baseDir, a.worktreeDirSetting(), prdName, filepath.Dir(homePath))
+	return filepath.Join(dir, filepath.Base(homePath))
+}
+
+// homePRDPath returns where a PRD's prd.md lives in the project, regardless of
+// where a worktree run has moved its working copy meanwhile. It is the PRD's
+// identity: what the picker lists, what a run's state comes home to when its
+// worktree is removed.
+func (a *App) homePRDPath(prdName string) string {
+	if a.manager != nil {
+		if inst := a.manager.GetInstance(prdName); inst != nil {
+			if inst.HomePRDPath != "" {
+				return inst.HomePRDPath
+			}
+			if inst.PRDPath != "" {
+				return inst.PRDPath
+			}
+		}
+	}
+	// Before a PRD is registered its path is only known to the dashboard, which
+	// is still showing the project's copy — a run is what moves it.
+	if prdName == a.prdName && a.prdPath != "" {
+		return a.prdPath
+	}
+	return prd.PRDPath(a.baseDir, prdName)
+}
+
+// runPRDDir names the directory a run's working files and logs belong in:
+// inside the worktree when the run has one, the PRD's own directory otherwise.
+// It is resolved from the PRD's project location rather than by convention, so
+// the legacy .chief/prd.md and direct-path layouts land where they belong.
+func (a *App) runPRDDir(prdName, worktreePath string) string {
+	homeDir := filepath.Dir(a.homePRDPath(prdName))
+	if worktreePath == "" {
+		return homeDir
+	}
+	if mapped, ok := prd.PathIn(a.baseDir, homeDir, worktreePath); ok {
+		return mapped
+	}
+	return homeDir
 }
 
 // renderCompletionView renders the completion screen.
@@ -1210,7 +1274,9 @@ func (a *App) runWorktreeStep(step WorktreeSpinnerStep, baseDir, worktreePath, b
 		// the setup can feed it directly; the spinner tick already repaints.
 		spinner := a.worktreeSpinner
 		opts := git.RunOptions{
-			LogDir:  prd.PRDDir(baseDir, a.pendingStartPRD),
+			// The setup belongs to the worktree it prepares, so its log is written
+			// there rather than into the project the run is meant to leave alone.
+			LogDir:  a.runPRDDir(a.pendingStartPRD, worktreePath),
 			Timeout: a.setupTimeout(),
 			OnLine:  spinner.AppendSetupOutput,
 		}
@@ -1262,6 +1328,7 @@ func (a App) handleWorktreeStepResult(msg worktreeStepResultMsg) (tea.Model, tea
 
 	switch msg.step {
 	case SpinnerStepCreateBranch:
+		a.pendingWorktreeReused = msg.reused
 		// Branch creation completed - advance through both branch and worktree steps
 		// (CreateWorktree does both in one call)
 		a.worktreeSpinner.AdvanceStep() // Complete "Creating branch"
@@ -1295,28 +1362,95 @@ func (a App) finishWorktreeSetup() (tea.Model, tea.Cmd) {
 	prdName := a.pendingStartPRD
 	worktreePath := a.pendingWorktreePath
 	branchName := a.worktreeSpinner.branchName
-	prdDir := prd.PRDDir(a.baseDir, prdName)
 
-	// Register or update with worktree info. Prefer the already-known PRD path
-	// (handles the legacy .chief/prd.md and direct-path layouts) over convention.
-	prdPath := a.prdPathForPRD(prdName)
-	if prdPath == "" {
-		prdPath = filepath.Join(prdDir, "prd.md")
+	// The PRD's place in the project (which handles the legacy .chief/prd.md and
+	// direct-path layouts) is what the run is registered with; where it works
+	// from is the manager's answer, below.
+	homePath := a.homePRDPath(prdName)
+	if err := seedWorktreePRD(a.baseDir, homePath, worktreePath, a.pendingWorktreeReused); err != nil {
+		a.worktreeSpinner.SetError(err.Error())
+		return a, nil
 	}
+
 	// The GetInstance check already decides which call can succeed, so neither
 	// branch has an error left to report.
 	if instance := a.manager.GetInstance(prdName); instance == nil {
-		_ = a.manager.RegisterWithWorktree(prdName, prdPath, worktreePath, branchName)
+		_ = a.manager.RegisterWithWorktree(prdName, homePath, worktreePath, branchName)
 	} else {
 		_ = a.manager.UpdateWorktreeInfo(prdName, worktreePath, branchName)
 	}
+
+	// One place decides which copy a run works from, and it is the manager.
+	prdPath := a.prdPathForPRD(prdName)
+	if prdPath == "" {
+		prdPath = homePath
+	}
+	prdDir := filepath.Dir(prdPath)
 
 	a.lastActivity = fmt.Sprintf("Created worktree at %s on branch %s", worktreePath, branchName)
 	a.viewMode = ViewDashboard
 	a.pendingStartPRD = ""
 	a.pendingWorktreePath = ""
+	a.pendingWorktreeReused = false
 
+	// The loop start takes it from here, including pointing the dashboard at the
+	// copy of the PRD this run writes to.
 	return a.doStartLoop(prdName, prdDir)
+}
+
+// seedWorktreePRD gives the worktree its own copy of the PRD's working files.
+// This is what keeps a worktree run out of the project's working tree:
+// everything downstream — the agent's prompt, the in-progress status,
+// progress.md, the run log, the per-story commit — works from that copy, so the
+// project's stays as the user left it and the branch carries the state the run
+// records.
+//
+// A reused worktree keeps the copy it has: it is where an earlier run recorded
+// its progress, and the project's copy is the one that fell behind. A worktree
+// that was just created only holds whatever its branch happens to carry — in a
+// project that tracks .chief/ that is the PRD as it was last committed, missing
+// every edit since — so there the project's copy is written over it. A PRD
+// living outside the project has no counterpart in a worktree and is used where
+// it is.
+func seedWorktreePRD(baseDir, homePRDPath, worktreePath string, reused bool) error {
+	mapped, ok := prd.PathIn(baseDir, homePRDPath, worktreePath)
+	if !ok {
+		return nil
+	}
+	if reused {
+		if _, err := os.Stat(mapped); err == nil {
+			return nil
+		}
+	}
+	if err := prd.Mirror(filepath.Dir(homePRDPath), filepath.Dir(mapped)); err != nil {
+		return fmt.Errorf("failed to copy the PRD into the worktree: %w", err)
+	}
+	return nil
+}
+
+// followPRDFile re-points the dashboard at prdPath: the PRD it shows, both
+// watchers and the progress beneath them. Returns the listeners for the new
+// watchers, which the caller has to hand back to bubbletea — without them the
+// dashboard would sit on a file nobody reports changes for.
+func (a *App) followPRDFile(prdPath string) tea.Cmd {
+	if prdPath == "" || prdPath == a.prdPath {
+		return nil
+	}
+	a.stopWatcher()
+	if p, err := prd.LoadPRD(prdPath); err == nil {
+		a.prd = p
+	}
+	a.prdPath = prdPath
+	if w, err := prd.NewWatcher(prdPath); err == nil {
+		a.watcher = w
+		_ = a.watcher.Start()
+	}
+	if pw, err := prd.NewProgressWatcher(prdPath); err == nil {
+		a.progressWatcher = pw
+		_ = a.progressWatcher.Start()
+	}
+	a.progress, _ = prd.ParseProgress(prd.ProgressPath(prdPath))
+	return tea.Batch(a.listenForPRDChanges(), a.listenForProgressChanges())
 }
 
 // handleMergeResult handles the result of an async merge operation.
@@ -1440,7 +1574,11 @@ func (a App) cleanWorktreeCmd(prdName, branch, worktreePath, teardown string, cl
 	}
 	baseDir := a.baseDir
 	wt := a.worktreeContext(prdName, branch, worktreePath)
-	opts := git.RunOptions{LogDir: prd.PRDDir(baseDir, prdName)}
+	// The teardown's log has to outlive the directory it describes, so it is the
+	// one thing about this run that is written in the project.
+	homePRDDir := filepath.Dir(a.homePRDPath(prdName))
+	runPRDDir := a.runPRDDir(prdName, worktreePath)
+	opts := git.RunOptions{LogDir: homePRDDir}
 
 	return func() tea.Msg {
 		if teardown != "" {
@@ -1455,6 +1593,19 @@ func (a App) cleanWorktreeCmd(prdName, branch, worktreePath, teardown string, cl
 					logPath:      displayFilePath(baseDir, res.LogPath),
 					err:          err,
 					clearBranch:  clearBranch,
+				}
+			}
+		}
+
+		// Bring the run's record home before the directory holding it goes. In a
+		// project that tracks .chief/ the branch carries it too and this changes
+		// nothing; in one that gitignores it, this is the only copy there is.
+		if runPRDDir != homePRDDir {
+			if err := prd.Mirror(runPRDDir, homePRDDir); err != nil {
+				return cleanResultMsg{
+					prdName: prdName,
+					success: false,
+					message: fmt.Sprintf("Failed to save the PRD state from the worktree: %s", err.Error()),
 				}
 			}
 		}
@@ -1557,6 +1708,13 @@ func (a App) handleCleanResult(msg cleanResultMsg) (tea.Model, tea.Cmd) {
 		}
 		a.picker.Refresh()
 		a.lastActivity = fmt.Sprintf("Cleaned worktree for %s", msg.prdName)
+		// The worktree copy the dashboard was watching is gone; the state it held
+		// has just been written back to the project's.
+		if msg.prdName == a.prdName {
+			if cmd := a.followPRDFile(a.homePRDPath(msg.prdName)); cmd != nil {
+				return a, cmd
+			}
+		}
 	}
 
 	return a, nil

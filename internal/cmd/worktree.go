@@ -94,6 +94,18 @@ func runWorktreeSubcommand(opts WorktreeOptions, kind string) error {
 	return nil
 }
 
+// worktreeLogDir is where a manual setup or teardown writes its log: the PRD
+// directory inside the worktree it runs against. The run keeps its working files
+// there, and neither command removes the worktree, so the log stays readable
+// where it belongs instead of landing in the project.
+func worktreeLogDir(baseDir, name, worktreePath string) string {
+	home := prd.PRDDir(baseDir, name)
+	if mapped, ok := prd.PathIn(baseDir, home, worktreePath); ok {
+		return mapped
+	}
+	return home
+}
+
 // resolveWorktreeTarget resolves the PRD's worktree the same way the TUI does
 // and picks the command for kind out of the config. It fails when the worktree
 // isn't there: a setup command belongs in a checkout, and running it in a
@@ -149,7 +161,7 @@ func resolveWorktreeTarget(opts *WorktreeOptions, kind string) (worktreeTarget, 
 			RepoDir:      baseDir,
 		},
 		command: command,
-		logDir:  prd.PRDDir(baseDir, opts.Name),
+		logDir:  worktreeLogDir(baseDir, opts.Name, worktreePath),
 		timeout: timeout,
 	}, nil
 }

@@ -2,9 +2,12 @@ package git
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/ben182/chief/internal/prd"
 )
 
 // DefaultWorktreeDir is the worktree.dir template chief uses when none is
@@ -152,4 +155,31 @@ func prdNameFromWorktree(baseDir, template string, wt Worktree) (string, bool) {
 		return "", false
 	}
 	return match[1], true
+}
+
+// LivePRDDir answers where a PRD's working files — prd.md, progress.md, the
+// follow-up inbox — currently live. A worktree run mirrors them into its own
+// checkout so the project's copy stays as the user left it, which means a caller
+// outside the run (the follow-up command, the picker listing a PRD nobody has
+// started this session) has to look there too, or it reads a prd.md that is
+// missing everything the run has recorded.
+//
+// homeDir is the PRD's directory in the project and stays the answer whenever
+// there is no worktree holding a copy: the template resolves nowhere, the
+// directory is not a worktree, or it has no prd.md of its own. Because the
+// answer is derived from what is on disk rather than remembered, a worktree
+// removed behind chief's back quietly falls back to the project.
+func LivePRDDir(baseDir, dirTemplate, prdName, homeDir string) string {
+	worktreePath, err := WorktreePathForPRD(baseDir, dirTemplate, prdName, BranchForPRD(prdName))
+	if err != nil || !IsWorktree(worktreePath) {
+		return homeDir
+	}
+	mapped, ok := prd.PathIn(baseDir, homeDir, worktreePath)
+	if !ok {
+		return homeDir
+	}
+	if _, err := os.Stat(filepath.Join(mapped, "prd.md")); err != nil {
+		return homeDir
+	}
+	return mapped
 }

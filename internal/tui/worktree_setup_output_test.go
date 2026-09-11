@@ -33,6 +33,8 @@ func setupApp(t *testing.T, cfg config.WorktreeConfig) *App {
 
 // A setup that takes minutes has to be watchable, and afterwards readable: the
 // spinner gets the lines as they arrive, the PRD directory keeps all of them.
+// That directory is the worktree's own — the setup prepares the worktree, and a
+// run given one is meant to leave the project untouched.
 func TestWorktreeSetupStreamsIntoTheSpinnerAndLogsIntoThePRDDirectory(t *testing.T) {
 	a := setupApp(t, config.WorktreeConfig{Setup: "make setup", SetupTimeoutSeconds: 90})
 
@@ -49,7 +51,7 @@ func TestWorktreeSetupStreamsIntoTheSpinnerAndLogsIntoThePRDDirectory(t *testing
 	}
 	cmd()
 
-	if want := filepath.Join(a.baseDir, ".chief", "prds", "auth"); gotOpts.LogDir != want {
+	if want := filepath.Join(a.pendingWorktreePath, ".chief", "prds", "auth"); gotOpts.LogDir != want {
 		t.Errorf("setup log dir = %q, want %q", gotOpts.LogDir, want)
 	}
 	if gotOpts.Timeout != 90*time.Second {

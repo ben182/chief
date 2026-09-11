@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/ben182/chief/internal/git"
@@ -215,16 +214,23 @@ func (a *App) completionGitDir(prdName string) string {
 // (so the legacy .chief/prd.md and direct-path layouts land beside the PRD rather
 // than in a phantom .chief/prds/<name>) and maps that location into gitDir, which
 // is the worktree for worktree runs and the project root otherwise.
+//
+// A run that already works out of its worktree needs no mapping — its files are
+// in gitDir — and mapping anyway would nest the worktree's path inside itself.
 func (a *App) summaryDir(prdName, gitDir string) string {
 	prdPath := a.prdPathForPRD(prdName)
 	if prdPath == "" {
 		return prd.PRDDir(gitDir, prdName)
 	}
-	rel, err := filepath.Rel(a.baseDir, filepath.Dir(prdPath))
-	if err != nil || strings.HasPrefix(rel, "..") {
+	dir := filepath.Dir(prdPath)
+	if prd.IsUnder(gitDir, dir) {
+		return dir
+	}
+	mapped, ok := prd.PathIn(a.baseDir, dir, gitDir)
+	if !ok {
 		return prd.PRDDir(gitDir, prdName)
 	}
-	return filepath.Join(gitDir, rel)
+	return mapped
 }
 
 // parkedStoryLabels returns "ID - Title" for every story parked for human

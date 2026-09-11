@@ -149,9 +149,10 @@ Every start asks how to run the PRD, from whichever branch you are on. What chan
 When you pick the worktree:
 - A new branch is created (e.g., `chief/auth-system`) from your default branch, or from whatever [`worktree.baseBranch`](../reference/configuration.md#config-keys) names — `develop`, say — when you have set it
 - A worktree is set up at `.chief/worktrees/<prd-name>/`, or wherever the [`worktree.dir`](../reference/configuration.md#config-keys) template points when you have changed it — `git worktree list` always says where
-- Any configured setup command runs automatically (e.g., `npm install`), streamed into the spinner while it runs and written to `.chief/prds/<prd-name>/setup-<timestamp>.log`
+- Any configured setup command runs automatically (e.g., `npm install`), streamed into the spinner while it runs and written to the PRD's `setup-<timestamp>.log`
+- The PRD's working files are copied into the worktree, and the run works from *those*: the status it records, `progress.md`, its logs and its summary are written inside the worktree, so your checkout stays as you left it and the branch carries the PRD state the run produced ([details](chief-directory.md#the-prd-s-working-files-follow-the-run))
 
-Each worktree is a full checkout of your project, so the agent can read, write, and run tests independently. When the PRD completes, you can merge the branch back, push it to a remote, or have Chief automatically create a pull request.
+Each worktree is a full checkout of your project, so the agent can read, write, and run tests independently. When the PRD completes, you can merge the branch back, push it to a remote, or have Chief automatically create a pull request — and cleaning the worktree copies the PRD's files back into the project first, so nothing the run recorded is lost with the directory.
 
 The TUI shows branch and directory information throughout:
 - **Tab bar**: Branch name next to each PRD tab

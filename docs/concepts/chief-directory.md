@@ -132,6 +132,20 @@ Worktrees are created when you choose "Create worktree + branch" from the start 
 - Has its own branch (named `chief/<prd-name>`), cut from your default branch or from [`worktree.baseBranch`](/reference/configuration#config-keys) when you have set one
 - Is a complete copy of your project
 - Runs the configured [`worktree.setup`](/reference/configuration#config-keys) command (e.g., `npm install`) automatically, with the PRD name, branch and paths in its environment
+- Gets its own copy of the PRD's working files, which is where the run reads and writes them
+
+### The PRD's working files follow the run
+
+A worktree run works from `<worktree>/.chief/prds/<prd-name>/`, not from the project's copy. When the worktree is created, chief copies the PRD's working files — `prd.md`, `progress.md`, the follow-up inbox, everything but the logs — into it; from then on the story statuses, `progress.md`, the run and setup logs and the summary are written *there*.
+
+Two things follow from that, and both are the point:
+
+- **Your checkout stays as you left it.** A run you sent into a worktree no longer marks a story `in-progress` in the file your project has checked out, so `git status` on your branch stays about your work.
+- **The branch carries the record.** Because the files sit inside the worktree, the per-story commit can include them — in the project's copy it could not, and the state a run recorded was simply left behind as an uncommitted change. Merging the branch brings the finished PRD back with the code that implements it.
+
+While a worktree holds a PRD, it is the copy chief shows and edits: the dashboard and the picker read it, and [`chief edit`](/reference/cli#chief-edit) and [`chief followup`](/reference/cli#chief-followup) write to it. [Cleaning the worktree](#removing-them) copies the files back into the project first, so a PRD under a gitignored `.chief/` — whose state the branch never carried — keeps its record.
+
+A worktree picked up as it stands keeps the copy it has: it holds what an earlier run recorded, and the project's copy is the one that fell behind. A worktree created for this run is given the project's copy, which is the PRD as you last edited it rather than as it was last committed.
 
 ### Where they live
 
@@ -150,13 +164,15 @@ Both worktree commands are recorded in the PRD's own directory, one file per run
 .chief/prds/<prd>/teardown-2026-09-09-151204.log
 ```
 
+For a worktree run that directory is the one inside the worktree, alongside the PRD's other working files. The exception is the teardown the TUI runs while cleaning up: its log has to outlive the directory it describes, so that one is written in the project.
+
 Each file starts with the command that was run, and the PRD directory's `.gitignore` already ignores `*.log`, so these stay out of version control like the agent logs next to them. While a setup runs, its last few lines are shown live in the spinner; when one fails, the TUI names the log file instead of pasting the whole output into a modal.
 
 You can also run either command by hand, against a worktree that already exists, with [`chief worktree setup <prd>` / `chief worktree teardown <prd>`](/reference/cli#chief-worktree) — the way to retry a setup after fixing the script.
 
 ### Removing them
 
-You can merge completed branches via `m` in the picker, and clean up worktrees via `c`. If [`worktree.teardown`](/reference/configuration#config-keys) is configured, it runs **inside** the worktree right before `git worktree remove`, so resources that live outside git — a per-worktree database, a web-server link, containers — disappear with the directory instead of being orphaned. A teardown that exits non-zero **cancels the removal**: the worktree is kept, and a dialog shows the tail of the output plus the path of its log file, with the option to remove it anyway.
+You can merge completed branches via `m` in the picker, and clean up worktrees via `c`. Cleaning first copies the PRD's working files back into the project, so the run's record survives the directory that held it. If [`worktree.teardown`](/reference/configuration#config-keys) is configured, it runs **inside** the worktree right before `git worktree remove`, so resources that live outside git — a per-worktree database, a web-server link, containers — disappear with the directory instead of being orphaned. A teardown that exits non-zero **cancels the removal**: the worktree is kept, and a dialog shows the tail of the output plus the path of its log file, with the option to remove it anyway.
 
 ## Archiving PRDs
 

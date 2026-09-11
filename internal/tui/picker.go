@@ -243,8 +243,11 @@ func (p *PRDPicker) loadPRDEntry(name, prdPath string) PRDEntry {
 		LoopState: loop.LoopStateReady,
 	}
 
-	// Try to load the PRD
-	loadedPRD, err := prd.LoadPRD(prdPath)
+	// Read the copy the PRD is currently worked from: a worktree run keeps its
+	// own, and reading the project's would show a list frozen at the state the
+	// run started from. Path stays the project's — that is the PRD's identity,
+	// and where switching to it registers from.
+	loadedPRD, err := prd.LoadPRD(p.livePRDPath(name, prdPath))
 	if err != nil {
 		prdEntry.LoadError = err
 	} else {
@@ -273,6 +276,21 @@ func (p *PRDPicker) loadPRDEntry(name, prdPath string) PRDEntry {
 	}
 
 	return prdEntry
+}
+
+// livePRDPath answers which copy of a PRD's prd.md holds its current state: the
+// one in its worktree while a run works there, the project's otherwise. A
+// registered PRD is answered by the manager, which knows whether its run has a
+// worktree; for the rest the worktree on disk is asked, so the list is right
+// even for runs this chief session never started.
+func (p *PRDPicker) livePRDPath(name, prdPath string) string {
+	if p.manager != nil {
+		if inst := p.manager.GetInstance(name); inst != nil && inst.PRDPath != "" {
+			return inst.PRDPath
+		}
+	}
+	dir := git.LivePRDDir(p.basePath, p.worktreeDir, name, filepath.Dir(prdPath))
+	return filepath.Join(dir, filepath.Base(prdPath))
 }
 
 // SetSize sets the modal dimensions.

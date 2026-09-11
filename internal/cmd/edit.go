@@ -27,6 +27,9 @@ func RunEdit(opts EditOptions) error {
 		return err
 	}
 	opts.Name, opts.BaseDir = name, baseDir
+	// A run working in a worktree keeps the PRD's working files there; that is the
+	// copy to edit.
+	prdDir, prdMdPath = livePRDPaths(baseDir, name, prdDir, prdMdPath)
 
 	// Check if prd.md exists
 	if _, err := os.Stat(prdMdPath); os.IsNotExist(err) {

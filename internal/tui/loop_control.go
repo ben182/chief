@@ -137,6 +137,14 @@ func (a App) launchLoop(prdName, prdDir string) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// A worktree run keeps its own copy of the PRD's working files, so the
+	// dashboard has to follow the copy that is actually being written — and back
+	// to the project's when this run uses no worktree.
+	var follow tea.Cmd
+	if prdName == a.prdName {
+		follow = a.followPRDFile(a.prdPathForPRD(prdName))
+	}
+
 	// For the viewed PRD, reload from disk so any follow-up stories added since
 	// the last render are reflected before we snapshot the run baseline and
 	// restore timings.
@@ -172,11 +180,11 @@ func (a App) launchLoop(prdName, prdDir string) (tea.Model, tea.Cmd) {
 		a.state = StateRunning
 		a.startTime = time.Now()
 		a.lastActivity = "Starting loop..."
-		return a, tickElapsed()
+		return a, tea.Batch(follow, tickElapsed())
 	}
 
 	a.lastActivity = "Started loop for: " + prdName
-	return a, nil
+	return a, follow
 }
 
 // pauseLoop sets the pause flag so the loop stops after the current story

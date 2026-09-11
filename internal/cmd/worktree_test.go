@@ -129,7 +129,7 @@ func TestRunWorktreeSetupRunsInTheWorktreeWithChiefEnvironment(t *testing.T) {
 }
 
 func TestRunWorktreeSetupWritesTheOutputToTheStoryLog(t *testing.T) {
-	repoDir, _ := worktreeFixture(t, "auth")
+	repoDir, wtPath := worktreeFixture(t, "auth")
 
 	var out strings.Builder
 	opts := WorktreeOptions{
@@ -142,7 +142,9 @@ func TestRunWorktreeSetupWritesTheOutputToTheStoryLog(t *testing.T) {
 		t.Fatalf("RunWorktreeSetup() error = %v", err)
 	}
 
-	logDir := filepath.Join(repoDir, ".chief", "prds", "auth")
+	// The log belongs to the worktree the command ran against, which is where the
+	// run keeps the PRD's working files.
+	logDir := filepath.Join(wtPath, ".chief", "prds", "auth")
 	entries, err := os.ReadDir(logDir)
 	if err != nil {
 		t.Fatalf("no log directory %s: %v", logDir, err)
@@ -253,7 +255,9 @@ func TestRunWorktreeTeardownRunsTheCommandWithChiefEnvironment(t *testing.T) {
 		t.Errorf("output does not contain the environment line\nwant: %s\ngot:\n%s", want, out.String())
 	}
 
-	logDir := filepath.Join(repoDir, ".chief", "prds", "auth")
+	// The log belongs to the worktree the command ran against, which is where the
+	// run keeps the PRD's working files.
+	logDir := filepath.Join(wtPath, ".chief", "prds", "auth")
 	entries, err := os.ReadDir(logDir)
 	if err != nil {
 		t.Fatalf("no log directory %s: %v", logDir, err)

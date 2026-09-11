@@ -91,6 +91,9 @@ func RunFollowup(opts FollowupOptions) error {
 		return err
 	}
 	opts.Name, opts.BaseDir = name, baseDir
+	// A run working in a worktree keeps the PRD's working files there; that is the
+	// copy to extend.
+	prdDir, prdMdPath = livePRDPaths(baseDir, name, prdDir, prdMdPath)
 
 	// The PRD must exist — follow-ups extend an already-authored PRD.
 	if _, err := os.Stat(prdMdPath); os.IsNotExist(err) {
