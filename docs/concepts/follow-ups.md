@@ -74,6 +74,13 @@ While reviewing the finished feature, write one item per line:
 Keep them short — one thought per line. You don't need to phrase them as stories
 or add acceptance criteria; that's the ingest step's job.
 
+Write them in the inbox you have in front of you, in your normal checkout. When
+the PRD is running in a [worktree](/concepts/chief-directory#the-prd-s-working-files-follow-the-run) — which keeps its
+own copy of every PRD file — `chief followup` carries your inbox over and
+appends the stories to the copy the run reads, then writes the ticked-off list
+back so the items you just ingested are ticked off where you read them. So the
+file to edit stays the same one, wherever the run happens to be working.
+
 ### 2. Ingest with `chief followup`
 
 Run the command against the PRD whose inbox you filled:

@@ -29,6 +29,7 @@ func RunEdit(opts EditOptions) error {
 	opts.Name, opts.BaseDir = name, baseDir
 	// A run working in a worktree keeps the PRD's working files there; that is the
 	// copy to edit.
+	homePRDDir := prdDir
 	prdDir, prdMdPath = livePRDPaths(baseDir, name, prdDir, prdMdPath)
 
 	// Check if prd.md exists
@@ -44,6 +45,9 @@ func RunEdit(opts EditOptions) error {
 	prompt := embed.GetEditPrompt(prdDir, opts.Provider.SupportsInteractiveQuestions())
 
 	// Launch interactive agent session
+	if prdDir != homePRDDir {
+		fmt.Printf("This PRD is running in a worktree, which keeps its own copy of the files.\n")
+	}
 	fmt.Printf("Editing PRD at %s...\n", prdDir)
 	fmt.Printf("Launching %s to help you edit your PRD...\n", opts.Provider.Name())
 	fmt.Println()

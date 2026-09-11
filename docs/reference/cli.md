@@ -78,6 +78,8 @@ When you run `chief` without a `name`, it resolves the PRD in this order:
 5. First-time setup, if no PRD exists yet
 
 The same `chief/<name>` branch inference also applies to `chief edit` and `chief followup`.
+
+A PRD whose run works in a [worktree](/concepts/chief-directory#the-prd-s-working-files-follow-the-run) keeps its working files there, and that is the copy `chief edit`, `chief followup`, `chief status` and `chief list` read and write — the project's would be the state the run started from. `chief edit` and `chief followup` say so before they launch, and name the path. The follow-up inbox is the exception, because it is the one file you write by hand: yours is ingested wherever the run sits, and comes back ticked off.
 :::
 
 ---

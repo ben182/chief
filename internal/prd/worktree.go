@@ -85,6 +85,17 @@ func mirrored(name string) bool {
 	return !strings.HasSuffix(name, ".log")
 }
 
+// CopyFile copies src to dst, replacing dst and creating the destination
+// directory when it is missing. It writes to a temporary file beside dst and
+// renames it into place, so a reader — the TUI watching prd.md, the agent
+// reading it — never sees a half-written file.
+func CopyFile(src, dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	return copyFile(src, dst)
+}
+
 // copyFile copies src to dst, replacing dst. It writes to a temporary file in
 // the destination directory and renames it into place, so a reader — the TUI
 // watching prd.md, the agent reading it — never sees a half-written file.
