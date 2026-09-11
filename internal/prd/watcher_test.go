@@ -270,3 +270,101 @@ func TestHasStatusChanged(t *testing.T) {
 		})
 	}
 }
+
+// TestWatcherSurvivesFileReplacement covers the failure that left the dashboard
+// frozen on a story the run had long finished: prd.md is not modified in place
+// but replaced (atomic write, branch switch, worktree teardown), and a watch
+// registered on the file itself dies with the inode it was registered on. The
+// watcher has to keep reporting after the file is gone and back.
+func TestWatcherSurvivesFileReplacement(t *testing.T) {
+	tmpDir := t.TempDir()
+	prdPath := createTestPRDMd(t, tmpDir, []UserStory{
+		{ID: "US-001", Title: "One"},
+		{ID: "US-002", Title: "Two"},
+	})
+	contents, err := os.ReadFile(prdPath)
+	if err != nil {
+		t.Fatalf("read PRD: %v", err)
+	}
+
+	watcher, err := NewWatcher(prdPath)
+	if err != nil {
+		t.Fatalf("Failed to create watcher: %v", err)
+	}
+	defer watcher.Stop()
+	if err := watcher.Start(); err != nil {
+		t.Fatalf("Failed to start watcher: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	// The file disappears and comes back, as it does when git swaps the branch
+	// out from under a run.
+	if err := os.Remove(prdPath); err != nil {
+		t.Fatalf("remove PRD: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if err := os.WriteFile(prdPath, contents, 0644); err != nil {
+		t.Fatalf("restore PRD: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	// Drain whatever the removal and restore produced, then make a real change.
+	drainEvents(watcher)
+	if err := SetStoryStatus(prdPath, "US-002", "done"); err != nil {
+		t.Fatalf("Failed to update test PRD: %v", err)
+	}
+
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case event := <-watcher.Events():
+			if event.PRD == nil {
+				continue
+			}
+			if event.PRD.UserStories[1].Passes {
+				return // the watch outlived the replacement
+			}
+		case <-deadline:
+			t.Fatal("no change event after prd.md was replaced: the watch died with the old file")
+		}
+	}
+}
+
+// drainEvents empties the watcher's channel of events that have already been
+// queued, so a test can assert on what happens next.
+func drainEvents(w *Watcher) {
+	for {
+		select {
+		case <-w.Events():
+		default:
+			return
+		}
+	}
+}
+
+// TestWatcherIgnoresSiblingFiles verifies that watching the PRD directory does
+// not turn every append to progress.md or the run log into a PRD update.
+func TestWatcherIgnoresSiblingFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	prdPath := createTestPRDMd(t, tmpDir, []UserStory{{ID: "US-001", Title: "One"}})
+
+	watcher, err := NewWatcher(prdPath)
+	if err != nil {
+		t.Fatalf("Failed to create watcher: %v", err)
+	}
+	defer watcher.Stop()
+	if err := watcher.Start(); err != nil {
+		t.Fatalf("Failed to start watcher: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "progress.md"), []byte("## note\n"), 0644); err != nil {
+		t.Fatalf("write progress.md: %v", err)
+	}
+
+	select {
+	case event := <-watcher.Events():
+		t.Fatalf("expected no event for a sibling file, got %+v", event)
+	case <-time.After(300 * time.Millisecond):
+	}
+}

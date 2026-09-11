@@ -300,11 +300,21 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 			// — so without this the selection stays pinned to that story for the
 			// rest of the run.
 			delete(a.reviewingStoryID, prdName)
-			// Move the selection with the loop. The prd.md watcher does this too,
-			// but it is a single point of failure: one missed or dropped file
-			// event and the UI sits on the previous story while timings, costs and
-			// the log all move on. The loop knows which story it just started.
+			// Move the selection *and the statuses* with the loop. The prd.md
+			// watcher does this too, but it is a single point of failure: one
+			// missed or dropped file event and the UI sits on the previous story
+			// while timings, costs and the log all move on.
+			//
+			// This is the one moment where reading prd.md from disk is exact: the
+			// loop has just written the finished story's `done` line and this
+			// story's `in-progress` line, and only then emits this event. Without
+			// the reload the list kept showing the previous story as running —
+			// EventStoryDone, the only other event that reloads, arrives *before*
+			// chief writes the story's result, so it can never see it.
 			if isCurrentPRD {
+				if p, err := prd.LoadPRD(a.prdPath); err == nil {
+					a.prd = p
+				}
 				a.selectStoryByID(event.StoryID)
 			}
 		}

@@ -2,6 +2,8 @@ package prd
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -44,8 +46,16 @@ func (w *Watcher) Start() error {
 		w.lastPRD = prd
 	}
 
-	// Add the file to the watcher
-	if err := w.watcher.Add(w.path); err != nil {
+	// Watch the *directory*, not the file. chief writes prd.md atomically (temp
+	// file + rename) and most editors save the same way, so the watched inode is
+	// swapped out on every write rather than modified in place. A file watch has
+	// to be re-registered each time, and a single failed re-registration — the
+	// file momentarily gone during a branch switch or a worktree teardown — ends
+	// the watch silently for the rest of the session: the dashboard then sits on
+	// whatever story was current when it died while the run moves on. A directory
+	// watch survives inode swaps and a temporarily missing file, which is also
+	// what ProgressWatcher next door already does.
+	if err := w.watcher.Add(filepath.Dir(w.path)); err != nil {
 		return err
 	}
 
@@ -55,24 +65,28 @@ func (w *Watcher) Start() error {
 	return nil
 }
 
-// onEvent reloads the PRD on write/create and re-arms the watch on
-// remove/rename. Chief writes prd.md atomically (temp file + rename) and many
-// editors save the same way, so the watched inode is swapped out rather than
-// modified in place. Re-add the watch and reload; only report a genuine removal
-// if the file is actually gone.
+// onEvent reloads the PRD whenever prd.md itself changes. The watch covers the
+// whole PRD directory (progress.md, the run log, the temp files of an atomic
+// write), so everything that isn't prd.md is filtered out here. A remove or
+// rename is only reported as a removal when the file is really gone: the rename
+// half of an atomic write names prd.md too, and the file is in place by then.
 func (w *Watcher) onEvent(event fsnotify.Event) {
-	// Only react to write and create events
-	if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
-		w.handleFileChange()
+	if filepath.Base(event.Name) != filepath.Base(w.path) {
+		return
+	}
+
+	if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename) == 0 {
+		return
 	}
 
 	if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
-		if err := w.watcher.Add(w.path); err != nil {
+		if _, err := os.Stat(w.path); err != nil {
 			w.events <- WatcherEvent{Error: errors.New("prd.md was removed")}
-		} else {
-			w.handleFileChange()
+			return
 		}
 	}
+
+	w.handleFileChange()
 }
 
 // handleFileChange loads the PRD and sends an event if it changed.
@@ -90,7 +104,10 @@ func (w *Watcher) handleFileChange() {
 	}
 }
 
-// hasStatusChanged returns true if any story's inProgress or passes field changed.
+// hasStatusChanged returns true if any story's passes, inProgress or needsReview
+// field changed. needsReview counts: a story parked for human review straight out
+// of "todo" moves no other field, and without it the list would keep showing the
+// story as pending for the rest of the session.
 func (w *Watcher) hasStatusChanged(newPRD *PRD) bool {
 	if w.lastPRD == nil {
 		return true
@@ -118,7 +135,9 @@ func (w *Watcher) hasStatusChanged(newPRD *PRD) bool {
 		}
 
 		// Check if status fields changed
-		if oldStory.Passes != newStory.Passes || oldStory.InProgress != newStory.InProgress {
+		if oldStory.Passes != newStory.Passes ||
+			oldStory.InProgress != newStory.InProgress ||
+			oldStory.NeedsReview != newStory.NeedsReview {
 			return true
 		}
 	}
