@@ -58,6 +58,10 @@ func (a App) startLoopForPRD(prdName string) (tea.Model, tea.Cmd) {
 
 	a.branchWarning.SetSize(a.width, a.height)
 	a.branchWarning.SetContext(branch, prdName, relWorktreePath)
+	// Git allows a branch in one worktree at a time, so a PRD whose branch is
+	// already checked out somewhere can only be run there.
+	a.branchWarning.SetBranchWorktree(displayWorktreePath(a.baseDir,
+		git.WorktreeForBranch(a.baseDir, worktreeBranchFor(prdName))))
 	a.branchWarning.SetDialogContext(dialogCtx)
 	a.branchWarning.Reset()
 	a.pendingStartPRD = prdName

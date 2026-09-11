@@ -55,6 +55,11 @@ type BranchWarning struct {
 	context       DialogContext
 	options       []dialogOption
 	sync          git.BranchSync // Only meaningful for DialogBranchBehindRemote
+	// branchWorktree names the worktree that already has this PRD's branch
+	// checked out, empty when none does. Git allows a branch in one worktree at a
+	// time, so while it is set, creating that branch in the current directory is
+	// not something git will do.
+	branchWorktree string
 }
 
 // NewBranchWarning creates a new branch warning dialog.
@@ -78,6 +83,13 @@ func (b *BranchWarning) SetContext(currentBranch, prdName, worktreePath string) 
 	b.worktreePath = worktreePath
 }
 
+// SetBranchWorktree records the worktree holding this PRD's branch, as a path to
+// show the user. Call before SetDialogContext: it decides which answer the
+// dialog recommends.
+func (b *BranchWarning) SetBranchWorktree(path string) {
+	b.branchWorktree = path
+}
+
 // SetDialogContext sets which context mode the dialog should display.
 func (b *BranchWarning) SetDialogContext(ctx DialogContext) {
 	b.context = ctx
@@ -98,29 +110,8 @@ func (b *BranchWarning) SetSyncState(branch string, sync git.BranchSync) {
 // buildOptions creates the option list based on the dialog context.
 func (b *BranchWarning) buildOptions() {
 	switch b.context {
-	case DialogProtectedBranch:
-		b.options = []dialogOption{
-			{
-				label:       "Create branch only",
-				hint:        "./ (current directory)",
-				recommended: true,
-				option:      BranchOptionCreateBranch,
-			},
-			{
-				label:  "Create worktree + branch",
-				hint:   b.worktreePath,
-				option: BranchOptionCreateWorktree,
-			},
-			{
-				label:  fmt.Sprintf("Continue on %s", b.currentBranch),
-				hint:   "./ (current directory)",
-				option: BranchOptionContinue,
-			},
-			{
-				label:  "Cancel",
-				option: BranchOptionCancel,
-			},
-		}
+	case DialogProtectedBranch, DialogNoConflicts:
+		b.options = b.startOptions()
 	case DialogAnotherPRDRunning:
 		b.options = []dialogOption{
 			{
@@ -139,33 +130,6 @@ func (b *BranchWarning) buildOptions() {
 				option: BranchOptionCancel,
 			},
 		}
-	case DialogNoConflicts:
-		// Nothing is in the way here, so the recommendation matches what chief used
-		// to do without asking: give the PRD its own branch in this checkout. The
-		// worktree sits right below it, which is the whole point of asking at all.
-		b.options = []dialogOption{
-			{
-				label:       "Create branch only",
-				hint:        "./ (current directory)",
-				recommended: true,
-				option:      BranchOptionCreateBranch,
-			},
-			{
-				label:  "Create worktree + branch",
-				hint:   b.worktreePath,
-				option: BranchOptionCreateWorktree,
-			},
-			{
-				label:  fmt.Sprintf("Continue on %s", b.currentBranch),
-				hint:   "./ (current directory)",
-				option: BranchOptionContinue,
-			},
-			{
-				label:  "Cancel",
-				option: BranchOptionCancel,
-			},
-		}
-
 	case DialogBranchBehindRemote:
 		// A fast-forward just moves the branch onto the remote tip; with local
 		// commits of our own it takes a rebase, which can conflict. Name which one
@@ -194,6 +158,46 @@ func (b *BranchWarning) buildOptions() {
 			},
 		}
 	}
+}
+
+// startOptions are the choices for a start nothing else is in the way of: give
+// the PRD its own branch here, put it in a worktree, or stay on the current
+// branch. The recommendation is the branch — the quiet path chief took before it
+// started asking — with the worktree right below it, which is the whole point of
+// asking at all.
+//
+// It swaps when the PRD's branch is already checked out in a worktree: creating
+// it here is then not something git will do, so the worktree that has it is the
+// answer, and the option that cannot work says why rather than failing on Enter.
+func (b *BranchWarning) startOptions() []dialogOption {
+	branchOnly := dialogOption{
+		label:  "Create branch only",
+		hint:   "./ (current directory)",
+		option: BranchOptionCreateBranch,
+	}
+	worktree := dialogOption{
+		label:  "Create worktree + branch",
+		hint:   b.worktreePath,
+		option: BranchOptionCreateWorktree,
+	}
+	stay := dialogOption{
+		label:  fmt.Sprintf("Continue on %s", b.currentBranch),
+		hint:   "./ (current directory)",
+		option: BranchOptionContinue,
+	}
+	cancel := dialogOption{
+		label:  "Cancel",
+		option: BranchOptionCancel,
+	}
+
+	if b.branchWorktree != "" {
+		worktree.recommended = true
+		worktree.hint = b.branchWorktree
+		branchOnly.hint = "unavailable: already checked out in " + b.branchWorktree
+		return []dialogOption{worktree, branchOnly, stay, cancel}
+	}
+	branchOnly.recommended = true
+	return []dialogOption{branchOnly, worktree, stay, cancel}
 }
 
 // GetSuggestedBranch returns the branch name (may be edited by user).
@@ -341,7 +345,9 @@ func (b *BranchWarning) renderHeader(content *strings.Builder, modalWidth int) {
 		content.WriteString(messageStyle.Render(fmt.Sprintf("You are on the '%s' branch.", b.currentBranch)))
 		content.WriteString("\n")
 		content.WriteString(messageStyle.Render("It's recommended to create a separate branch."))
-		content.WriteString("\n\n")
+		content.WriteString("\n")
+		b.renderBranchWorktreeNote(content, messageStyle)
+		content.WriteString("\n")
 
 	case DialogAnotherPRDRunning:
 		content.WriteString(titleStyle.Foreground(PrimaryColor).Render("Directory In Use"))
@@ -363,7 +369,9 @@ func (b *BranchWarning) renderHeader(content *strings.Builder, modalWidth int) {
 
 		messageStyle := lipgloss.NewStyle().Foreground(TextColor)
 		content.WriteString(messageStyle.Render("Choose where Claude should work:"))
-		content.WriteString("\n\n")
+		content.WriteString("\n")
+		b.renderBranchWorktreeNote(content, messageStyle)
+		content.WriteString("\n")
 
 	case DialogBranchBehindRemote:
 		content.WriteString(titleStyle.Foreground(WarningColor).Render("⚠️  Branch Behind Remote"))
@@ -383,6 +391,16 @@ func (b *BranchWarning) renderHeader(content *strings.Builder, modalWidth int) {
 		content.WriteString(messageStyle.Render("Pushing this run would be rejected."))
 		content.WriteString("\n\n")
 	}
+}
+
+// renderBranchWorktreeNote names the worktree already holding this PRD's branch,
+// so the recommendation the dialog makes explains itself.
+func (b *BranchWarning) renderBranchWorktreeNote(content *strings.Builder, style lipgloss.Style) {
+	if b.branchWorktree == "" {
+		return
+	}
+	content.WriteString(style.Render(fmt.Sprintf("%s is checked out in %s", b.branchName, b.branchWorktree)))
+	content.WriteString("\n")
 }
 
 // pluralCommits renders a commit count with the right noun, for prose like

@@ -145,7 +145,9 @@ Two things follow from that, and both are the point:
 
 While a worktree holds a PRD, it is the copy chief shows and edits: the dashboard and the picker read it, and [`chief edit`](/reference/cli#chief-edit) and [`chief followup`](/reference/cli#chief-followup) write to it. [Cleaning the worktree](#removing-them) copies the files back into the project first, so a PRD under a gitignored `.chief/` — whose state the branch never carried — keeps its record.
 
-A worktree picked up as it stands keeps the copy it has: it holds what an earlier run recorded, and the project's copy is the one that fell behind. A worktree created for this run is given the project's copy, which is the PRD as you last edited it rather than as it was last committed.
+A worktree picked up as it stands keeps the copy it has: it holds what an earlier run recorded, and the project's copy is the one that fell behind. A worktree created for this run is given the project's copy, which is the PRD as you last edited it rather than as it was last committed. A worktree standing on a *different* branch counts as stale and gets replaced — its PRD files are copied back into the project first, for the same reason cleaning does it.
+
+Because git allows a branch in one worktree at a time, a PRD whose `chief/<prd-name>` branch is already checked out somewhere can only be run there: the start dialog says where, recommends the worktree, and marks "Create branch only" as unavailable rather than letting it fail on Enter.
 
 ### Where they live
 

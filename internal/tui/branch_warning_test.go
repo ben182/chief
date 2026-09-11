@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -260,5 +261,55 @@ func TestBranchWarningGetDialogContext(t *testing.T) {
 	bw.SetDialogContext(DialogNoConflicts)
 	if bw.GetDialogContext() != DialogNoConflicts {
 		t.Error("expected DialogNoConflicts")
+	}
+}
+
+// Git allows a branch in one worktree at a time. When the PRD's branch is
+// already checked out in one, "Create branch only" is not something git will do,
+// so the dialog recommends the worktree that has it instead of an option that
+// fails on Enter.
+func TestBranchWarningWhenTheBranchIsHeldByAWorktree(t *testing.T) {
+	bw := NewBranchWarning()
+	bw.SetSize(80, 30)
+	bw.SetContext("main", "auth", ".chief/worktrees/auth/")
+	bw.SetBranchWorktree(".chief/worktrees/auth/")
+	bw.SetDialogContext(DialogProtectedBranch)
+	bw.Reset()
+
+	if bw.options[0].option != BranchOptionCreateWorktree || !bw.options[0].recommended {
+		t.Errorf("first option = %v (recommended %v), want the worktree recommended",
+			bw.options[0].option, bw.options[0].recommended)
+	}
+	if bw.GetSelectedOption() != BranchOptionCreateWorktree {
+		t.Errorf("default selection = %v, want CreateWorktree", bw.GetSelectedOption())
+	}
+	if bw.options[1].option != BranchOptionCreateBranch {
+		t.Fatalf("second option = %v, want CreateBranch", bw.options[1].option)
+	}
+	if !strings.Contains(bw.options[1].hint, "unavailable") {
+		t.Errorf("branch-only hint = %q, want it to say why it cannot work", bw.options[1].hint)
+	}
+
+	out := bw.Render()
+	if !strings.Contains(out, "chief/auth is checked out in .chief/worktrees/auth/") {
+		t.Errorf("the dialog does not say where the branch is:\n%s", out)
+	}
+}
+
+// Without a worktree holding the branch, nothing changes: the branch stays the
+// recommendation, as it was before chief asked at all.
+func TestBranchWarningWithoutAWorktreeHoldingTheBranch(t *testing.T) {
+	bw := NewBranchWarning()
+	bw.SetSize(80, 30)
+	bw.SetContext("feature/x", "auth", ".chief/worktrees/auth/")
+	bw.SetDialogContext(DialogNoConflicts)
+	bw.Reset()
+
+	if bw.options[0].option != BranchOptionCreateBranch || !bw.options[0].recommended {
+		t.Errorf("first option = %v (recommended %v), want the branch recommended",
+			bw.options[0].option, bw.options[0].recommended)
+	}
+	if strings.Contains(bw.Render(), "is checked out in") {
+		t.Error("the dialog should not mention a worktree when none holds the branch")
 	}
 }

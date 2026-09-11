@@ -894,6 +894,14 @@ func (a App) handleBranchWarningKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case BranchOptionCreateBranch:
 			// Create the branch with (possibly edited) name
 			branchName := a.branchWarning.GetSuggestedBranch()
+			// Checking a branch out twice is the one thing git refuses outright, and
+			// its message ("already used by worktree") says nothing about what to do
+			// instead. The worktree that holds it is what to do instead.
+			if wt := git.WorktreeForBranch(a.baseDir, branchName); wt != "" {
+				a.lastActivity = fmt.Sprintf("%s is checked out in %s — start again and pick \"Create worktree + branch\" to run there",
+					branchName, displayWorktreePath(a.baseDir, wt))
+				return a, nil
+			}
 			if err := git.CreateBranch(a.baseDir, branchName); err != nil {
 				a.lastActivity = "Error creating branch: " + err.Error()
 				return a, nil
@@ -1250,7 +1258,11 @@ func (a *App) runWorktreeStep(step WorktreeSpinnerStep, baseDir, worktreePath, b
 			PRDName:      a.pendingStartPRD,
 			Teardown:     a.teardownCommand(),
 			BaseBranch:   a.baseBranchSetting(),
-			LogDir:       prd.PRDDir(baseDir, a.pendingStartPRD),
+			// Both are the PRD's directory in the project: the teardown log has to
+			// outlive the worktree it describes, and the PRD files a stale worktree
+			// holds are brought home to the same place.
+			LogDir: filepath.Dir(a.homePRDPath(a.pendingStartPRD)),
+			PRDDir: filepath.Dir(a.homePRDPath(a.pendingStartPRD)),
 		}
 		return func() tea.Msg {
 			// CreateWorktree handles both branch creation and worktree addition

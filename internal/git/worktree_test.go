@@ -768,3 +768,82 @@ func TestCreateWorktreeReportsReuse(t *testing.T) {
 		t.Error("a recreated stale worktree was reported as reused")
 	}
 }
+
+// Replacing a stale worktree removes a directory that holds the PRD's working
+// files — the record of whatever ran in it. In a project that gitignores
+// `.chief/` the branch never carried them, so that copy is the only one there
+// is, and it comes home before the directory goes.
+func TestCreateWorktreeReclaimsThePRDFilesOfAStaleWorktree(t *testing.T) {
+	dir := initTestRepo(t)
+	wtPath := filepath.Join(dir, "worktrees", "auth")
+	prdDir := filepath.Join(dir, ".chief", "prds", "auth")
+
+	// The case reclaiming exists for: a project that gitignores `.chief/`, so the
+	// branch never carried the PRD files and the worktree's copy is the only one.
+	// (Ignored files also don't hold up `git worktree remove`, where tracked
+	// changes would — git refuses those on their own.)
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".chief/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitIn(t, dir, "add", ".gitignore")
+	runGitIn(t, dir, "commit", "-m", "ignore .chief")
+
+	if err := os.MkdirAll(prdDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(prdDir, "prd.md"), []byte("# PRD\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/auth", PRDDir: prdDir}
+	if _, err := CreateWorktree(opts); err != nil {
+		t.Fatalf("CreateWorktree() error = %v", err)
+	}
+
+	// What a run in that worktree would have recorded.
+	runPRDDir := filepath.Join(wtPath, ".chief", "prds", "auth")
+	if err := os.MkdirAll(runPRDDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runPRDDir, "prd.md"), []byte("# PRD\n**Status:** done\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runPRDDir, "progress.md"), []byte("# progress\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// A different branch makes the worktree stale, so it is replaced.
+	opts.Branch = "chief/auth-v2"
+	if _, err := CreateWorktree(opts); err != nil {
+		t.Fatalf("second CreateWorktree() error = %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(prdDir, "prd.md"))
+	if err != nil || string(data) != "# PRD\n**Status:** done\n" {
+		t.Errorf("the project's prd.md = %q (err %v), want the replaced worktree's state", string(data), err)
+	}
+	if _, err := os.Stat(filepath.Join(prdDir, "progress.md")); err != nil {
+		t.Errorf("progress.md was not brought home: %v", err)
+	}
+}
+
+// A branch lives in one worktree at a time, which is what stands between a
+// caller and a checkout that fails with "already used by worktree".
+func TestWorktreeForBranch(t *testing.T) {
+	dir := initTestRepo(t)
+	wtPath := filepath.Join(dir, "worktrees", "auth")
+	if _, err := CreateWorktree(CreateWorktreeOptions{RepoDir: dir, WorktreePath: wtPath, Branch: "chief/auth"}); err != nil {
+		t.Fatalf("CreateWorktree() error = %v", err)
+	}
+
+	if got := WorktreeForBranch(dir, "chief/auth"); normalizePath(got) != normalizePath(wtPath) {
+		t.Errorf("WorktreeForBranch(chief/auth) = %q, want %q", got, wtPath)
+	}
+	if got := WorktreeForBranch(dir, "chief/nobody"); got != "" {
+		t.Errorf("WorktreeForBranch(chief/nobody) = %q, want no worktree", got)
+	}
+	// The main checkout's own branch is not a conflict: it is already there.
+	if got := WorktreeForBranch(dir, "main"); got != "" {
+		t.Errorf("WorktreeForBranch(main) = %q, want the main checkout ignored", got)
+	}
+}

@@ -5,6 +5,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/ben182/chief/internal/prd"
 )
 
 // Worktree represents a git worktree entry.
@@ -61,6 +63,12 @@ type CreateWorktreeOptions struct {
 	// PRD directory. Empty writes no log, which is what a caller that never
 	// configured a teardown gets anyway.
 	LogDir string
+	// PRDDir is the PRD's directory in the main checkout. A worktree keeps its
+	// own copy of the PRD's working files, so replacing a stale one would take
+	// the record of whatever ran in it along; naming the directory here lets that
+	// copy be brought home first. Empty skips the step, which is right for a
+	// caller that keeps no PRD files in the worktree.
+	PRDDir string
 }
 
 // CreateWorktreeResult says what CreateWorktree did, which the caller cannot
@@ -115,6 +123,13 @@ func CreateWorktree(opts CreateWorktreeOptions) (CreateWorktreeResult, error) {
 		// have no business there.
 		if res, err := RunTeardown(stale, opts.Teardown, RunOptions{LogDir: opts.LogDir}); err != nil {
 			return CreateWorktreeResult{}, fmt.Errorf("worktree teardown failed: %w%s", err, logHint(res.LogPath))
+		}
+		// Whatever ran in this worktree recorded its progress in the PRD copy it
+		// holds. Removing the directory would be the end of that record, and in a
+		// project that gitignores .chief/ it is the only one there is — so it comes
+		// home first, for the same reason cleaning a worktree brings it home.
+		if err := reclaimPRDFiles(opts.RepoDir, absWorktreePath, opts.PRDDir); err != nil {
+			return CreateWorktreeResult{}, err
 		}
 		if err := RemoveWorktree(opts.RepoDir, absWorktreePath); err != nil {
 			return CreateWorktreeResult{}, fmt.Errorf("failed to remove stale worktree: %w", err)
@@ -179,6 +194,46 @@ func resolveBaseBranch(repoDir, configured string) (name, ref string, err error)
 		return configured, remoteRef, nil
 	}
 	return "", "", fmt.Errorf("configured worktree.baseBranch %q exists neither locally nor on origin", configured)
+}
+
+// reclaimPRDFiles copies a worktree's copy of the PRD's working files back into
+// the main checkout, so removing the worktree does not take the record of what
+// ran there with it. A worktree holding no copy, or a PRD directory that has no
+// counterpart inside it, is nothing to reclaim and no error.
+func reclaimPRDFiles(repoDir, worktreePath, prdDir string) error {
+	if prdDir == "" {
+		return nil
+	}
+	inWorktree, ok := prd.PathIn(repoDir, prdDir, worktreePath)
+	if !ok {
+		return nil
+	}
+	if err := prd.Mirror(inWorktree, prdDir); err != nil {
+		return fmt.Errorf("failed to save the PRD state from the worktree at %s: %w", worktreePath, err)
+	}
+	return nil
+}
+
+// WorktreeForBranch returns the path of the worktree that has branch checked
+// out, or "" when no worktree other than the main checkout does. Git allows a
+// branch in exactly one worktree at a time, so this is what stands between a
+// caller and a `git checkout` that fails with "already used by worktree".
+func WorktreeForBranch(repoDir, branch string) string {
+	if branch == "" {
+		return ""
+	}
+	worktrees, err := ListWorktrees(repoDir)
+	if err != nil {
+		return ""
+	}
+	mainPath := normalizePath(repoDir)
+	for _, wt := range worktrees {
+		if wt.Branch != branch || normalizePath(wt.Path) == mainPath {
+			continue
+		}
+		return wt.Path
+	}
+	return ""
 }
 
 // RemoveWorktree removes a git worktree at the given path.
