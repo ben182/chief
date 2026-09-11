@@ -27,8 +27,10 @@ func RunStatus(opts StatusOptions) error {
 	}
 	opts.BaseDir = baseDir
 
-	// Build PRD path
+	// Build PRD path. A run working in a worktree keeps the PRD's working files
+	// there, and its progress is the progress being asked about.
 	prdPath := prd.PRDPath(opts.BaseDir, opts.Name)
+	_, prdPath = livePRDPaths(opts.BaseDir, opts.Name, prd.PRDDir(opts.BaseDir, opts.Name), prdPath)
 
 	// Load PRD
 	p, err := prd.LoadPRD(prdPath)
@@ -104,7 +106,10 @@ func RunList(opts ListOptions) error {
 		return fmt.Errorf("failed to read PRDs directory: %w", err)
 	}
 
-	// Collect PRD info
+	// Collect PRD info. The template is read once: a PRD whose run works in a
+	// worktree keeps its working files there, and that is the copy to report on.
+	template := worktreeDirTemplate(baseDir)
+
 	var prds []PRDInfo
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -112,7 +117,8 @@ func RunList(opts ListOptions) error {
 		}
 
 		name := entry.Name()
-		prdPath := filepath.Join(prdsDir, name, "prd.md")
+		prdDir := filepath.Join(prdsDir, name)
+		_, prdPath := livePRDPathsWithTemplate(template, baseDir, name, prdDir, filepath.Join(prdDir, "prd.md"))
 
 		// Try to load the PRD
 		p, err := prd.LoadPRD(prdPath)

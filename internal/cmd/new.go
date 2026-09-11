@@ -63,15 +63,29 @@ func preparePRDPaths(name, baseDir string) (resolvedName, resolvedBase, prdDir, 
 // when no worktree holds a copy — the normal case, and the answer whenever the
 // config cannot be read.
 func livePRDPaths(baseDir, name, prdDir, prdMdPath string) (string, string) {
-	cfg, err := config.Load(baseDir)
-	if err != nil {
-		return prdDir, prdMdPath
-	}
-	liveDir := git.LivePRDDir(baseDir, strings.TrimSpace(cfg.Worktree.Dir), name, prdDir)
+	return livePRDPathsWithTemplate(worktreeDirTemplate(baseDir), baseDir, name, prdDir, prdMdPath)
+}
+
+// livePRDPathsWithTemplate is livePRDPaths with the worktree.dir template
+// already in hand, for a caller resolving a whole list of PRDs that would
+// otherwise read the config once per entry.
+func livePRDPathsWithTemplate(template, baseDir, name, prdDir, prdMdPath string) (string, string) {
+	liveDir := git.LivePRDDir(baseDir, template, name, prdDir)
 	if liveDir == prdDir {
 		return prdDir, prdMdPath
 	}
 	return liveDir, filepath.Join(liveDir, filepath.Base(prdMdPath))
+}
+
+// worktreeDirTemplate reads the configured worktree.dir template, falling back
+// to the default (an empty template) when the config cannot be read — which
+// resolves worktrees exactly where chief would have put them anyway.
+func worktreeDirTemplate(baseDir string) string {
+	cfg, err := config.Load(baseDir)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.Worktree.Dir)
 }
 
 // resolvePRDName applies branch-based PRD inference: when name is empty and the
