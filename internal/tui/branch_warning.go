@@ -140,17 +140,25 @@ func (b *BranchWarning) buildOptions() {
 			},
 		}
 	case DialogNoConflicts:
+		// Nothing is in the way here, so the recommendation matches what chief used
+		// to do without asking: give the PRD its own branch in this checkout. The
+		// worktree sits right below it, which is the whole point of asking at all.
 		b.options = []dialogOption{
 			{
-				label:       "Run in current directory",
+				label:       "Create branch only",
 				hint:        "./ (current directory)",
 				recommended: true,
-				option:      BranchOptionContinue,
+				option:      BranchOptionCreateBranch,
 			},
 			{
 				label:  "Create worktree + branch",
 				hint:   b.worktreePath,
 				option: BranchOptionCreateWorktree,
+			},
+			{
+				label:  fmt.Sprintf("Continue on %s", b.currentBranch),
+				hint:   "./ (current directory)",
+				option: BranchOptionContinue,
 			},
 			{
 				label:  "Cancel",

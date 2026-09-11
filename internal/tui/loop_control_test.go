@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ben182/chief/internal/git"
 	"github.com/ben182/chief/internal/loop"
 )
 
@@ -191,5 +192,56 @@ func TestIsAnotherPRDRunningInSameDirWithoutManager(t *testing.T) {
 
 	if a.isAnotherPRDRunningInSameDir("auth") {
 		t.Error("expected no conflict without a manager")
+	}
+}
+
+// Starting from an ordinary feature branch used to skip the dialog entirely and
+// branch silently, which made the worktree option unreachable unless you
+// happened to be on main. Every start asks now.
+func TestStartLoopAsksOnAnOrdinaryBranch(t *testing.T) {
+	dir := t.TempDir()
+	initRepoOnMain(t, dir)
+	mustRun(t, dir, "git", "checkout", "-b", "feature/x")
+	a := worktreeDirApp(t, dir, "")
+
+	model, _ := a.startLoopForPRD("auth")
+	got, ok := model.(App)
+	if !ok {
+		t.Fatalf("unexpected model type %T", model)
+	}
+	if got.viewMode != ViewBranchWarning {
+		t.Fatalf("viewMode = %v, want ViewBranchWarning", got.viewMode)
+	}
+	if ctx := got.branchWarning.GetDialogContext(); ctx != DialogNoConflicts {
+		t.Errorf("dialog context = %v, want DialogNoConflicts", ctx)
+	}
+
+	// The dialog owns the decision, so nothing may have branched yet.
+	branch, err := git.GetCurrentBranch(dir)
+	if err != nil {
+		t.Fatalf("GetCurrentBranch: %v", err)
+	}
+	if branch != "feature/x" {
+		t.Errorf("branch = %q, want the dialog to leave feature/x alone", branch)
+	}
+}
+
+// The dialog is only useful if the worktree is one keystroke away from the
+// default, so the quiet path offers it right below the recommended answer.
+func TestStartLoopOffersWorktreeOnAnOrdinaryBranch(t *testing.T) {
+	dir := t.TempDir()
+	initRepoOnMain(t, dir)
+	mustRun(t, dir, "git", "checkout", "-b", "feature/x")
+	a := worktreeDirApp(t, dir, "")
+
+	model, _ := a.startLoopForPRD("auth")
+	got := model.(App)
+
+	out := got.branchWarning.Render()
+	if !strings.Contains(out, "Create worktree") {
+		t.Errorf("rendered dialog offers no worktree:\n%s", out)
+	}
+	if !strings.Contains(out, "chief/auth") {
+		t.Errorf("rendered dialog does not name the branch:\n%s", out)
 	}
 }

@@ -144,9 +144,9 @@ When the next iteration starts, the agent reads this file and immediately unders
 
 When running multiple PRDs simultaneously, each PRD can work in its own isolated git worktree. This prevents parallel agent instances from conflicting over files, producing interleaved commits, or stepping on each other's branches.
 
-When you start a PRD, Chief asks how to run it — and the dialog with the worktree option appears in exactly two situations: you're on a protected branch (`main`/`master`), or another PRD is already running in this directory. Otherwise Chief takes the silent path: it creates or checks out `chief/<prd-name>` in your current checkout and starts, so a run from an existing feature branch never asks. If you want worktrees, start your PRDs from your default branch — which is also why [`chief new`](../reference/cli.md#chief-new) deliberately leaves your branch alone.
+Every start asks how to run the PRD, from whichever branch you are on. What changes with the situation is only which answer is recommended: on a protected branch (`main`/`master`) or an ordinary one, that is "Create branch only" — `chief/<prd-name>` in your current checkout, which is what Chief used to do without asking. When another PRD is already running in this directory, the worktree is recommended instead, because two loops committing in one checkout interleave their commits. The worktree option sits right below the recommendation in every case, and `Esc` cancels the start.
 
-When the dialog does appear and you pick the worktree:
+When you pick the worktree:
 - A new branch is created (e.g., `chief/auth-system`) from your default branch, or from whatever [`worktree.baseBranch`](../reference/configuration.md#config-keys) names — `develop`, say — when you have set it
 - A worktree is set up at `.chief/worktrees/<prd-name>/`, or wherever the [`worktree.dir`](../reference/configuration.md#config-keys) template points when you have changed it — `git worktree list` always says where
 - Any configured setup command runs automatically (e.g., `npm install`), streamed into the spinner while it runs and written to `.chief/prds/<prd-name>/setup-<timestamp>.log`

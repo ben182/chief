@@ -42,29 +42,20 @@ func (a App) startLoopForPRD(prdName string) (tea.Model, tea.Cmd) {
 	isProtected := git.IsProtectedBranch(branch)
 	anotherRunningInSameDir := a.isAnotherPRDRunningInSameDir(prdName)
 
-	if !isProtected && !anotherRunningInSameDir {
-		// No conflicts, no dialog. Still give the PRD its own branch unless
-		// we're already on it (resume): otherwise a leftover feature branch
-		// from a previous PRD silently soaks up this PRD's commits.
-		expectedBranch := fmt.Sprintf("chief/%s", prdName)
-		if branch != expectedBranch {
-			if err := git.CreateBranch(a.baseDir, expectedBranch); err != nil {
-				a.lastActivity = "Error creating branch: " + err.Error()
-				return a, nil
-			}
-			a.lastActivity = "Created branch: " + expectedBranch
-		}
-		return a.doStartLoop(prdName, prdDir)
-	}
-
+	// Every start asks, so the worktree option is reachable from any branch
+	// rather than only from main or alongside a second run. The context only
+	// decides which answer is recommended; on the quiet path that is still
+	// "create the branch and work here", which is what chief did silently before.
 	var dialogCtx DialogContext
-	if isProtected {
+	switch {
+	case isProtected:
 		dialogCtx = DialogProtectedBranch
-	} else {
+	case anotherRunningInSameDir:
 		dialogCtx = DialogAnotherPRDRunning
+	default:
+		dialogCtx = DialogNoConflicts
 	}
 
-	// Show the dialog only for protected branch or another PRD running
 	a.branchWarning.SetSize(a.width, a.height)
 	a.branchWarning.SetContext(branch, prdName, relWorktreePath)
 	a.branchWarning.SetDialogContext(dialogCtx)

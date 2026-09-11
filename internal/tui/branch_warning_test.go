@@ -80,14 +80,15 @@ func TestBranchWarningNoConflicts(t *testing.T) {
 	bw.SetDialogContext(DialogNoConflicts)
 	bw.Reset()
 
-	// Should have 3 options: run in current dir, create worktree+branch, cancel
-	if len(bw.options) != 3 {
-		t.Fatalf("expected 3 options for no conflicts, got %d", len(bw.options))
+	// Should have 4 options: create branch, create worktree+branch, continue, cancel
+	if len(bw.options) != 4 {
+		t.Fatalf("expected 4 options for no conflicts, got %d", len(bw.options))
 	}
 
-	// First option should be "Run in current directory" (recommended)
-	if bw.options[0].option != BranchOptionContinue {
-		t.Errorf("expected first option to be Continue (current dir), got %v", bw.options[0].option)
+	// First option should be "Create branch only" (recommended): the quiet path
+	// chief took before it started asking.
+	if bw.options[0].option != BranchOptionCreateBranch {
+		t.Errorf("expected first option to be CreateBranch, got %v", bw.options[0].option)
 	}
 	if !bw.options[0].recommended {
 		t.Error("expected first option to be recommended")
@@ -98,9 +99,14 @@ func TestBranchWarningNoConflicts(t *testing.T) {
 		t.Errorf("expected second option to be CreateWorktree, got %v", bw.options[1].option)
 	}
 
-	// Third option should be Cancel
-	if bw.options[2].option != BranchOptionCancel {
-		t.Errorf("expected third option to be Cancel, got %v", bw.options[2].option)
+	// Third option stays on the branch the user is already on
+	if bw.options[2].option != BranchOptionContinue {
+		t.Errorf("expected third option to be Continue, got %v", bw.options[2].option)
+	}
+
+	// Fourth option should be Cancel
+	if bw.options[3].option != BranchOptionCancel {
+		t.Errorf("expected fourth option to be Cancel, got %v", bw.options[3].option)
 	}
 }
 
