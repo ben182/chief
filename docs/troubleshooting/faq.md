@@ -83,9 +83,15 @@ Git worktrees let you have multiple checkouts of a repository at the same time, 
 
 ### Do I have to use worktrees?
 
-No. Chief asks on every start, and "Create branch only" — the recommended answer everywhere except alongside a second run in the same directory — skips the worktree and works on `chief/<name>` in your current checkout. Worktrees are most useful when running multiple PRDs simultaneously.
+No. Chief asks on a PRD's first start, and "Create branch only" — the recommended answer everywhere except alongside a second run in the same directory — skips the worktree and works on `chief/<name>` in your current checkout. Worktrees are most useful when running multiple PRDs simultaneously.
 
 The other direction is just as easy: whatever branch you press `s` from, "Create worktree + branch" is the option directly below the recommended one.
+
+### Why doesn't Chief ask me where to run when I restart a PRD?
+
+Because the question is already answered. A PRD that has a branch or a worktree goes straight back to it: the worktree Chief created for it, the checkout you are in when it is already on the run's branch (which includes running `chief` from inside the PRD's own worktree), or the worktree holding `chief/<name>` from an earlier session. Answering again could only send the run somewhere that doesn't have the stories it already finished.
+
+To run a PRD somewhere else, take its current home away first — [clean the worktree](/concepts/chief-directory#removing-them) from the picker, or check out a different branch when the run lives in your main checkout.
 
 ### A worktree run changed files in my main checkout — why?
 

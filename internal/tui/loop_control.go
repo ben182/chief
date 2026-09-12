@@ -42,6 +42,22 @@ func (a App) startLoopForPRD(prdName string) (tea.Model, tea.Cmd) {
 	isProtected := git.IsProtectedBranch(branch)
 	anotherRunningInSameDir := a.isAnotherPRDRunningInSameDir(prdName)
 
+	// The dialog asks where the work should happen. Once that has been answered
+	// — there is a branch, a worktree, commits on it — the question is settled,
+	// and asking it again on every restart invites an answer that walks away
+	// from the progress already made. So a PRD that has a home goes back to it.
+	if home, ok := a.existingRunHome(prdName, branch); ok {
+		if home.worktree != "" {
+			return a.startWorktreeRun(prdName, home.branch, home.worktree)
+		}
+		// Resuming in the current directory is only unambiguous while nothing
+		// else is committing there; that conflict still needs the user.
+		if !anotherRunningInSameDir {
+			a.lastActivity = "Resuming on " + home.branch
+			return a.doStartLoop(prdName, prdDir)
+		}
+	}
+
 	// Every start asks, so the worktree option is reachable from any branch
 	// rather than only from main or alongside a second run. The context only
 	// decides which answer is recommended; on the quiet path that is still
@@ -68,6 +84,96 @@ func (a App) startLoopForPRD(prdName string) (tea.Model, tea.Cmd) {
 	a.pendingWorktreePath = worktreePath
 	a.viewMode = ViewBranchWarning
 	return a, nil
+}
+
+// resumeTarget names the place a PRD's run already has. An empty worktree means
+// the current checkout, which is standing on the run's branch itself.
+type resumeTarget struct {
+	worktree string
+	branch   string
+}
+
+// runHomeFacts is what deciding on a resume takes: what the manager remembers
+// about this PRD's run, and what git says about its branch right now.
+type runHomeFacts struct {
+	// instWorktree is the worktree the manager has recorded for this PRD, empty
+	// unless it is also still a worktree on disk — a directory removed behind
+	// chief's back is no home to return to.
+	instWorktree string
+	// instBranch is the branch the manager recorded for the run, which for a run
+	// without a worktree is the branch it created in the main checkout.
+	instBranch string
+	// currentBranch is what the checkout chief runs in has checked out. Inside a
+	// PRD's own worktree this is that PRD's branch, which is how a chief started
+	// from within a worktree recognises it is already home.
+	currentBranch string
+	// prdBranch is the branch this PRD's runs use by convention.
+	prdBranch string
+	// branchWorktree is the worktree holding prdBranch, empty when none does.
+	branchWorktree string
+}
+
+// existingRunHome gathers the facts and asks resolveRunHome where this PRD's run
+// already lives.
+func (a *App) existingRunHome(prdName, currentBranch string) (resumeTarget, bool) {
+	prdBranch := worktreeBranchFor(prdName)
+	facts := runHomeFacts{
+		currentBranch:  currentBranch,
+		prdBranch:      prdBranch,
+		branchWorktree: a.worktreeHoldingBranch(prdName, prdBranch),
+	}
+	if a.manager != nil {
+		if inst := a.manager.GetInstance(prdName); inst != nil {
+			facts.instBranch = inst.Branch
+			if inst.WorktreeDir != "" && git.IsWorktree(inst.WorktreeDir) {
+				facts.instWorktree = inst.WorktreeDir
+			}
+		}
+	}
+	return resolveRunHome(facts)
+}
+
+// worktreeHoldingBranch returns the worktree that has a PRD's branch checked
+// out, spelled the way the configured template spells it whenever the two mean
+// the same directory. git resolves every symlink in the paths it prints, and
+// that spelling matches neither what the picker compares against nor what the
+// manager records for a run.
+func (a *App) worktreeHoldingBranch(prdName, branch string) string {
+	wt := git.WorktreeForBranch(a.baseDir, branch)
+	if wt == "" {
+		return ""
+	}
+	if templated, err := a.worktreePathFor(prdName, branch); err == nil && git.SamePath(templated, wt) {
+		return templated
+	}
+	return wt
+}
+
+// resolveRunHome answers where a PRD's run already lives, or reports that it has
+// nowhere yet and the user has to be asked. Split from the App so it can be
+// exercised without a git repository behind it.
+//
+// The worktree the manager recorded outranks everything: it is where this
+// session's run has been working. Next comes the checkout we are standing in,
+// when it is on the run's branch — that covers both a stopped run whose branch
+// is still checked out and a chief started from inside the PRD's own worktree.
+// Last, the worktree holding the branch, which is where a run from an earlier
+// chief session left off.
+func resolveRunHome(f runHomeFacts) (resumeTarget, bool) {
+	if f.instWorktree != "" {
+		branch := f.instBranch
+		if branch == "" {
+			branch = f.prdBranch
+		}
+		return resumeTarget{worktree: f.instWorktree, branch: branch}, true
+	}
+	if f.currentBranch != "" && (f.currentBranch == f.prdBranch || f.currentBranch == f.instBranch) {
+		return resumeTarget{branch: f.currentBranch}, true
+	}
+	if f.branchWorktree != "" {
+		return resumeTarget{worktree: f.branchWorktree, branch: f.prdBranch}, true
+	}
+	return resumeTarget{}, false
 }
 
 // isAnotherPRDRunningInSameDir checks if another PRD is running in the project root (no worktree).

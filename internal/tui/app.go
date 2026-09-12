@@ -860,36 +860,7 @@ func (a App) handleBranchWarningKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return a, a.runBranchSync(prdName, prdDir, syncBranch)
 
 		case BranchOptionCreateWorktree:
-			branchName := a.branchWarning.GetSuggestedBranch()
-			worktreePath, err := a.worktreePathFor(prdName, branchName)
-			if err != nil {
-				a.lastActivity = "Error: " + err.Error()
-				return a, nil
-			}
-			relWorktreePath := displayWorktreePath(a.baseDir, worktreePath)
-
-			// Name the branch the new one will be cut from: the configured
-			// base branch if there is one, the detected default otherwise.
-			baseBranch := a.baseBranchSetting()
-			if baseBranch == "" {
-				baseBranch = "main"
-				if db, err := git.GetDefaultBranch(a.baseDir); err == nil {
-					baseBranch = db
-				}
-			}
-
-			// Configure and show the spinner
-			a.worktreeSpinner.Configure(prdName, branchName, baseBranch, relWorktreePath, a.config.Worktree.Setup)
-			a.worktreeSpinner.SetSize(a.width, a.height)
-			a.pendingStartPRD = prdName
-			a.pendingWorktreePath = worktreePath
-			a.viewMode = ViewWorktreeSpinner
-
-			// Start the first async step (create worktree which includes branch creation)
-			return a, tea.Batch(
-				tickWorktreeSpinner(),
-				a.runWorktreeStep(SpinnerStepCreateBranch, a.baseDir, worktreePath, branchName),
-			)
+			return a.startWorktreeRun(prdName, a.branchWarning.GetSuggestedBranch(), "")
 
 		case BranchOptionCreateBranch:
 			// Create the branch with (possibly edited) name
@@ -927,6 +898,53 @@ func (a App) handleBranchWarningKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+// startWorktreeRun puts a run in a worktree and takes it from there: create the
+// branch and the worktree when they are not there yet, pick them up when they
+// are, run the setup command, then start the loop.
+//
+// worktreePath names an existing worktree to go back to; empty resolves the
+// configured template, which is where a new one is created.
+func (a App) startWorktreeRun(prdName, branchName, worktreePath string) (tea.Model, tea.Cmd) {
+	if worktreePath == "" {
+		resolved, err := a.worktreePathFor(prdName, branchName)
+		if err != nil {
+			a.lastActivity = "Error: " + err.Error()
+			return a, nil
+		}
+		worktreePath = resolved
+	}
+	relWorktreePath := displayWorktreePath(a.baseDir, worktreePath)
+
+	// Name the branch the new one will be cut from: the configured
+	// base branch if there is one, the detected default otherwise.
+	baseBranch := a.baseBranchSetting()
+	if baseBranch == "" {
+		baseBranch = "main"
+		if db, err := git.GetDefaultBranch(a.baseDir); err == nil {
+			baseBranch = db
+		}
+	}
+
+	// Configure and show the spinner. A resume reaches this before a config is
+	// guaranteed to exist, and no config simply means no setup command.
+	setup := ""
+	if a.config != nil {
+		setup = a.config.Worktree.Setup
+	}
+	a.worktreeSpinner.Configure(prdName, branchName, baseBranch, relWorktreePath, setup)
+	a.worktreeSpinner.SetSize(a.width, a.height)
+	a.pendingStartPRD = prdName
+	a.pendingWorktreePath = worktreePath
+	a.pendingWorktreeReused = false
+	a.viewMode = ViewWorktreeSpinner
+
+	// Start the first async step (create worktree which includes branch creation)
+	return a, tea.Batch(
+		tickWorktreeSpinner(),
+		a.runWorktreeStep(SpinnerStepCreateBranch, a.baseDir, worktreePath, branchName),
+	)
+}
+
 // renderWorktreeSpinnerView renders the worktree setup spinner.
 func (a *App) renderWorktreeSpinnerView() string {
 	a.worktreeSpinner.SetSize(a.width, a.height)
@@ -944,6 +962,7 @@ func (a App) handleWorktreeSpinnerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.lastActivity = "Worktree setup cancelled"
 		a.pendingStartPRD = ""
 		a.pendingWorktreePath = ""
+		a.pendingWorktreeReused = false
 		return a, nil
 	}
 	// Ignore all other keys during spinner
@@ -951,7 +970,14 @@ func (a App) handleWorktreeSpinnerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // cleanupWorktreeSetup cleans up a partially created worktree and branch.
+//
+// Only one this setup created: a worktree that was picked up as it stood holds
+// an earlier run's work, and cancelling the setup is no reason to throw that
+// away.
 func (a *App) cleanupWorktreeSetup() {
+	if a.pendingWorktreeReused {
+		return
+	}
 	if a.pendingWorktreePath != "" {
 		// Try to remove the worktree if it was created
 		if git.IsWorktree(a.pendingWorktreePath) {

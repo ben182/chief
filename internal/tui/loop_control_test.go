@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -243,5 +244,135 @@ func TestStartLoopOffersWorktreeOnAnOrdinaryBranch(t *testing.T) {
 	}
 	if !strings.Contains(out, "chief/auth") {
 		t.Errorf("rendered dialog does not name the branch:\n%s", out)
+	}
+}
+
+func TestResolveRunHomePrefersTheRecordedWorktree(t *testing.T) {
+	home, ok := resolveRunHome(runHomeFacts{
+		instWorktree:  "/proj/.chief/worktrees/auth",
+		instBranch:    "chief/auth",
+		currentBranch: "main",
+		prdBranch:     "chief/auth",
+	})
+	if !ok {
+		t.Fatal("expected the worktree the manager recorded to count as a home")
+	}
+	if home.worktree != "/proj/.chief/worktrees/auth" || home.branch != "chief/auth" {
+		t.Errorf("home = %+v, want the recorded worktree and its branch", home)
+	}
+}
+
+// A chief started from inside a PRD's own worktree stands on that PRD's branch,
+// and the run belongs right where it is.
+func TestResolveRunHomeAcceptsTheCurrentBranch(t *testing.T) {
+	home, ok := resolveRunHome(runHomeFacts{
+		currentBranch: "chief/auth",
+		prdBranch:     "chief/auth",
+	})
+	if !ok {
+		t.Fatal("expected the PRD's own branch to count as a home")
+	}
+	if home.worktree != "" {
+		t.Errorf("worktree = %q, want the current directory", home.worktree)
+	}
+	if home.branch != "chief/auth" {
+		t.Errorf("branch = %q, want chief/auth", home.branch)
+	}
+}
+
+// A run started with an edited branch name is still that run: what it is called
+// is the manager's record, not the convention.
+func TestResolveRunHomeAcceptsTheRecordedBranch(t *testing.T) {
+	home, ok := resolveRunHome(runHomeFacts{
+		instBranch:    "feature/login",
+		currentBranch: "feature/login",
+		prdBranch:     "chief/auth",
+	})
+	if !ok {
+		t.Fatal("expected the branch the run recorded to count as a home")
+	}
+	if home.branch != "feature/login" {
+		t.Errorf("branch = %q, want the recorded branch", home.branch)
+	}
+}
+
+// The worktree of a run from an earlier chief session: nothing in memory knows
+// about it, but git does.
+func TestResolveRunHomeFallsBackToTheBranchWorktree(t *testing.T) {
+	home, ok := resolveRunHome(runHomeFacts{
+		currentBranch:  "main",
+		prdBranch:      "chief/auth",
+		branchWorktree: "/proj/.chief/worktrees/auth",
+	})
+	if !ok {
+		t.Fatal("expected the worktree holding the branch to count as a home")
+	}
+	if home.worktree != "/proj/.chief/worktrees/auth" || home.branch != "chief/auth" {
+		t.Errorf("home = %+v, want the worktree holding the branch", home)
+	}
+}
+
+func TestResolveRunHomeFindsNothingForAFreshPRD(t *testing.T) {
+	if _, ok := resolveRunHome(runHomeFacts{currentBranch: "main", prdBranch: "chief/auth"}); ok {
+		t.Error("expected a PRD that never ran to have no home, so the dialog can ask")
+	}
+}
+
+// A stopped run left its branch checked out. Asking again where the work should
+// happen only invites an answer that walks away from the commits already on it.
+func TestStartLoopResumesOnTheRunsOwnBranch(t *testing.T) {
+	dir := t.TempDir()
+	initRepoOnMain(t, dir)
+	mustRun(t, dir, "git", "checkout", "-b", "chief/auth")
+	a := worktreeDirApp(t, dir, "")
+	a.manager = loop.NewManager(10, nil)
+
+	model, cmd := a.startLoopForPRD("auth")
+	got := model.(App)
+	if got.viewMode == ViewBranchWarning {
+		t.Fatalf("the dialog was raised again for a run already on its branch:\n%s", got.branchWarning.Render())
+	}
+	if cmd == nil {
+		t.Error("expected the start to carry on rather than stop at the dialog")
+	}
+}
+
+// Same for the worktree an earlier session left behind: the branch lives there,
+// so that is the only place this run can go.
+func TestStartLoopResumesInTheWorktreeHoldingTheBranch(t *testing.T) {
+	dir := t.TempDir()
+	initRepoOnMain(t, dir)
+	worktreePath := filepath.Join(dir, ".chief", "worktrees", "auth")
+	mustRun(t, dir, "git", "worktree", "add", "-b", "chief/auth", worktreePath)
+	a := worktreeDirApp(t, dir, "")
+	a.manager = loop.NewManager(10, nil)
+	a.worktreeSpinner = NewWorktreeSpinner()
+
+	model, _ := a.startLoopForPRD("auth")
+	got := model.(App)
+	if got.viewMode != ViewWorktreeSpinner {
+		t.Fatalf("viewMode = %v, want the run to go straight back to its worktree", got.viewMode)
+	}
+	if got.pendingWorktreePath != worktreePath {
+		t.Errorf("pendingWorktreePath = %q, want %q", got.pendingWorktreePath, worktreePath)
+	}
+}
+
+// A worktree that was picked up as it stands holds an earlier run's work.
+// Cancelling the setup must leave it — and the story progress recorded in it —
+// alone.
+func TestCancellingSetupKeepsAReusedWorktree(t *testing.T) {
+	dir := t.TempDir()
+	initRepoOnMain(t, dir)
+	worktreePath := filepath.Join(dir, ".chief", "worktrees", "auth")
+	mustRun(t, dir, "git", "worktree", "add", "-b", "chief/auth", worktreePath)
+	a := worktreeDirApp(t, dir, "")
+	a.pendingWorktreePath = worktreePath
+	a.pendingWorktreeReused = true
+
+	a.cleanupWorktreeSetup()
+
+	if !git.IsWorktree(worktreePath) {
+		t.Error("the reused worktree was removed when the setup was cancelled")
 	}
 }

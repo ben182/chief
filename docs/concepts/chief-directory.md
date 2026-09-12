@@ -151,7 +151,7 @@ While a worktree holds a PRD, it is the copy chief shows and edits: the dashboar
 
 A worktree picked up as it stands keeps the copy it has: it holds what an earlier run recorded, and the project's copy is the one that fell behind. A worktree created for this run is given the project's copy, which is the PRD as you last edited it rather than as it was last committed. A worktree standing on a *different* branch counts as stale and gets replaced — its PRD files are copied back into the project first, for the same reason cleaning does it.
 
-Because git allows a branch in one worktree at a time, a PRD whose `chief/<prd-name>` branch is already checked out somewhere can only be run there: the start dialog says where, recommends the worktree, and marks "Create branch only" as unavailable rather than letting it fail on Enter.
+Because git allows a branch in one worktree at a time, a PRD whose `chief/<prd-name>` branch is already checked out somewhere can only be run there — so that is where starting it goes, with no dialog in between: the question would have exactly one answer. Editing the branch name in the dialog to one that lives in a worktree is reported the same way, naming the worktree instead of passing git's `already used by worktree` through.
 
 ### Where they live
 

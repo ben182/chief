@@ -106,6 +106,16 @@ func normalizePath(path string) string {
 	}
 }
 
+// SamePath reports whether two paths name the same directory, however each is
+// spelled — the question normalizePath exists to answer, asked from outside the
+// package.
+func SamePath(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	return normalizePath(a) == normalizePath(b)
+}
+
 // prdNameFromWorktree answers which PRD a registered worktree belongs to by
 // matching its path against the template with {prd} left open. The branch comes
 // from git rather than from the template, so a {branch} placeholder is a known

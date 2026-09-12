@@ -81,6 +81,8 @@ This setup happens once per PRD. The loop then runs entirely within the worktree
 
 You can also skip worktree creation and run in the current directory if you prefer.
 
+The dialog only appears while the question is open. Restarting a PRD that already has a branch or a worktree resumes it there without asking — a worktree is picked back up (running `worktree.setup` again unless [`worktree.setupOnReuse`](/reference/configuration#config-keys) says otherwise), and a run that lives in your current checkout simply continues on its branch.
+
 ## Step by Step
 
 Each step in the loop has a specific purpose. Here's what happens in each one.
