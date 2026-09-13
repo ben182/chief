@@ -218,7 +218,7 @@ onComplete:
   push: true
   createPR: true
   summary: true      # write & commit a timestamped summary file when a run finishes
-  notify: true       # desktop notification when a run finishes
+  notify: true       # desktop notification when a run stops, finished or not
 loop:
   watchdogTimeoutSeconds: 0   # 0 = built-in default (5 min)
   keepAwake: true     # stop the machine from sleeping while a loop runs (macOS)

@@ -242,7 +242,7 @@ When a run finishes (all stories complete, or max iterations reached with commit
 1. **Write a run summary** — If `onComplete.summary` is enabled (**on by default**), Chief runs the agent once more to write a human-facing, timestamped `summary-<date>-<time>.md` next to the PRD (what was built, how to test it, where the new functionality lives, open/parked follow-ups) and commits it so it rides along in any push/PR
 2. **Push the branch** — If `onComplete.push` is enabled in `.chief/config.yaml`, Chief pushes the branch to origin
 3. **Create a pull request** — If `onComplete.createPR` is also enabled, Chief creates a PR via the `gh` CLI with a title and body generated from the PRD
-4. **Send a desktop notification** — If `onComplete.notify` is enabled (**on by default**), Chief pings you when the run finishes (macOS `osascript`, Linux `notify-send`)
+4. **Send a desktop notification** — If `onComplete.notify` is enabled (**on by default**), Chief pings you when the run finishes (macOS `osascript`, Linux `notify-send`). The same switch covers the endings nobody wants: a run capped by `maxIterations` and a run that died on an error it could not retry past both ping too, naming the reason — a dead run is the one you most want to hear about while you are away from the terminal
 
 Summary, push, and PR only run when the branch has at least one commit. A run that completes with no committed work (for example, every story was parked for review) is not pushed, so Chief never creates an empty branch or PR.
 

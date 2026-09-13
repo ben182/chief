@@ -128,6 +128,11 @@ type App struct {
 	reviewingStoryID map[string]string
 	totalCost        float64 // cumulative cost across all stories this run
 
+	// notifier sends the desktop pings a run makes when it stops. A field rather
+	// than a direct call to notify.Send so a test can read what the run said.
+	// Nil means the real notifier.
+	notifier desktopNotifier
+
 	// rateLimit is the last account-level limit report the running agent sent, for
 	// the PRD being viewed. It drives the header's usage chip: a run that is about
 	// to walk into a full window should say so while there is still time to react,

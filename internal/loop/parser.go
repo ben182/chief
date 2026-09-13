@@ -145,6 +145,13 @@ type Event struct {
 	// EventRateLimit, and the limit the loop is waiting out on EventRateLimitWait.
 	// Nil on every other event.
 	RateLimit *RateLimitInfo
+
+	// Fatal marks an EventError that ended the run, as opposed to one the loop
+	// carried on from. Both arrive as EventError — a parser reporting a bad line
+	// and a loop giving up look the same to a reader — but only one of them means
+	// nobody is working any more, which is the difference between a line in the
+	// log and a ping on a walked-away user's desktop.
+	Fatal bool
 }
 
 // streamMessage represents the top-level structure of a stream-json line.

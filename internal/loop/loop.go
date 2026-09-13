@@ -514,9 +514,10 @@ func (l *Loop) Run(ctx context.Context) error {
 			}
 			if err != nil {
 				l.events <- Event{
-					Type: EventError,
-					Err:  err,
-					Text: err.Error(),
+					Type:  EventError,
+					Err:   err,
+					Text:  err.Error(),
+					Fatal: true,
 				}
 				return err
 			}
@@ -541,9 +542,10 @@ func (l *Loop) Run(ctx context.Context) error {
 		// Run a single iteration with retry logic
 		if err := l.runIterationWithRetry(ctx, modeBuild); err != nil {
 			l.events <- Event{
-				Type: EventError,
-				Err:  err,
-				Text: err.Error(),
+				Type:  EventError,
+				Err:   err,
+				Text:  err.Error(),
+				Fatal: true,
 			}
 			return err
 		}

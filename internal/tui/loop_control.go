@@ -1,13 +1,11 @@
 package tui
 
 import (
-	"fmt"
 	"path/filepath"
 	"time"
 
 	"github.com/ben182/chief/internal/git"
 	"github.com/ben182/chief/internal/loop"
-	"github.com/ben182/chief/internal/notify"
 	"github.com/ben182/chief/internal/prd"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -502,14 +500,9 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 			a.onCompletion(prdName)
 		}
 		// Ping the user's desktop — they may have walked away from a long run.
-		if a.config == nil || a.config.OnComplete.Notify {
-			body := fmt.Sprintf("%s — all stories complete", formatPRDTitle(prdName))
-			if a.totalCost > 0 {
-				body += fmt.Sprintf(" (%s)", formatCost(a.totalCost))
-			}
-			notify.Send("Chief", body)
-		}
+		a.notifyRunStopped(prdName, "all stories complete")
 	case loop.EventMaxIterationsReached:
+		a.notifyRunStopped(prdName, "paused — max iterations reached")
 		if isCurrentPRD {
 			a.state = StatePaused
 			a.lastActivity = "Max iterations reached"
@@ -532,6 +525,14 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 			if event.Err != nil {
 				a.lastActivity = "Error: " + event.Err.Error()
 			}
+		}
+		// Only the error that ended the run is worth a desktop ping — and it is
+		// worth one for any PRD, viewed or in the background. Until this, a run
+		// that walked into a wall at half past six left nothing but a red line in
+		// a TUI nobody was looking at, and the hours until someone came back were
+		// hours the run could have spent working.
+		if event.Fatal {
+			a.notifyRunStopped(prdName, "stopped: "+notifyReason(event))
 		}
 	case loop.EventRetrying:
 		if isCurrentPRD {
