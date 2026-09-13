@@ -349,21 +349,30 @@ func (l *Loop) SetConsolidateModel(model string) {
 }
 
 // providerForMode returns the provider the given phase's agent should be spawned
-// with. The build agent always gets the configured provider untouched; the review
-// and consolidation agents get a copy running on their own model, so the phases
-// that only read already-committed code don't cost what building it did. A
-// provider that can't switch models is returned unchanged, which is what makes the
-// phase models inert for every non-Claude CLI.
+// with. Two things are adjusted per phase, and only for providers that can do
+// them — a provider that can do neither is returned unchanged, which is what
+// makes both settings inert for every non-Claude CLI:
+//
+//   - The review and consolidation agents get a copy running on their own model,
+//     so the phases that only read already-committed code don't cost what
+//     building it did.
+//   - Those same two phases get the machine's skill catalogue back even when
+//     `agent.skills: none` keeps it out of build iterations, because
+//     `review.skill` / `consolidate.skill` name a skill they are meant to run
+//     and an empty catalogue would disable the pass without saying so.
 func (l *Loop) providerForMode(mode iterationMode) Provider {
-	model := l.modelForMode(mode)
-	if model == "" {
-		return l.provider
+	provider := l.provider
+	if model := l.modelForMode(mode); model != "" {
+		if switcher, ok := provider.(ModelSwitcher); ok {
+			provider = switcher.WithModel(model)
+		}
 	}
-	switcher, ok := l.provider.(ModelSwitcher)
-	if !ok {
-		return l.provider
+	if mode != modeBuild {
+		if switcher, ok := provider.(SkillSwitcher); ok {
+			provider = switcher.WithSkills(true)
+		}
 	}
-	return switcher.WithModel(model)
+	return provider
 }
 
 // modelForMode returns the model a phase's agent runs on, or "" for the build

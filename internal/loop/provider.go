@@ -36,3 +36,17 @@ type Provider interface {
 type ModelSwitcher interface {
 	WithModel(model string) Provider
 }
+
+// SkillSwitcher is implemented by providers that can start an agent with or
+// without the machine's skill catalogue — today only Claude, whose CLI takes
+// --disable-slash-commands. It exists so `agent.skills: none` can apply to build
+// iterations without reaching the review and consolidation passes, whose
+// `skill` setting names something they are supposed to run: WithSkills returns a
+// copy of the provider with the catalogue switched on or off and leaves the
+// receiver alone.
+//
+// Providers that don't implement it run every phase with whatever their CLI
+// loads, so the setting is inert there rather than an error.
+type SkillSwitcher interface {
+	WithSkills(enabled bool) Provider
+}

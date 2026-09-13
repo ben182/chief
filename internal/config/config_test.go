@@ -568,3 +568,80 @@ func TestLoadWithoutSetupOnReuseStaysUnset(t *testing.T) {
 		t.Error("expected Default() setupOnReuse to be nil")
 	}
 }
+
+func TestAgentConfig_MCPSetting(t *testing.T) {
+	tests := []struct {
+		name       string
+		value      string
+		wantStrict bool
+		wantPath   string
+	}{
+		{"unset inherits the machine's servers", "", false, ""},
+		{"inherit is the same as unset", "inherit", false, ""},
+		{"case does not matter", "Inherit", false, ""},
+		{"none starts with no server at all", "none", true, ""},
+		{"a path replaces the machine's servers", ".chief/mcp.json", true, ".chief/mcp.json"},
+		{"surrounding whitespace is ignored", "  none  ", true, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := AgentConfig{MCP: tt.value}
+			strict, path := cfg.MCPSetting()
+			if strict != tt.wantStrict || path != tt.wantPath {
+				t.Errorf("MCPSetting(%q) = (%v, %q), want (%v, %q)", tt.value, strict, path, tt.wantStrict, tt.wantPath)
+			}
+		})
+	}
+}
+
+func TestAgentConfig_SkillsDisabled(t *testing.T) {
+	for value, want := range map[string]bool{"": false, "inherit": false, "none": true, "None": true} {
+		if got := (AgentConfig{Skills: value}).SkillsDisabled(); got != want {
+			t.Errorf("SkillsDisabled(%q) = %v, want %v", value, got, want)
+		}
+	}
+}
+
+func TestLoad_recordsBaseDir(t *testing.T) {
+	// agent.mcp may hold a path relative to the project, and a run resolves it
+	// from inside a worktree — so the config has to remember where it came from.
+	dir := t.TempDir()
+	if err := Save(dir, &Config{Agent: AgentConfig{MCP: "none"}}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BaseDir() != dir {
+		t.Errorf("BaseDir() = %q, want %q", cfg.BaseDir(), dir)
+	}
+
+	// A project with no config file at all answers the same way.
+	empty := t.TempDir()
+	cfg, err = Load(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BaseDir() != empty {
+		t.Errorf("BaseDir() with no config file = %q, want %q", cfg.BaseDir(), empty)
+	}
+}
+
+func TestSave_doesNotWriteUnsetEnvironmentKeys(t *testing.T) {
+	// mcp and skills are omitempty: a project that never set them must not find
+	// them appearing in its config file after any write.
+	dir := t.TempDir()
+	if err := Save(dir, Default()); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ".chief", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"mcp:", "skills:"} {
+		if strings.Contains(string(data), key) {
+			t.Errorf("Save wrote %q into a config that never set it:\n%s", key, data)
+		}
+	}
+}

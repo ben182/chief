@@ -84,6 +84,11 @@ func (s *SettingsOverlay) SetSize(width, height int) {
 	s.height = height
 }
 
+// agentSkillModes is the closed set of values agent.skills takes. Unlike
+// agent.mcp it has no third form — there is no file of skills to point at — so
+// it renders as a picker rather than a text field.
+var agentSkillModes = []string{"inherit", "none"}
+
 // agentProviders is the closed set of provider names agent.Resolve accepts, in
 // the order the Provider setting cycles through them. Empty (the implicit first
 // value) means "claude".
@@ -122,6 +127,8 @@ func (s *SettingsOverlay) LoadFromConfig(cfg *config.Config) {
 		{Section: "Agent", Label: "Provider", Key: "agent.provider", Type: SettingsItemEnum, StringVal: cfg.Agent.Provider, Options: agentProviders, Placeholder: "claude (default)"},
 		{Section: "Agent", Label: "CLI path", Key: "agent.cliPath", Type: SettingsItemString, StringVal: cfg.Agent.CLIPath, Placeholder: "(found in PATH)"},
 		{Section: "Agent", Label: "Model", Key: "agent.model", Type: SettingsItemString, StringVal: cfg.Agent.Model, Placeholder: "(CLI default)"},
+		{Section: "Agent", Label: "MCP servers", Key: "agent.mcp", Type: SettingsItemString, StringVal: cfg.Agent.MCP, Placeholder: "inherit (every configured server)"},
+		{Section: "Agent", Label: "Skills", Key: "agent.skills", Type: SettingsItemEnum, StringVal: cfg.Agent.Skills, Options: agentSkillModes, Placeholder: "inherit (load the catalogue)"},
 		{Section: "Review", Label: "Enabled", Key: "review.enabled", Type: SettingsItemTriBool, TriVal: copyTri(cfg.Review.Enabled)},
 		{Section: "Review", Label: "Model", Key: "review.model", Type: SettingsItemString, StringVal: cfg.Review.Model, Placeholder: "sonnet (default)"},
 		{Section: "Review", Label: "Skill", Key: "review.skill", Type: SettingsItemString, StringVal: cfg.Review.Skill},
@@ -179,6 +186,10 @@ func (s *SettingsOverlay) ApplyToConfig(cfg *config.Config) {
 			cfg.Agent.Provider = item.StringVal
 		case "agent.cliPath":
 			cfg.Agent.CLIPath = item.StringVal
+		case "agent.mcp":
+			cfg.Agent.MCP = item.StringVal
+		case "agent.skills":
+			cfg.Agent.Skills = item.StringVal
 		case "agent.model":
 			cfg.Agent.Model = item.StringVal
 		case "review.enabled":

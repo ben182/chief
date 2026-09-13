@@ -17,6 +17,8 @@ agent:
   provider: claude   # or "codex", "opencode", "cursor", or "gemini"
   cliPath: ""        # optional path to CLI binary
   model: ""          # optional model passed via --model (Claude only)
+  mcp: inherit       # MCP servers a run may reach: inherit | none | path to a .mcp.json-shaped file
+  skills: inherit    # skill catalogue in build iterations: inherit | none
 worktree:
   setup: "npm install"
   setupOnReuse: true # run setup again when an existing worktree is picked up; omit = yes
@@ -54,6 +56,8 @@ consolidate:
 | `agent.provider` | string | `"claude"` | Agent CLI to use: `claude`, `codex`, `opencode`, `cursor`, or `gemini` |
 | `agent.cliPath` | string | `""` | Optional path to the agent binary (e.g. `/usr/local/bin/opencode`). If empty, Chief uses the provider name from PATH. |
 | `agent.model` | string | `""` | Optional model passed to the Claude CLI via `--model`. Needed when Claude Code's `-p` mode ignores `~/.claude/settings.json` (e.g. local models via LM Studio). |
+| `agent.mcp` | string | `""` (= `inherit`) | Which MCP servers an **unattended iteration** starts with. `inherit` (the default) keeps what every run did before this key existed: everything the machine has configured — the repository's `.mcp.json`, your own servers, and every account-level connector. `none` starts the agent with no MCP server at all (`--strict-mcp-config`). Anything else is a **path to a JSON file in the same shape as `.mcp.json`**, and then the agent sees exactly the servers named there and nothing else. A relative path is resolved against the **project root**, not the working directory, so a run inside a worktree finds the same file. The file is read when the run starts: a path that isn't there, a file that isn't valid JSON, and a file whose `mcpServers` object is empty each **abort the start** with a message naming this key — because the alternative is a run that quietly has no servers for an hour. Only the loop's own agents are affected; `chief new` and `chief edit` keep the full set, since a person is sitting in front of them. Claude-specific; other providers ignore it. |
+| `agent.skills` | string | `""` (= `inherit`) | Whether Claude Code's **skill catalogue** (skills and slash commands) is loaded into **build** iterations. `inherit` (the default) loads it; `none` leaves it out (`--disable-slash-commands`), which keeps the catalogue out of the context of every turn rather than just the first. **Review and consolidation always get it back**, whatever this says — `review.skill` / `consolidate.skill` name a skill those passes run, and an empty catalogue would disable them without saying so. Claude-specific; other providers ignore it. |
 | `worktree.setup` | string | `""` | Shell command to run in new worktrees (e.g., `npm install`, `go mod download`). Runs with the PRD name, branch and paths in its environment — see [Worktree command environment](#worktree-command-environment). **Write it to be idempotent:** by default it also runs when Chief picks up a worktree that already exists, so it has to survive being run against a checkout it has already set up — `npm install` and `go mod download` do, `createdb chief_$CHIEF_PRD_NAME` does not. Either make the command tolerate a second run (`createdb … || true`, `migrate --if-not-exists`) or set `worktree.setupOnReuse: false`. |
 | `worktree.setupOnReuse` | bool | *(unset)* | Whether `worktree.setup` also runs when Chief picks up a worktree that is **already there** — a run resumed after a crash or a PRD started again. Unset (the default) runs it, which is what every run did before this key existed. Set it to `false` when the setup is expensive or not idempotent; then only a freshly created worktree gets one, and the spinner shows the step as `Skipped setup (worktree reused)`. A worktree that was standing on the wrong branch does not count as reused: it is torn down and recreated, so its replacement is set up like any new one. Leaving this unset means **setup commands should be idempotent**, since they will be run against checkouts they have already set up. |
 | `worktree.teardown` | string | `""` | Shell command run **inside** a worktree right before Chief removes it, so resources that live outside git — a per-worktree database, a web-server link, containers — disappear with the directory instead of being orphaned. Runs on both clean options (`c` in the picker) and before a stale worktree on the wrong branch is recreated. A non-zero exit **cancels the removal**: the worktree is kept, the tail of the command's output and the path of its log file are shown, with the option to remove it anyway. Empty (the default) keeps removal a pure git operation. Make it idempotent — it may run against a worktree it already tore down. Gets the same environment as `worktree.setup` — see [Worktree command environment](#worktree-command-environment). |
@@ -100,6 +104,44 @@ Three properties keep it safe:
 - **Never blocks the run.** Like the review, it's best-effort: a crash or an unfinished pass is surfaced as an event, but the stories stay done. It runs *before* the run summary and push, so the summary describes the consolidated result and the PR carries it.
 
 It's off by default, deliberately: it edits code that already worked and was already signed off.
+
+### Trimming what a run is handed
+
+An unattended iteration inherits the whole machine. In one measured project that
+meant **169 MCP tools from 25 servers** — mail, a calendar, a task tracker, a
+hosting API — plus a catalogue of 59 skills, in a session started with
+`--dangerously-skip-permissions`. Across twenty runs the build agents called
+**five** of those tools, all from one server.
+
+`agent.mcp` and `agent.skills` cut that down per project. Write the servers the
+work actually needs into a file and point the key at it:
+
+```json
+// .chief/mcp.json
+{
+  "mcpServers": {
+    "laravel-boost": { "command": "php", "args": ["artisan", "boost:mcp"] },
+    "notion": { "type": "http", "url": "https://mcp.notion.com/mcp" }
+  }
+}
+```
+
+```yaml
+agent:
+  mcp: .chief/mcp.json
+  skills: none
+```
+
+Two things worth knowing:
+
+- **An account-level connector can be listed here.** A remote server you
+  connected through claude.ai — Notion in the example — reconnects from its URL
+  with the authorization it already has, so naming it in the file keeps it while
+  everything unnamed goes away.
+- **The startup context is what you are trimming, and you pay it per turn.** It
+  is not a one-off: every turn of an iteration re-reads the tool definitions and
+  the skill catalogue. That is what makes a few thousand tokens at the start of a
+  session worth removing at all.
 
 ### Worktree command environment
 

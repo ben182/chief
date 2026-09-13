@@ -11,6 +11,17 @@ import (
 type ClaudeProvider struct {
 	cliPath string
 	model   string
+	// strictMCP and mcpConfig carry agent.mcp: strictMCP makes the CLI ignore
+	// every MCP server configured on the machine, mcpConfig names a file of
+	// servers to load instead (absolute by the time it gets here). Both zero
+	// means the run inherits the machine's servers, which is what runs did
+	// before the setting existed.
+	strictMCP bool
+	mcpConfig string
+	// skillsOff keeps the machine's skill catalogue out of the session. It holds
+	// for build iterations only: WithSkills(true) hands a copy back to the
+	// review and consolidation passes, which are driven by a skill.
+	skillsOff bool
 }
 
 // NewClaudeProvider returns a Provider for the Claude CLI.
@@ -50,6 +61,31 @@ func (p *ClaudeProvider) WithModel(model string) loop.Provider {
 	return &clone
 }
 
+// SetMCP configures which MCP servers the loop's agents start with. strict makes
+// the CLI ignore everything configured on the machine; configPath, when
+// non-empty, names a JSON file of servers to load in its place and must already
+// be absolute, because the CLI resolves relative paths against the working
+// directory and a run inside a worktree does not share the project's.
+func (p *ClaudeProvider) SetMCP(strict bool, configPath string) {
+	p.strictMCP = strict
+	p.mcpConfig = configPath
+}
+
+// SetSkillsDisabled decides whether build iterations run without the machine's
+// skill catalogue. It never reaches the review or consolidation passes; see
+// WithSkills.
+func (p *ClaudeProvider) SetSkillsDisabled(disabled bool) { p.skillsOff = disabled }
+
+// WithSkills implements loop.SkillSwitcher: it returns a copy of the provider
+// that runs with or without the machine's skill catalogue, leaving the receiver
+// untouched so the build agent keeps the setting the project configured while a
+// phase that needs a skill gets one of its own.
+func (p *ClaudeProvider) WithSkills(enabled bool) loop.Provider {
+	clone := *p
+	clone.skillsOff = !enabled
+	return &clone
+}
+
 // SupportsInteractiveQuestions implements loop.Provider. Claude Code renders a
 // native multiple-choice question UI, so the PRD prompts use it instead of
 // lettered text options.
@@ -69,9 +105,30 @@ func (p *ClaudeProvider) LoopCommand(ctx context.Context, prompt, workDir string
 	if p.model != "" {
 		args = append(args, "--model", p.model)
 	}
+	args = append(args, p.environmentArgs()...)
 	cmd := exec.CommandContext(ctx, p.cliPath, args...)
 	cmd.Dir = workDir
 	return cmd
+}
+
+// environmentArgs returns the flags that shape what the session is handed before
+// it starts: which MCP servers it may reach and whether the machine's skill
+// catalogue is loaded. They apply to the autonomous loop only — an interactive
+// `chief new` or `chief edit` has a person sitting in front of it who may well
+// want to reach Notion or a skill mid-interview, and nothing is being paid per
+// turn for a hundred tool definitions there.
+func (p *ClaudeProvider) environmentArgs() []string {
+	var args []string
+	if p.strictMCP {
+		args = append(args, "--strict-mcp-config")
+	}
+	if p.mcpConfig != "" {
+		args = append(args, "--mcp-config", p.mcpConfig)
+	}
+	if p.skillsOff {
+		args = append(args, "--disable-slash-commands")
+	}
+	return args
 }
 
 // InteractiveCommand implements loop.Provider. It launches the interactive

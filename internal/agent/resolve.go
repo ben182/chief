@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/ben182/chief/internal/config"
@@ -41,7 +43,11 @@ func Resolve(flagAgent, flagPath string, cfg *config.Config, flagModel ...string
 
 	switch providerName {
 	case "claude":
-		return NewClaudeProvider(cliPath, model), nil
+		provider := NewClaudeProvider(cliPath, model)
+		if err := applyEnvironment(provider, cfg); err != nil {
+			return nil, err
+		}
+		return provider, nil
 	case "codex":
 		return NewCodexProvider(cliPath), nil
 	case "opencode":
@@ -53,6 +59,61 @@ func Resolve(flagAgent, flagPath string, cfg *config.Config, flagModel ...string
 	default:
 		return nil, fmt.Errorf("unknown agent provider %q: expected \"claude\", \"codex\", \"opencode\", \"cursor\", or \"gemini\"", providerName)
 	}
+}
+
+// applyEnvironment hands the Claude provider the two project settings that shape
+// what a loop iteration is given before it starts: agent.mcp and agent.skills.
+//
+// A configured MCP file is resolved here rather than in the provider, for two
+// reasons. The project root is known at this point and not later — the CLI runs
+// with its working directory inside a worktree, where a path written relative to
+// the project would mean something else or nothing at all. And a path that isn't
+// there has to fail now: an MCP file the CLI cannot read costs the run its
+// servers silently, and `laravel-boost` quietly missing from every iteration is
+// exactly the kind of failure nobody notices until the run is over.
+func applyEnvironment(provider *ClaudeProvider, cfg *config.Config) error {
+	if cfg == nil {
+		return nil
+	}
+
+	strict, path := cfg.Agent.MCPSetting()
+	if path != "" {
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(cfg.BaseDir(), path)
+		}
+		if err := checkMCPFile(path); err != nil {
+			return err
+		}
+	}
+	provider.SetMCP(strict, path)
+	provider.SetSkillsDisabled(cfg.Agent.SkillsDisabled())
+	return nil
+}
+
+// checkMCPFile reads the configured MCP file far enough to be sure the run will
+// get servers out of it. Existence alone is not enough: the file is handed to
+// the CLI together with --strict-mcp-config, so a file that parses but names
+// nothing takes every server away without a word, and the run finds out by
+// behaving slightly worse for an hour.
+func checkMCPFile(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("agent.mcp: no MCP config file at %s (set it to \"inherit\", \"none\", or a path to a .mcp.json-shaped file)", path)
+		}
+		return fmt.Errorf("agent.mcp: cannot read %s: %w", path, err)
+	}
+
+	var parsed struct {
+		Servers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return fmt.Errorf("agent.mcp: %s is not valid JSON: %w", path, err)
+	}
+	if len(parsed.Servers) == 0 {
+		return fmt.Errorf("agent.mcp: %s names no servers under \"mcpServers\" — use \"none\" if that is what you meant", path)
+	}
+	return nil
 }
 
 // firstNonEmpty returns the first non-empty value, after trimming surrounding

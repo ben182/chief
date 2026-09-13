@@ -12,6 +12,14 @@ const configFile = ".chief/config.yaml"
 
 // Config holds project-level settings for Chief.
 type Config struct {
+	// baseDir is the project root the config was read from. It is kept so that a
+	// setting holding a path (agent.mcp) can be resolved relative to the project
+	// rather than to whatever directory the process happens to sit in — a run in
+	// a worktree has a different working directory than the config it obeys.
+	// Unexported on purpose: it is not a setting, and it must never be written
+	// back to the file.
+	baseDir string
+
 	Worktree    WorktreeConfig    `yaml:"worktree"`
 	OnComplete  OnCompleteConfig  `yaml:"onComplete"`
 	Agent       AgentConfig       `yaml:"agent"`
@@ -131,6 +139,66 @@ type AgentConfig struct {
 	Provider string `yaml:"provider"` // "claude" (default) | "codex" | "opencode" | "cursor" | "gemini"
 	CLIPath  string `yaml:"cliPath"`  // optional custom path to CLI binary
 	Model    string `yaml:"model"`    // optional model passed to the CLI via --model (Claude only)
+	// MCP decides which MCP servers an unattended iteration starts with. Empty
+	// or "inherit" — the default — keeps what every run did before this key
+	// existed: everything the machine has configured, which is the repository's
+	// .mcp.json plus the user's own servers plus every account-level connector.
+	// "none" starts the agent with no MCP server at all. Anything else is a path
+	// to a JSON file in the same shape as .mcp.json, and then the agent sees
+	// exactly the servers named there and nothing else.
+	//
+	// It exists because a loop nobody is watching inherits a whole desktop. In
+	// one measured project that was 169 tools from 25 servers — mail, calendars,
+	// task trackers, a hosting API — of which twenty runs of build agents called
+	// five, all from one server. The cost of carrying the rest is small and the
+	// reach is not: those runs pass --dangerously-skip-permissions.
+	//
+	// A relative path is resolved against the project root rather than the
+	// working directory, so a run inside a worktree finds the same file. The
+	// path is checked when the provider is built: a name that is not there
+	// aborts the start instead of failing inside the first iteration.
+	// Claude-specific; providers whose CLI has no equivalent ignore it.
+	MCP string `yaml:"mcp,omitempty"`
+	// Skills decides whether the machine's skill catalogue — Claude Code's
+	// skills and slash commands — is loaded into a **build** iteration. Empty or
+	// "inherit" (the default) loads it; "none" leaves it out, which keeps the
+	// catalogue out of the context of every turn, not just the first.
+	//
+	// Review and consolidation always get the catalogue back, whatever this
+	// says: `review.skill` / `consolidate.skill` name a skill those passes run,
+	// and switching skills off would quietly disable them. Claude-specific.
+	Skills string `yaml:"skills,omitempty"`
+}
+
+// inheritSetting is the word a per-project setting uses for "leave the machine's
+// own configuration alone", and the empty value means the same thing.
+const inheritSetting = "inherit"
+
+// noneSetting is the word that empties a catalogue the CLI would otherwise load.
+const noneSetting = "none"
+
+// MCPSetting normalises agent.mcp into the two answers a provider needs: whether
+// to ignore the machine's MCP configuration, and which file to load instead.
+// It returns (false, "") for the inherited default, (true, "") for "none", and
+// (true, path) for a configured file. The path is returned as written; resolving
+// it against the project root is the caller's job, because only the caller knows
+// where that is.
+func (a AgentConfig) MCPSetting() (strict bool, path string) {
+	value := strings.TrimSpace(a.MCP)
+	switch {
+	case value == "" || strings.EqualFold(value, inheritSetting):
+		return false, ""
+	case strings.EqualFold(value, noneSetting):
+		return true, ""
+	default:
+		return true, value
+	}
+}
+
+// SkillsDisabled reports whether build iterations should run without the
+// machine's skill catalogue.
+func (a AgentConfig) SkillsDisabled() bool {
+	return strings.EqualFold(strings.TrimSpace(a.Skills), noneSetting)
 }
 
 // WorktreeConfig holds worktree-related settings.
@@ -224,7 +292,9 @@ func Load(baseDir string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return Default(), nil
+			cfg := Default()
+			cfg.baseDir = baseDir
+			return cfg, nil
 		}
 		return nil, err
 	}
@@ -233,8 +303,18 @@ func Load(baseDir string) (*Config, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, err
 	}
+	cfg.baseDir = baseDir
 
 	return cfg, nil
+}
+
+// BaseDir returns the project root this config was loaded from, or "" for a
+// config that never came from a file (Default, or one built in a test).
+func (c *Config) BaseDir() string {
+	if c == nil {
+		return ""
+	}
+	return c.baseDir
 }
 
 // Save writes the config to .chief/config.yaml.

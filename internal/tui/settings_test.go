@@ -18,6 +18,12 @@ func configLeafKeys(t *testing.T, typ reflect.Type, prefix string) []string {
 	var keys []string
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
+		// Unexported fields are bookkeeping, not settings — Config remembers the
+		// directory it was loaded from so a path setting can be resolved against
+		// the project, and that is nothing to render or save.
+		if !field.IsExported() {
+			continue
+		}
 		name, _, _ := strings.Cut(field.Tag.Get("yaml"), ",")
 		if name == "" || name == "-" {
 			t.Fatalf("field %s.%s has no yaml tag", typ.Name(), field.Name)
