@@ -214,6 +214,16 @@ After `DefaultMaxAttemptsPerStory` (5) failed attempts on the same story, Chief:
 
 This matters because stories are usually independent — one stuck story shouldn't block the other 200. The loop keeps making progress and only ends once **no actionable stories remain** (every story is either done or parked for review). Parked stories are left for a human to inspect: break them down, fix the PRD, or resolve whatever the agent got stuck on, then reset the status.
 
+## Rate Limits Are Not Crashes
+
+An agent that stops because your account's usage window is full looks exactly like an agent that crashed: same non-zero exit, same empty `stderr`. Treated as a crash it burns all three retries within half a minute — against a window that may have hours left to run — and the run ends on a generic error.
+
+Chief reads the rate limit reports the agent CLI emits alongside its normal output, so it can tell the two apart:
+
+- **While the window fills up**, the header shows a chip (`Limit 90% · 20:00`) so a run walking toward the wall says so while there is still time to react.
+- **Once requests are rejected**, the loop waits until the reported reset time (plus a minute for clock skew) and then runs the iteration again. The wait doesn't count against the crash retry budget, because nothing crashed. The run stays in `Running` — it will continue on its own.
+- **Stopping still works** mid-wait, and after six waited-out windows in one run Chief gives up and reports the limit as an error.
+
 ## Iteration Limits
 
 Beyond per-story retries, Chief keeps a global iteration cap purely as a runaway backstop. When `--max-iterations` is not specified, it is calculated dynamically from the remaining stories and their per-story attempt budget, so it normally never fires before the per-story parking logic does. You can still set it explicitly with `--max-iterations`, or adjust it at runtime with `+`/`-` in the TUI.

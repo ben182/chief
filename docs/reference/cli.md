@@ -45,7 +45,7 @@ chief [name]
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--max-iterations <n>`, `-n` | Maximum loop iterations | Dynamic |
-| `--no-retry` | Disable auto-retry on agent crashes | `false` |
+| `--no-retry` | Disable auto-retry on agent crashes — and waiting out a rate limit window | `false` |
 | `--verbose` | Show raw agent output in log | `false` |
 
 **Examples:**

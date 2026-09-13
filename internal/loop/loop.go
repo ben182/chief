@@ -117,6 +117,16 @@ type Loop struct {
 	maxAttempts       int            // attempts allowed per story before parking it for review
 	warnedNoGit       bool           // whether the "not a git repo" warning was already emitted
 
+	// rateLimit is the last account-level limit report the provider sent, and
+	// rateLimitWaits counts how often this run has already sat out a full window.
+	// Together they let an iteration that died on a rate limit be told apart from
+	// one that crashed — the two are indistinguishable from the exit code alone.
+	rateLimit      RateLimitInfo
+	rateLimitWaits int
+	rateLimitGrace time.Duration                                   // added to a reported reset time before resuming; overridden in tests
+	rateLimitSleep func(ctx context.Context, d time.Duration) bool // waits d, reporting false when interrupted; overridden in tests
+	rateLimitNow   func() time.Time                                // clock, overridden in tests
+
 	// review configures the optional post-commit review agent. When enabled, a
 	// separate agent reviews (and fixes) each story's committed changes before the
 	// story is marked done. Which agent an iteration is running is carried by the
@@ -506,6 +516,7 @@ func (l *Loop) Run(ctx context.Context) error {
 				l.events <- Event{
 					Type: EventError,
 					Err:  err,
+					Text: err.Error(),
 				}
 				return err
 			}
@@ -532,6 +543,7 @@ func (l *Loop) Run(ctx context.Context) error {
 			l.events <- Event{
 				Type: EventError,
 				Err:  err,
+				Text: err.Error(),
 			}
 			return err
 		}
@@ -635,6 +647,25 @@ func (l *Loop) runIterationWithRetry(ctx context.Context, mode iterationMode) er
 		l.mu.Unlock()
 		if stopped {
 			return nil
+		}
+
+		// A rate limit is not a crash, and the crash retries are the wrong tool
+		// for it: they are spent within half a minute, while the window they ran
+		// into has hours left. When the provider told us when it resets, wait for
+		// that instead — and don't charge the wait to the retry budget, since
+		// nothing crashed. Disabled retries mean "don't carry on by yourself",
+		// which covers waiting too.
+		if config.Enabled {
+			if info, until, ok := l.rateLimitPause(); ok {
+				if !l.waitOutRateLimit(ctx, info, until) {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
+					return nil // stopped while waiting out the window
+				}
+				attempt--
+				continue
+			}
 		}
 
 		lastErr = err
@@ -840,6 +871,16 @@ func (l *Loop) processOutput(r io.Reader, mode iterationMode) {
 		if event := l.provider.ParseLine(line); event != nil {
 			l.mu.Lock()
 			event.Iteration = l.iteration
+			if event.Type == EventRateLimit {
+				// Remember every report — the loop needs the reset time when the
+				// iteration dies — but only pass on the ones a user should see.
+				surface := l.recordRateLimit(event.RateLimit)
+				l.mu.Unlock()
+				if surface {
+					l.events <- *event
+				}
+				continue
+			}
 			if event.Type == EventStoryDone {
 				// Claude doesn't always exit after <chief-done/>, which leaves the
 				// scanner blocked until the watchdog kills it. Terminate the process

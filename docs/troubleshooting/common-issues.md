@@ -90,6 +90,23 @@ For the complete output, check the agent log. Each run writes its own timestampe
 tail -100 .chief/prds/your-prd/claude-*.log
 ```
 
+## Rate Limit Reached
+
+**Symptom:** The activity line reads `Rate limit reached (5h window) — waiting until 20:00 (1h 33m)` and the run sits still, or the header shows a `Limit 90% · 20:00` chip while it is still working.
+
+**Cause:** Your account's usage window for the agent's model is full (or nearly full). This is not a crash, even though the agent CLI exits the same way one does.
+
+**Solution:**
+
+Nothing — the run waits the window out and carries on by itself. A rate limit is deliberately *not* treated as a crash: the crash retries would all be spent within half a minute against a window with hours left on it. Chief reads the reset time the agent reports, sleeps until then (plus a minute for clock skew), and starts the next iteration.
+
+A few things worth knowing:
+
+- **The warning comes first.** The header chip appears while the window is merely filling up (`Limit 90% · 20:00`), which is the moment to decide whether to let the run continue, switch to a cheaper model for the review and consolidation phases, or stop for the day.
+- **Stopping works mid-wait.** `x` ends the run without sitting out the rest of the window; nothing new is started once the window resets.
+- **Waiting is bounded.** After six windows in a single run, Chief stops and reports the limit as an error rather than sleeping on for days.
+- **`--no-retry` opts out.** It means "don't carry on by yourself", which covers waiting too: a rate-limited run ends immediately, with the limit named in the error.
+
 ## PRD Not Updating
 
 **Symptom:** Stories stay incomplete even though the agent seems to finish.

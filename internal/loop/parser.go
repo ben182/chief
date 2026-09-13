@@ -59,6 +59,15 @@ const (
 	// EventUsage carries token usage (and derived cost) for an assistant message
 	// that produced no other surfaced event, so per-story totals stay accurate.
 	EventUsage
+	// EventRateLimit carries the provider's own account-level rate limit report:
+	// how much of the current window is used, when it resets, and whether it has
+	// started rejecting requests. Claude emits one on every turn, so most carry
+	// nothing worth showing — the UI decides what to surface from RateLimit.
+	EventRateLimit
+	// EventRateLimitWait is emitted when the loop parks an iteration until the
+	// rate limit window resets, instead of burning its crash retries against a
+	// limit that has hours left to run.
+	EventRateLimitWait
 )
 
 // String returns the string representation of an EventType.
@@ -102,6 +111,10 @@ func (e EventType) String() string {
 		return "ConsolidateDone"
 	case EventUsage:
 		return "Usage"
+	case EventRateLimit:
+		return "RateLimit"
+	case EventRateLimitWait:
+		return "RateLimitWait"
 	default:
 		return "Unknown"
 	}
@@ -127,6 +140,11 @@ type Event struct {
 	OutputTokens        int
 	CacheCreationTokens int
 	CacheReadTokens     int
+
+	// RateLimit carries the provider's account-level rate limit report on
+	// EventRateLimit, and the limit the loop is waiting out on EventRateLimitWait.
+	// Nil on every other event.
+	RateLimit *RateLimitInfo
 }
 
 // streamMessage represents the top-level structure of a stream-json line.
@@ -199,6 +217,9 @@ func ParseLine(line string) *Event {
 			return &Event{Type: EventResult, Cost: msg.TotalCostUSD}
 		}
 		return nil
+
+	case "rate_limit_event":
+		return parseRateLimitLine(line)
 
 	default:
 		return nil

@@ -290,6 +290,10 @@ func (a App) launchLoop(prdName, prdDir string) (tea.Model, tea.Cmd) {
 		a.state = StateRunning
 		a.startTime = time.Now()
 		a.lastActivity = "Starting loop..."
+		// The usage window this run reports on is its own; a warning left over
+		// from the last one would sit in the header until the agent's first
+		// report replaces it.
+		a.rateLimit = loop.RateLimitInfo{}
 		return a, tea.Batch(follow, tickElapsed())
 	}
 
@@ -532,6 +536,21 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 	case loop.EventRetrying:
 		if isCurrentPRD {
 			a.lastActivity = event.Text
+		}
+	case loop.EventRateLimit:
+		// Only the reports worth seeing reach here: a window filling up, one that
+		// started rejecting, and the recovery afterwards.
+		if isCurrentPRD && event.RateLimit != nil {
+			a.rateLimit = *event.RateLimit
+		}
+	case loop.EventRateLimitWait:
+		// The run is alive and waiting for the window to reset, so the state stays
+		// Running — it will carry on by itself.
+		if isCurrentPRD {
+			a.lastActivity = event.Text
+			if event.RateLimit != nil {
+				a.rateLimit = *event.RateLimit
+			}
 		}
 	case loop.EventWatchdogTimeout:
 		if isCurrentPRD {

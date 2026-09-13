@@ -23,6 +23,9 @@ type LogEntry struct {
 	StoryID   string
 	FilePath  string   // For Read tool results, stores the file path for syntax highlighting
 	CrashLog  []string // For retry entries, the last stderr lines from the crashed process
+	// RateLimit carries the provider's limit report for rate limit entries, which
+	// render from it rather than from Text.
+	RateLimit *loop.RateLimitInfo
 
 	highlightedCode string   // Pre-computed syntax highlighted code (computed once on add)
 	cachedLines     []string // Pre-rendered output lines (invalidated on width change)
@@ -65,6 +68,13 @@ func (l *LogViewer) AddEvent(event loop.Event) {
 		ToolInput: event.ToolInput,
 		StoryID:   event.StoryID,
 		CrashLog:  event.CrashLog,
+		RateLimit: event.RateLimit,
+	}
+
+	// Errors carry their message on Err, not Text: without this the log reads
+	// "An error occurred" for the one event that most needs to say what happened.
+	if entry.Text == "" && event.Err != nil {
+		entry.Text = event.Err.Error()
 	}
 
 	// Track Read tool file paths for syntax highlighting
@@ -88,7 +98,8 @@ func (l *LogViewer) AddEvent(event loop.Event) {
 	case loop.EventAssistantText, loop.EventToolStart, loop.EventToolResult,
 		loop.EventStoryDone, loop.EventStoryNeedsReview, loop.EventStoryNoCommit, loop.EventComplete, loop.EventError, loop.EventRetrying,
 		loop.EventWatchdogTimeout, loop.EventNoGitRepo, loop.EventReviewStart, loop.EventReviewDone,
-		loop.EventConsolidateStart, loop.EventConsolidateDone:
+		loop.EventConsolidateStart, loop.EventConsolidateDone,
+		loop.EventRateLimit, loop.EventRateLimitWait:
 		// Pre-render and cache lines
 		if l.width > 0 {
 			entry.cachedLines = l.renderEntry(entry)
@@ -381,6 +392,8 @@ func (l *LogViewer) renderEntry(entry LogEntry) []string {
 		return l.renderError(entry)
 	case loop.EventRetrying:
 		return l.renderRetrying(entry)
+	case loop.EventRateLimit, loop.EventRateLimitWait:
+		return l.renderRateLimit(entry)
 	case loop.EventWatchdogTimeout:
 		return l.renderWatchdogTimeout(entry)
 	default:
@@ -686,6 +699,32 @@ func (l *LogViewer) renderError(entry LogEntry) []string {
 	}
 
 	return []string{errorStyle.Render("✗ Error: " + text)}
+}
+
+// renderRateLimit renders a rate limit report or the wait it triggered. A wait
+// already carries its own sentence (it knows when the run resumes); a bare
+// report is described from the limit itself.
+func (l *LogViewer) renderRateLimit(entry LogEntry) []string {
+	info := loop.RateLimitInfo{}
+	if entry.RateLimit != nil {
+		info = *entry.RateLimit
+	}
+
+	text := entry.Text
+	if text == "" {
+		text = formatRateLimitLog(info)
+	}
+
+	style := lipgloss.NewStyle().Foreground(WarningColor)
+	if info.Rejected() {
+		style = style.Bold(true)
+	}
+
+	var lines []string
+	for _, w := range strings.Split(wrapText(glyph("⏳", "~")+" "+text, l.width-4), "\n") {
+		lines = append(lines, style.Render(w))
+	}
+	return lines
 }
 
 // renderRetrying renders a retry message.

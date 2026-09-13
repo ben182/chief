@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ben182/chief/internal/prd"
 	"github.com/charmbracelet/lipgloss"
@@ -196,6 +197,13 @@ func (a *App) renderHeader() string {
 		costStr = SubtitleStyle.Render(formatCost(a.totalCost))
 	}
 
+	// Account rate limit, once the provider says the window is filling up. Shown
+	// next to the cost because it is the other budget a run spends.
+	limitStr := ""
+	if chip := a.rateLimitChip(); chip != "" {
+		limitStr = rateLimitChipStyle(a.rateLimit).Render(chip)
+	}
+
 	// Combine elements
 	leftPart := lipgloss.JoinHorizontal(lipgloss.Center, brand, "  ", state)
 	rightPart := lipgloss.JoinHorizontal(lipgloss.Center, iteration, "  ", elapsedStr)
@@ -204,6 +212,9 @@ func (a *App) renderHeader() string {
 	}
 	if costStr != "" {
 		rightPart = lipgloss.JoinHorizontal(lipgloss.Center, rightPart, "  ", costStr)
+	}
+	if limitStr != "" {
+		rightPart = lipgloss.JoinHorizontal(lipgloss.Center, rightPart, "  ", limitStr)
 	}
 
 	// Create the full header line with proper spacing
@@ -222,6 +233,15 @@ func (a *App) renderHeader() string {
 		return lipgloss.JoinVertical(lipgloss.Left, headerLine, tabBarLine, worktreeInfoLine, border)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, headerLine, tabBarLine, border)
+}
+
+// rateLimitChip is the header's usage chip for the current PRD's limit report,
+// empty when the window is healthy or the reported one has since reset.
+func (a *App) rateLimitChip() string {
+	if rateLimitStale(a.rateLimit, time.Now()) {
+		return ""
+	}
+	return formatRateLimitChip(a.rateLimit)
 }
 
 // renderTabBar renders the PRD tab bar.
@@ -255,6 +275,9 @@ func (a *App) renderNarrowHeader() string {
 	// Combine elements
 	leftPart := lipgloss.JoinHorizontal(lipgloss.Center, brand, " ", state)
 	rightPart := iterTime
+	if chip := formatRateLimitChipCompact(a.rateLimit); chip != "" && !rateLimitStale(a.rateLimit, time.Now()) {
+		rightPart = lipgloss.JoinHorizontal(lipgloss.Center, rightPart, " ", rateLimitChipStyle(a.rateLimit).Render(chip))
+	}
 
 	// Create the full header line with proper spacing
 	headerLine := a.headerBar(leftPart, rightPart)
