@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,6 +36,36 @@ func formatCost(c float64) string {
 		return fmt.Sprintf("$%.2f", c)
 	}
 	return fmt.Sprintf("$%.3f", c)
+}
+
+// formatLineCount formats a line count with thousands separators (4812 ->
+// "4,812"). Unlike token counts it is not abbreviated: "4.8K lines" reads as a
+// rounded estimate, and this number is exact.
+func formatLineCount(n int) string {
+	s := strconv.Itoa(n)
+	neg := ""
+	if strings.HasPrefix(s, "-") {
+		neg, s = "-", s[1:]
+	}
+	// Walk from the right, inserting a separator every third digit.
+	var b strings.Builder
+	for i, r := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			b.WriteByte(',')
+		}
+		b.WriteRune(r)
+	}
+	return neg + b.String()
+}
+
+// pluralize renders a count with its noun, adding a plain "s" for anything but
+// one ("1 file", "47 files"). Only for nouns that pluralise that way, which is
+// all the completion screen needs.
+func pluralize(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return formatLineCount(n) + " " + noun + "s"
 }
 
 // formatTokenCount formats a token count compactly (e.g. 1234 -> "1.2K",

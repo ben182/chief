@@ -112,6 +112,15 @@ type summaryResultMsg struct {
 	pushAfter    bool // whether to start auto-push once the summary lands
 }
 
+// codeStatsMsg carries the run's code stats to the completion screen once git
+// has been asked for them. It names the PRD it belongs to, because a background
+// PRD can finish while this one's screen is up and its numbers must not land on
+// the wrong run.
+type codeStatsMsg struct {
+	prdName string
+	stat    git.DiffStat
+}
+
 // completionSpinnerTickMsg is sent to animate the completion screen spinner.
 type completionSpinnerTickMsg struct{}
 

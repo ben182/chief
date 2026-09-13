@@ -402,3 +402,93 @@ func TestCenterModal(t *testing.T) {
 		t.Error("expected top padding in centered modal")
 	}
 }
+
+// TestCompletionScreen_CodeStats covers the block that reports what the run did
+// to the code: the numbers it draws, and the cases where it stays out of the way.
+func TestCompletionScreen_CodeStats(t *testing.T) {
+	fullStat := git.DiffStat{
+		Insertions: 4812, Deletions: 387,
+		FilesAdded: 31, FilesModified: 14, FilesDeleted: 2,
+		Languages: []git.LanguageStat{
+			{Name: "PHP", Insertions: 3204, Files: 28},
+			{Name: "Blade", Insertions: 1120, Files: 9},
+			{Name: "YAML", Insertions: 488, Files: 3},
+			{Name: "JSON", Insertions: 12, Files: 1},
+		},
+		TestInsertions: 1840, TestFiles: 12,
+	}
+
+	newScreen := func(stat git.DiffStat) *CompletionScreen {
+		cs := NewCompletionScreen()
+		cs.SetSize(100, 40)
+		cs.Configure("auth", 3, 3, "chief/auth", 5, false, time.Hour, 0, nil, 0)
+		cs.SetCodeStats(stat)
+		return cs
+	}
+
+	t.Run("reports lines, files and tests", func(t *testing.T) {
+		out := newScreen(fullStat).Render()
+		for _, want := range []string{
+			"4,812",              // insertions, with thousands separators
+			"387",                // deletions
+			"47 files",           // 31 + 14 + 2
+			"31 new",             // added files called out separately
+			"PHP 3,204",          // language breakdown, biggest first
+			"Tests: 1,840 lines", // the test share
+			"12 files",
+			"(38%)",
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("Render() missing %q", want)
+			}
+		}
+	})
+
+	t.Run("names at most three languages", func(t *testing.T) {
+		out := newScreen(fullStat).Render()
+		if !strings.Contains(out, "YAML 488") {
+			t.Error("Render() should name the third language")
+		}
+		// The fourth is dropped rather than wrapped onto another line.
+		if strings.Contains(out, "JSON") {
+			t.Error("Render() should stop after three languages")
+		}
+	})
+
+	t.Run("stays silent without stats", func(t *testing.T) {
+		// A run that committed nothing, or whose start ref was never captured.
+		out := newScreen(git.DiffStat{}).Render()
+		if strings.Contains(out, "lines in") || strings.Contains(out, "Tests:") {
+			t.Errorf("Render() drew code stats for an empty stat:\n%s", out)
+		}
+	})
+
+	t.Run("omits the test line when nothing was tested", func(t *testing.T) {
+		out := newScreen(git.DiffStat{
+			Insertions: 120, FilesAdded: 2,
+			Languages: []git.LanguageStat{{Name: "Markdown", Insertions: 120, Files: 2}},
+		}).Render()
+		if !strings.Contains(out, "+120") {
+			t.Error("Render() should still report the lines")
+		}
+		if strings.Contains(out, "Tests:") {
+			t.Error("Render() should omit the test line when no tests were written")
+		}
+	})
+
+	t.Run("omits the file count when only lines are known", func(t *testing.T) {
+		out := newScreen(git.DiffStat{Insertions: 10, Deletions: 2}).Render()
+		if strings.Contains(out, "in 0 files") {
+			t.Error("Render() should not report a zero file count")
+		}
+	})
+
+	t.Run("Configure clears stats from the previous PRD", func(t *testing.T) {
+		cs := newScreen(fullStat)
+		// A second PRD finishes; its stats have not arrived yet.
+		cs.Configure("billing", 2, 2, "chief/billing", 3, false, time.Hour, 0, nil, 0)
+		if strings.Contains(cs.Render(), "4,812") {
+			t.Error("Configure() should clear the previous run's code stats")
+		}
+	})
+}

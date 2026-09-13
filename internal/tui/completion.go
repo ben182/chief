@@ -86,6 +86,11 @@ type CompletionScreen struct {
 	storyTimings []StoryTiming
 	totalCost    float64 // cumulative cost across the run (0 when unavailable)
 
+	// codeStats is what the run did to the code, scoped to its own commits. Zero
+	// when the run committed nothing or its start ref was never captured, and
+	// then nothing about it is drawn.
+	codeStats git.DiffStat
+
 	// Confetti animation
 	confetti *Confetti
 
@@ -118,6 +123,9 @@ func (c *CompletionScreen) Configure(prdName string, completed, total int, branc
 	c.slept = slept
 	c.storyTimings = storyTimings
 	c.totalCost = totalCost
+	// Reset the code stats: they arrive separately (SetCodeStats), and a stale
+	// set from the previously completed PRD would be drawn as this run's work.
+	c.codeStats = git.DiffStat{}
 	// Reset auto-action state
 	c.summaryState = AutoActionIdle
 	c.summaryError = ""
@@ -161,6 +169,14 @@ func (c *CompletionScreen) Branch() string {
 // HasBranch returns true if the completion screen has a branch set.
 func (c *CompletionScreen) HasBranch() bool {
 	return c.branch != ""
+}
+
+// SetCodeStats records what the run did to the code. It is set separately from
+// Configure because it is read from git, which Configure's caller does after the
+// screen is already on display — the numbers appear a moment later rather than
+// holding up the screen.
+func (c *CompletionScreen) SetCodeStats(stat git.DiffStat) {
+	c.codeStats = stat
 }
 
 // SetSummaryInProgress marks summary generation as in progress.
@@ -248,15 +264,20 @@ var (
 				Padding(1, 2)
 )
 
-// Render renders the completion screen with confetti background.
-func (c *CompletionScreen) Render() string {
-	modalWidth := min(70, c.width-6)
+// modalWidths returns the modal's outer width and the content width inside its
+// padding and border. Render draws at these widths and calculateModalHeight
+// measures at them, so they are derived in one place.
+func (c *CompletionScreen) modalWidths() (modalWidth, innerWidth int) {
+	modalWidth = min(70, c.width-6)
 	if modalWidth < 30 {
 		modalWidth = 30
 	}
+	return modalWidth, modalWidth - 6 // 2 padding each side + 2 border
+}
 
-	// Inner content width (inside padding and border)
-	innerWidth := modalWidth - 6 // 2 padding each side + 2 border
+// Render renders the completion screen with confetti background.
+func (c *CompletionScreen) Render() string {
+	modalWidth, innerWidth := c.modalWidths()
 
 	var content strings.Builder
 
@@ -290,6 +311,14 @@ func (c *CompletionScreen) Render() string {
 		}
 		content.WriteString(fgMuted.Render(fmt.Sprintf("Mac slept %s during the run", formatDuration(c.slept))))
 		content.WriteString("\n")
+	}
+
+	// What the run did to the code
+	if !c.codeStats.IsZero() {
+		if c.totalDuration == 0 && c.slept == 0 {
+			content.WriteString("\n")
+		}
+		content.WriteString(c.renderCodeStats(innerWidth))
 	}
 
 	// Per-story timings
@@ -398,7 +427,15 @@ func (c *CompletionScreen) calculateModalHeight() int {
 		}
 	}
 
-	calculated := base + storyLines + autoLines + durationLine + sleepLine
+	// Code stats, which bring their own blank separator only when no duration or
+	// sleep line above them already did (see Render).
+	_, innerWidth := c.modalWidths()
+	codeLines := len(c.codeStatsLines(innerWidth))
+	if codeLines > 0 && durationLine == 0 && sleepLine == 0 {
+		codeLines++
+	}
+
+	calculated := base + storyLines + autoLines + durationLine + sleepLine + codeLines
 	maxHeight := c.height - 4
 	if maxHeight < 10 {
 		maxHeight = 10
@@ -410,6 +447,73 @@ func (c *CompletionScreen) calculateModalHeight() int {
 		calculated = 10
 	}
 	return calculated
+}
+
+// maxCompletionLanguages is how many languages the breakdown names before it
+// stops. Three fits the width and covers the shape of almost every run; a fourth
+// is usually a config file, which nobody came to the screen to read about.
+const maxCompletionLanguages = 3
+
+// codeStatsLines renders what the run did to the code, as up to three lines:
+// the line and file counts, the language breakdown, and the share that went into
+// tests. Each is dropped when it has nothing to say, so the caller can count
+// them for the modal height as well as draw them.
+func (c *CompletionScreen) codeStatsLines(innerWidth int) []string {
+	stat := c.codeStats
+	if stat.IsZero() {
+		return nil
+	}
+	var lines []string
+
+	// "+4,812 −387 lines in 47 files (31 new)"
+	var size strings.Builder
+	fmt.Fprintf(&size, "+%s %s%s lines",
+		formatLineCount(stat.Insertions), glyph("−", "-"), formatLineCount(stat.Deletions))
+	if files := stat.FilesChanged(); files > 0 {
+		fmt.Fprintf(&size, " in %s", pluralize(files, "file"))
+		if stat.FilesAdded > 0 {
+			fmt.Fprintf(&size, " (%d new)", stat.FilesAdded)
+		}
+	}
+	lines = append(lines, truncateWithEllipsis(size.String(), innerWidth))
+
+	// "Go 3,204 · Markdown 1,120 · YAML 488"
+	if top := stat.TopLanguages(maxCompletionLanguages); len(top) > 0 {
+		parts := make([]string, 0, len(top))
+		for _, lang := range top {
+			parts = append(parts, fmt.Sprintf("%s %s", lang.Name, formatLineCount(lang.Insertions)))
+		}
+		lines = append(lines, truncateWithEllipsis(strings.Join(parts, " · "), innerWidth))
+	}
+
+	// "Tests: 1,840 lines in 12 files (38%)"
+	if stat.TestInsertions > 0 {
+		tests := fmt.Sprintf("Tests: %s lines in %s (%d%%)",
+			formatLineCount(stat.TestInsertions),
+			pluralize(stat.TestFiles, "file"),
+			int(stat.TestShare()*100+0.5))
+		lines = append(lines, truncateWithEllipsis(tests, innerWidth))
+	}
+
+	return lines
+}
+
+// renderCodeStats draws the code stats block. The first line carries the run's
+// size and is emphasised like the duration above it; the breakdown below is
+// muted, because it is there to be glanced at rather than read.
+func (c *CompletionScreen) renderCodeStats(innerWidth int) string {
+	lines := c.codeStatsLines(innerWidth)
+	if len(lines) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(fgText.Render(lines[0]))
+	b.WriteString("\n")
+	for _, line := range lines[1:] {
+		b.WriteString(fgMuted.Render(line))
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 // renderStoryTimings renders the per-story timing list with mini bar charts.
@@ -443,8 +547,10 @@ func (c *CompletionScreen) renderStoryTimings(innerWidth int) string {
 		maxTitleWidth = 10
 	}
 
-	// Limit visible stories
-	maxVisible := c.height - 16
+	// Limit visible stories. The code stats sit above this list and take their
+	// rows out of the same terminal, so the list gives way to them rather than
+	// running off the bottom of the modal.
+	maxVisible := c.height - 16 - len(c.codeStatsLines(innerWidth))
 	if maxVisible < 3 {
 		maxVisible = 3
 	}

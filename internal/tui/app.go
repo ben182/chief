@@ -414,6 +414,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case summaryResultMsg:
 		return a.handleSummaryResult(msg)
 
+	case codeStatsMsg:
+		return a.handleCodeStats(msg)
+
 	case branchSyncCheckMsg:
 		return a.handleBranchSyncCheck(msg)
 

@@ -45,8 +45,8 @@ func (a *App) showCompletionScreen(prdName string) tea.Cmd {
 	a.completionScreen.SetSize(a.width, a.height)
 	a.viewMode = ViewCompletion
 
-	// Always start confetti tick
-	cmds := []tea.Cmd{tickConfetti()}
+	// Always start confetti tick, and go read what the run did to the code.
+	cmds := []tea.Cmd{tickConfetti(), a.loadCodeStats(prdName)}
 
 	// Post-completion actions only make sense when there is committed work: a run
 	// can finish with zero commits (every story parked, or the agent never
@@ -70,6 +70,43 @@ func (a *App) showCompletionScreen(prdName string) tea.Cmd {
 	// If only PR is configured (no push), we can't create a PR without pushing first
 	// So PR-only without push is a no-op (push is required for PR)
 	return tea.Batch(cmds...)
+}
+
+// loadCodeStats returns a tea.Cmd that asks git what this run changed, scoped to
+// the commits it made itself (StartRef..HEAD). It runs off the update loop
+// because it shells out: the completion screen appears immediately and fills in
+// the numbers when they arrive.
+//
+// A failure is silent by design. These are decoration on a screen that is
+// celebrating finished work, and a run that legitimately committed nothing — or
+// one whose start ref was never captured — is not something to report as an
+// error at the moment of success.
+func (a *App) loadCodeStats(prdName string) tea.Cmd {
+	dir := a.completionGitDir(prdName)
+	sinceRef := ""
+	if inst := a.manager.GetInstance(prdName); inst != nil {
+		sinceRef = inst.StartRef
+	}
+	if sinceRef == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		stat, err := git.DiffStatSince(dir, sinceRef)
+		if err != nil {
+			return nil
+		}
+		return codeStatsMsg{prdName: prdName, stat: stat}
+	}
+}
+
+// handleCodeStats puts the run's code stats on the completion screen, unless the
+// screen has since moved on to another PRD.
+func (a App) handleCodeStats(msg codeStatsMsg) (tea.Model, tea.Cmd) {
+	if a.completionScreen.PRDName() != msg.prdName {
+		return a, nil
+	}
+	a.completionScreen.SetCodeStats(msg.stat)
+	return a, nil
 }
 
 // runBackgroundAutoActions triggers summary/push/PR for a background PRD that

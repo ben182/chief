@@ -248,6 +248,23 @@ Summary, push, and PR only run when the branch has at least one commit. A run th
 
 The completion screen shows the progress of these actions with spinners, checkmarks, or error messages. On PR success, the PR URL is displayed and clickable.
 
+### What the run produced
+
+Above the per-story list, the completion screen reports what the run did to the code, read from the run's own commits (`StartRef..HEAD` — an earlier run's work on the same branch is never counted):
+
+```
+Completed in 2h14m00s  •  $312.00
++4,812 −387 lines in 47 files (31 new)
+PHP 3,204 · Blade 1,120 · YAML 488
+Tests: 1,840 lines in 12 files (38%)
+```
+
+- **Lines and files** — written and removed lines, and how many of the touched files were new. Binary files are skipped; a rename counts as a changed file, not a new one
+- **Languages** — written lines per language, the three biggest first
+- **Tests** — how much of the written code went into test files, recognised from paths (`_test.go`, `.test.`/`.spec.`, a `test_` prefix, a `Test` suffix, and `tests/`, `spec/`, `__tests__/` directories). The line is omitted when a run wrote no tests
+
+Each line is dropped when it has nothing to report, so a run that committed nothing shows none of them.
+
 If auto-actions aren't configured, the completion screen shows a hint to configure them via the Settings TUI (`,`).
 
 You can also take manual actions from the completion screen:
