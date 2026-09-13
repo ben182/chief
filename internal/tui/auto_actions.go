@@ -42,6 +42,7 @@ func (a *App) showCompletionScreen(prdName string) tea.Cmd {
 
 	totalDuration := a.GetElapsedTime()
 	a.completionScreen.Configure(prdName, completed, total, branch, commitCount, hasAutoActions, totalDuration, a.sleptDuringRun(), a.storyTimings[prdName], a.totalCost)
+	a.completionScreen.SetRateLimitWaited(a.rateLimitWaitedDuringRun(prdName))
 	a.completionScreen.SetSize(a.width, a.height)
 	a.viewMode = ViewCompletion
 
@@ -70,6 +71,18 @@ func (a *App) showCompletionScreen(prdName string) tea.Cmd {
 	// If only PR is configured (no push), we can't create a PR without pushing first
 	// So PR-only without push is a no-op (push is required for PR)
 	return tea.Batch(cmds...)
+}
+
+// rateLimitWaitedDuringRun reports how much of the run went into sitting out a
+// usage window, as the loop that did the waiting counted it. Zero when the run
+// never hit a limit, which is the normal case, and zero for a PRD whose loop is
+// already gone.
+func (a *App) rateLimitWaitedDuringRun(prdName string) time.Duration {
+	inst := a.manager.GetInstance(prdName)
+	if inst == nil || inst.Loop == nil {
+		return 0
+	}
+	return inst.Loop.RateLimitWaited()
 }
 
 // loadCodeStats returns a tea.Cmd that asks git what this run changed, scoped to

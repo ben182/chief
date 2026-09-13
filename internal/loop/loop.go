@@ -123,9 +123,14 @@ type Loop struct {
 	// one that crashed — the two are indistinguishable from the exit code alone.
 	rateLimit      RateLimitInfo
 	rateLimitWaits int
-	rateLimitGrace time.Duration                                   // added to a reported reset time before resuming; overridden in tests
-	rateLimitSleep func(ctx context.Context, d time.Duration) bool // waits d, reporting false when interrupted; overridden in tests
-	rateLimitNow   func() time.Time                                // clock, overridden in tests
+	// rateLimitWaited is how much of the run's wall clock went into sitting out
+	// full windows. Unlike a suspended machine, a waiting loop keeps the clock
+	// running, so this time is inside the run's total duration and is the only
+	// thing that explains a four-hour run holding two hours of work.
+	rateLimitWaited time.Duration
+	rateLimitGrace  time.Duration                                   // added to a reported reset time before resuming; overridden in tests
+	rateLimitSleep  func(ctx context.Context, d time.Duration) bool // waits d, reporting false when interrupted; overridden in tests
+	rateLimitNow    func() time.Time                                // clock, overridden in tests
 
 	// review configures the optional post-commit review agent. When enabled, a
 	// separate agent reviews (and fixes) each story's committed changes before the

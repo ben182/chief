@@ -58,6 +58,16 @@ func formatLineCount(n int) string {
 	return neg + b.String()
 }
 
+// formatSignedLineCount formats a line balance with an explicit sign and the
+// same minus glyph the +/− pair above it uses, so "net −1,203" reads as the
+// counterpart of "−1,590" rather than as a stray hyphen.
+func formatSignedLineCount(n int) string {
+	if n < 0 {
+		return glyph("−", "-") + formatLineCount(-n)
+	}
+	return "+" + formatLineCount(n)
+}
+
 // pluralize renders a count with its noun, adding a plain "s" for anything but
 // one ("1 file", "47 files"). Only for nouns that pluralise that way, which is
 // all the completion screen needs.

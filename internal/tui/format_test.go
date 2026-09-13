@@ -40,3 +40,18 @@ func TestPluralize(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatSignedLineCount(t *testing.T) {
+	minus := glyph("−", "-")
+	tests := map[int]string{
+		4425:  "+4,425",
+		0:     "+0",
+		-1203: minus + "1,203",
+		-7:    minus + "7",
+	}
+	for n, want := range tests {
+		if got := formatSignedLineCount(n); got != want {
+			t.Errorf("formatSignedLineCount(%d) = %q, want %q", n, got, want)
+		}
+	}
+}

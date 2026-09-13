@@ -82,9 +82,14 @@ type CompletionScreen struct {
 	// to the total rather than added to it: totalDuration and the per-story
 	// timings are monotonic, so they are working time and this is the rest of the
 	// wall clock. Zero means no sleep was detected and nothing is shown.
-	slept        time.Duration
-	storyTimings []StoryTiming
-	totalCost    float64 // cumulative cost across the run (0 when unavailable)
+	slept time.Duration
+	// rateLimitWaited is how much of the run went into sitting out a full usage
+	// window. Unlike slept it is *inside* totalDuration — a waiting loop keeps
+	// the clock running — so it is worded as a share of the total rather than as
+	// something alongside it.
+	rateLimitWaited time.Duration
+	storyTimings    []StoryTiming
+	totalCost       float64 // cumulative cost across the run (0 when unavailable)
 
 	// codeStats is what the run did to the code, scoped to its own commits. Zero
 	// when the run committed nothing or its start ref was never captured, and
@@ -123,9 +128,11 @@ func (c *CompletionScreen) Configure(prdName string, completed, total int, branc
 	c.slept = slept
 	c.storyTimings = storyTimings
 	c.totalCost = totalCost
-	// Reset the code stats: they arrive separately (SetCodeStats), and a stale
-	// set from the previously completed PRD would be drawn as this run's work.
+	// Reset the figures that arrive separately (SetCodeStats,
+	// SetRateLimitWaited), so a stale set from the previously completed PRD is
+	// never drawn as this run's.
 	c.codeStats = git.DiffStat{}
+	c.rateLimitWaited = 0
 	// Reset auto-action state
 	c.summaryState = AutoActionIdle
 	c.summaryError = ""
@@ -177,6 +184,12 @@ func (c *CompletionScreen) HasBranch() bool {
 // holding up the screen.
 func (c *CompletionScreen) SetCodeStats(stat git.DiffStat) {
 	c.codeStats = stat
+}
+
+// SetRateLimitWaited records how much of the run was spent waiting out a usage
+// window. Zero — the common case — draws nothing.
+func (c *CompletionScreen) SetRateLimitWaited(d time.Duration) {
+	c.rateLimitWaited = d
 }
 
 // SetSummaryInProgress marks summary generation as in progress.
@@ -313,9 +326,22 @@ func (c *CompletionScreen) Render() string {
 		content.WriteString("\n")
 	}
 
+	// Time spent waiting out a usage window. This one is *inside* the total
+	// above — the clock runs while the loop waits — so it is phrased as a share
+	// of it, and it is the only thing that explains a long run holding a short
+	// amount of work.
+	if c.rateLimitWaited > 0 {
+		if c.totalDuration == 0 && c.slept == 0 {
+			content.WriteString("\n")
+		}
+		content.WriteString(fgMuted.Render(fmt.Sprintf("%s of that waiting for the usage window",
+			formatDuration(c.rateLimitWaited))))
+		content.WriteString("\n")
+	}
+
 	// What the run did to the code
 	if !c.codeStats.IsZero() {
-		if c.totalDuration == 0 && c.slept == 0 {
+		if c.totalDuration == 0 && c.slept == 0 && c.rateLimitWaited == 0 {
 			content.WriteString("\n")
 		}
 		content.WriteString(c.renderCodeStats(innerWidth))
@@ -427,15 +453,25 @@ func (c *CompletionScreen) calculateModalHeight() int {
 		}
 	}
 
-	// Code stats, which bring their own blank separator only when no duration or
-	// sleep line above them already did (see Render).
+	// Rate-limit wait line, which like the sleep line brings its own blank
+	// separator when nothing above it did (see Render).
+	waitLine := 0
+	if c.rateLimitWaited > 0 {
+		waitLine = 1
+		if durationLine == 0 && sleepLine == 0 {
+			waitLine = 2
+		}
+	}
+
+	// Code stats, which bring their own blank separator only when no line above
+	// them already did (see Render).
 	_, innerWidth := c.modalWidths()
 	codeLines := len(c.codeStatsLines(innerWidth))
-	if codeLines > 0 && durationLine == 0 && sleepLine == 0 {
+	if codeLines > 0 && durationLine == 0 && sleepLine == 0 && waitLine == 0 {
 		codeLines++
 	}
 
-	calculated := base + storyLines + autoLines + durationLine + sleepLine + codeLines
+	calculated := base + storyLines + autoLines + durationLine + sleepLine + waitLine + codeLines
 	maxHeight := c.height - 4
 	if maxHeight < 10 {
 		maxHeight = 10
@@ -465,7 +501,7 @@ func (c *CompletionScreen) codeStatsLines(innerWidth int) []string {
 	}
 	var lines []string
 
-	// "+4,812 −387 lines in 47 files (31 new)"
+	// "+4,812 −387 lines in 47 files (31 new) · net +4,425"
 	var size strings.Builder
 	fmt.Fprintf(&size, "+%s %s%s lines",
 		formatLineCount(stat.Insertions), glyph("−", "-"), formatLineCount(stat.Deletions))
@@ -474,6 +510,15 @@ func (c *CompletionScreen) codeStatsLines(innerWidth int) []string {
 		if stat.FilesAdded > 0 {
 			fmt.Fprintf(&size, " (%d new)", stat.FilesAdded)
 		}
+	}
+	// The net figure only earns its place when something was removed — without
+	// deletions it repeats the insertions. When it does appear it is the number
+	// that says which kind of run this was: a refactoring or consolidation pass
+	// that ends smaller than it started reports a negative, and that is the good
+	// news, not a shortfall.
+	if stat.Deletions > 0 {
+		net := stat.Insertions - stat.Deletions
+		fmt.Fprintf(&size, " · net %s", formatSignedLineCount(net))
 	}
 	lines = append(lines, truncateWithEllipsis(size.String(), innerWidth))
 
@@ -551,6 +596,9 @@ func (c *CompletionScreen) renderStoryTimings(innerWidth int) string {
 	// rows out of the same terminal, so the list gives way to them rather than
 	// running off the bottom of the modal.
 	maxVisible := c.height - 16 - len(c.codeStatsLines(innerWidth))
+	if c.rateLimitWaited > 0 {
+		maxVisible--
+	}
 	if maxVisible < 3 {
 		maxVisible = 3
 	}

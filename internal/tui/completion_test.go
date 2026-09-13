@@ -492,3 +492,71 @@ func TestCompletionScreen_CodeStats(t *testing.T) {
 		}
 	})
 }
+
+// TestCompletionScreen_NetLines covers the net balance beside the +/− pair: the
+// number that tells a run which grew the code from one that shrank it.
+func TestCompletionScreen_NetLines(t *testing.T) {
+	render := func(stat git.DiffStat) string {
+		cs := NewCompletionScreen()
+		cs.SetSize(100, 40)
+		cs.Configure("auth", 3, 3, "chief/auth", 5, false, time.Hour, 0, nil, 0)
+		cs.SetCodeStats(stat)
+		return cs.Render()
+	}
+
+	t.Run("reports a positive balance", func(t *testing.T) {
+		out := render(git.DiffStat{Insertions: 4812, Deletions: 387, FilesModified: 47})
+		if !strings.Contains(out, "net +4,425") {
+			t.Errorf("Render() missing the net balance:\n%s", out)
+		}
+	})
+
+	t.Run("reports a negative balance for a run that shrank the code", func(t *testing.T) {
+		out := render(git.DiffStat{Insertions: 640, Deletions: 1843, FilesModified: 29})
+		if !strings.Contains(out, "net "+glyph("−", "-")+"1,203") {
+			t.Errorf("Render() missing the negative net balance:\n%s", out)
+		}
+	})
+
+	t.Run("omits the balance when nothing was deleted", func(t *testing.T) {
+		// Without deletions the net is just the insertions again.
+		out := render(git.DiffStat{Insertions: 300, FilesAdded: 4})
+		if strings.Contains(out, "net ") {
+			t.Errorf("Render() should omit a net equal to the insertions:\n%s", out)
+		}
+	})
+}
+
+// TestCompletionScreen_RateLimitWaited covers the line that explains a long run
+// holding a short amount of work.
+func TestCompletionScreen_RateLimitWaited(t *testing.T) {
+	newScreen := func(waited time.Duration) *CompletionScreen {
+		cs := NewCompletionScreen()
+		cs.SetSize(100, 40)
+		cs.Configure("auth", 3, 3, "chief/auth", 5, false, 4*time.Hour+13*time.Minute, 0, nil, 0)
+		cs.SetRateLimitWaited(waited)
+		return cs
+	}
+
+	t.Run("reports the wait as a share of the total", func(t *testing.T) {
+		out := newScreen(94 * time.Minute).Render()
+		if !strings.Contains(out, "1h34m00s of that waiting for the usage window") {
+			t.Errorf("Render() missing the wait line:\n%s", out)
+		}
+	})
+
+	t.Run("stays silent when the run never waited", func(t *testing.T) {
+		out := newScreen(0).Render()
+		if strings.Contains(out, "usage window") {
+			t.Errorf("Render() drew a wait line for a run that never waited:\n%s", out)
+		}
+	})
+
+	t.Run("Configure clears the wait from the previous PRD", func(t *testing.T) {
+		cs := newScreen(94 * time.Minute)
+		cs.Configure("billing", 2, 2, "chief/billing", 3, false, time.Hour, 0, nil, 0)
+		if strings.Contains(cs.Render(), "usage window") {
+			t.Error("Configure() should clear the previous run's wait")
+		}
+	})
+}

@@ -378,3 +378,50 @@ func TestFormatWait(t *testing.T) {
 		}
 	}
 }
+
+// TestLoop_RateLimitWaitedAccumulates checks the figure the completion screen
+// uses to explain a run's wall clock: how much of it went into waiting rather
+// than working.
+func TestLoop_RateLimitWaitedAccumulates(t *testing.T) {
+	t.Run("counts a completed wait", func(t *testing.T) {
+		dir := t.TempDir()
+		resetsAt := time.Now().Add(90 * time.Minute)
+		scriptPath, _ := rateLimitScript(t, dir, resetsAt)
+
+		l := NewLoopWithWorkDir(filepath.Join(dir, "prd.md"), dir, "test", 5, &mockProvider{cliPath: scriptPath})
+		l.SetWatchdogTimeout(0)
+
+		var slept time.Duration
+		l.rateLimitSleep = func(_ context.Context, d time.Duration) bool {
+			slept = d
+			return true
+		}
+
+		if l.RateLimitWaited() != 0 {
+			t.Fatalf("a fresh loop reports %v waited, want 0", l.RateLimitWaited())
+		}
+		if err := l.runIterationWithRetry(context.Background(), modeBuild); err != nil {
+			t.Fatalf("runIterationWithRetry returned %v, want nil", err)
+		}
+		if got := l.RateLimitWaited(); got != slept {
+			t.Errorf("RateLimitWaited() = %v, want %v (the wait it actually sat out)", got, slept)
+		}
+	})
+
+	t.Run("ignores a wait that was cut short", func(t *testing.T) {
+		// The run is ending, and the figure exists to describe a finished run.
+		dir := t.TempDir()
+		scriptPath, _ := rateLimitScript(t, dir, time.Now().Add(time.Hour))
+
+		l := NewLoopWithWorkDir(filepath.Join(dir, "prd.md"), dir, "test", 5, &mockProvider{cliPath: scriptPath})
+		l.SetWatchdogTimeout(0)
+		l.rateLimitSleep = func(context.Context, time.Duration) bool { return false }
+
+		if err := l.runIterationWithRetry(context.Background(), modeBuild); err != nil {
+			t.Fatalf("returned %v, want nil", err)
+		}
+		if got := l.RateLimitWaited(); got != 0 {
+			t.Errorf("RateLimitWaited() = %v, want 0 for an interrupted wait", got)
+		}
+	})
+}

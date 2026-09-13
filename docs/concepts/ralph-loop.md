@@ -253,13 +253,15 @@ The completion screen shows the progress of these actions with spinners, checkma
 Above the per-story list, the completion screen reports what the run did to the code, read from the run's own commits (`StartRef..HEAD` — an earlier run's work on the same branch is never counted):
 
 ```
-Completed in 2h14m00s  •  $312.00
-+4,812 −387 lines in 47 files (31 new)
+Completed in 4h13m00s  •  $312.00
+1h34m00s of that waiting for the usage window
++4,812 −387 lines in 47 files (31 new) · net +4,425
 PHP 3,204 · Blade 1,120 · YAML 488
 Tests: 1,840 lines in 12 files (38%)
 ```
 
-- **Lines and files** — written and removed lines, and how many of the touched files were new. Binary files are skipped; a rename counts as a changed file, not a new one
+- **Waiting** — how much of the run went into sitting out a full usage window. Unlike the "Mac slept" line it is *inside* the total above, because the clock keeps running while the loop waits — it is what explains a four-hour run that holds two hours of work. Omitted when the run never hit a limit
+- **Lines and files** — written and removed lines, how many of the touched files were new, and the net balance. The net appears only when something was removed, and it goes negative for a refactoring or consolidation run that ends smaller than it started. Binary files are skipped; a rename counts as a changed file, not a new one
 - **Languages** — written lines per language, the three biggest first
 - **Tests** — how much of the written code went into test files, recognised from paths (`_test.go`, `.test.`/`.spec.`, a `test_` prefix, a `Test` suffix, and `tests/`, `spec/`, `__tests__/` directories). The line is omitted when a run wrote no tests
 

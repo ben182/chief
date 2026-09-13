@@ -234,7 +234,26 @@ func (l *Loop) waitOutRateLimit(ctx context.Context, info RateLimitInfo, until t
 		RateLimit: &reported,
 	}
 
-	return l.sleepUntilReset(ctx, until.Sub(now))
+	planned := until.Sub(now)
+	if !l.sleepUntilReset(ctx, planned) {
+		// Cut short by a stop or a cancelled context. The partial wait is not
+		// counted: the run is ending, and the figure exists to explain a finished
+		// run's wall clock.
+		return false
+	}
+
+	l.mu.Lock()
+	l.rateLimitWaited += planned
+	l.mu.Unlock()
+	return true
+}
+
+// RateLimitWaited reports how long this run spent waiting out full usage
+// windows. It is part of the run's total duration, not additional to it.
+func (l *Loop) RateLimitWaited() time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.rateLimitWaited
 }
 
 // sleepUntilReset waits for d, polling once a second so a user who stops the run
