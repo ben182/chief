@@ -283,16 +283,7 @@ func (a App) switchToPRD(name, prdPath string) (tea.Model, tea.Cmd) {
 
 	// Only recalculate max iterations if no loop is currently running for this PRD
 	if instance := a.manager.GetInstance(name); instance == nil || instance.State != loop.LoopStateRunning {
-		remaining := 0
-		for _, story := range newPRD.UserStories {
-			if !story.Passes && !story.NeedsReview {
-				remaining++
-			}
-		}
-		a.maxIter = remaining*loop.DefaultMaxAttemptsPerStory + 5
-		if a.maxIter < 5 {
-			a.maxIter = 5
-		}
+		a.maxIter = loop.DefaultMaxIterations(newPRD)
 		// Propagate to the manager so a loop started for THIS PRD uses this PRD's
 		// budget, not the budget computed for whichever PRD was loaded first.
 		a.manager.SetMaxIterations(a.maxIter)

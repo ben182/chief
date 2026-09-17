@@ -1646,3 +1646,60 @@ func TestStoryHasCommit_GitLogFailure(t *testing.T) {
 		t.Error("expected false in a repo with no commits, even though git log errors")
 	}
 }
+
+func TestDefaultMaxIterationsSitsAboveThePerStoryBudget(t *testing.T) {
+	story := func(passes, parked bool) prd.UserStory {
+		return prd.UserStory{Passes: passes, NeedsReview: parked}
+	}
+
+	cases := []struct {
+		name string
+		p    *prd.PRD
+		want int
+	}{
+		{"nil PRD", nil, 5},
+		{"no stories", &prd.PRD{}, 5},
+		{
+			"one story to build",
+			&prd.PRD{UserStories: []prd.UserStory{story(false, false)}},
+			DefaultMaxAttemptsPerStory + 5,
+		},
+		{
+			"three to build",
+			&prd.PRD{UserStories: []prd.UserStory{story(false, false), story(false, false), story(false, false)}},
+			3*DefaultMaxAttemptsPerStory + 5,
+		},
+		{
+			// Stories that are done or parked are not going to be attempted, so
+			// they buy no budget.
+			"finished and parked stories do not count",
+			&prd.PRD{UserStories: []prd.UserStory{story(true, false), story(false, true), story(false, false)}},
+			DefaultMaxAttemptsPerStory + 5,
+		},
+		{
+			"nothing left to do still gets a floor",
+			&prd.PRD{UserStories: []prd.UserStory{story(true, false), story(true, false)}},
+			5,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := DefaultMaxIterations(tc.p); got != tc.want {
+				t.Errorf("DefaultMaxIterations = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDefaultMaxIterationsLeavesRoomForEveryAttempt(t *testing.T) {
+	// The property that matters: a run must never hit the global cap while the
+	// loop is still willing to retry a story, or a parked story looks like an
+	// agent that gave up.
+	for n := 1; n <= 20; n++ {
+		stories := make([]prd.UserStory, n)
+		p := &prd.PRD{UserStories: stories}
+		if got, need := DefaultMaxIterations(p), n*DefaultMaxAttemptsPerStory; got <= need {
+			t.Errorf("%d stories: budget %d does not exceed the %d attempts they may take", n, got, need)
+		}
+	}
+}

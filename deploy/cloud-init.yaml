@@ -1,0 +1,146 @@
+#cloud-config
+# Provisions a throwaway Hetzner instance to the point where `chief start
+# --headless` can run on it.
+#
+# Everything here is the base a run needs and cannot install for itself: the
+# language runtimes, the database, the agent CLI, chief. Everything a specific
+# project needs on top — its dependencies, its .env, its schema — belongs in
+# that project's `worktree.setup`, which chief runs inside the checkout before
+# the agent starts. The split matters because this file is baked into the
+# instance at creation time and a project's needs change weekly.
+#
+# Targets Ubuntu 24.04. The instance is expected to live for hours, not months,
+# so nothing here is set up to survive a reboot it will never get.
+
+package_update: true
+package_upgrade: false
+
+apt:
+  sources:
+    # PHP from ondrej, because Ubuntu ships one version per release and a real
+    # project pins a specific one.
+    php:
+      source: "ppa:ondrej/php"
+
+packages:
+  - git
+  - curl
+  - jq
+  - unzip
+  - rsync
+  - build-essential
+  - ripgrep
+  # PHP. The extension list is the one a Laravel app fails to boot without.
+  - php8.3-cli
+  - php8.3-curl
+  - php8.3-mbstring
+  - php8.3-xml
+  - php8.3-zip
+  - php8.3-bcmath
+  - php8.3-intl
+  - php8.3-pgsql
+  - php8.3-sqlite3
+  - php8.3-gd
+  - php8.3-redis
+  # Database and cache, local to the instance: a run's test database has no
+  # business being anywhere else.
+  - postgresql
+  - postgresql-contrib
+  - redis-server
+
+write_files:
+  # The runs' own account. Work does not happen as root: the agent runs with
+  # --dangerously-skip-permissions, and there is no reason to hand it the whole
+  # machine as well.
+  - path: /etc/sudoers.d/chief
+    permissions: "0440"
+    content: |
+      chief ALL=(ALL) NOPASSWD:ALL
+
+  # Where `chief-box` drops the tokens. Created empty and locked down first, so
+  # there is no window where it exists world-readable.
+  - path: /home/chief/.chief-env
+    owner: chief:chief
+    permissions: "0600"
+    content: |
+      # filled in by chief-box after the instance is up
+
+  # The unit a run is started as. It is a one-shot rather than a service that
+  # restarts: a chief run that ended has ended, and starting it again from the
+  # top is a decision for a person to make.
+  - path: /etc/systemd/system/chief-run@.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=chief headless run (%i)
+      After=network-online.target postgresql.service
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      User=chief
+      WorkingDirectory=/home/chief/project
+      EnvironmentFile=/home/chief/.chief-env
+      # A run is measured in hours and must never be cut short by a timeout.
+      TimeoutStartSec=infinity
+      # systemd stops a unit with SIGTERM, which chief turns into a clean stop:
+      # the agent is killed, its commits stay. The generous grace period is for
+      # the agent process tree to actually go away.
+      KillSignal=SIGTERM
+      TimeoutStopSec=120
+      ExecStart=/usr/local/bin/chief start %i --headless
+      StandardOutput=journal
+      StandardError=journal
+
+      [Install]
+      WantedBy=multi-user.target
+
+users:
+  - name: chief
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    # The key the instance was created with reaches root; copy it so `chief`
+    # is reachable directly and nothing has to run as root to get work done.
+    ssh_authorized_keys: []
+
+runcmd:
+  # Give the chief user the same SSH keys the instance was created with.
+  - mkdir -p /home/chief/.ssh
+  - cp /root/.ssh/authorized_keys /home/chief/.ssh/authorized_keys
+  - chown -R chief:chief /home/chief/.ssh
+  - chmod 700 /home/chief/.ssh
+  - chmod 600 /home/chief/.ssh/authorized_keys
+
+  # Node, for the agent CLI. From NodeSource rather than apt, whose Node is old
+  # enough that Claude Code refuses to start on it.
+  - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  - apt-get install -y nodejs
+
+  # Composer.
+  - curl -fsSL https://getcomposer.org/installer -o /tmp/composer-setup.php
+  - php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
+  - rm -f /tmp/composer-setup.php
+
+  # The GitHub CLI, for the pull request a finished run opens.
+  - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg
+  - chmod 644 /usr/share/keyrings/githubcli-archive-keyring.gpg
+  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
+  - apt-get update
+  - apt-get install -y gh
+
+  # The agent CLI. chief itself is not installed here: `chief-box` cross-compiles
+  # the working copy it lives in and uploads that, so a run always uses the chief
+  # you have rather than the last one that was released.
+  - npm install -g @anthropic-ai/claude-code
+
+  # A database superuser named after the account that will use it, so a project's
+  # setup script can create and drop its own databases without a password.
+  - su - postgres -c "psql -c \"CREATE ROLE chief WITH LOGIN SUPERUSER PASSWORD 'chief'\"" || true
+  - su - postgres -c "createdb -O chief chief" || true
+
+  - systemctl daemon-reload
+  # The marker chief-box waits for. Written last, so its existence means every
+  # step above finished.
+  - touch /var/lib/cloud/chief-ready
+
+final_message: "chief box ready after $UPTIME seconds"

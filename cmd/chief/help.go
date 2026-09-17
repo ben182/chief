@@ -11,6 +11,7 @@ Usage:
 
 Commands:
   start [name]              Launch the TUI and begin the loop immediately
+                            (add --headless to run without a TUI, e.g. over SSH)
   new [name] [context]      Create a new PRD interactively (prompts for the Claude model unless --model is set)
   edit [name] [options]     Edit an existing PRD interactively (prompts for the Claude model unless --model is set)
   followup [name]           Convert a PRD's follow-up inbox (todos.md) into new user stories
@@ -27,6 +28,12 @@ Global Options:
   --max-iterations N, -n N  Set maximum iterations (default: dynamic)
   --no-retry                Disable auto-retry on agent crashes
   --verbose                 Show raw agent output in log
+  --headless                Run without the TUI, logging to stdout. For a machine
+                            nobody is sitting at: survives a dropped SSH session
+                            under nohup/systemd, and exits 0 only when every story
+                            is resolved. Never asks a question
+  --worktree                With --headless, run in the PRD's own git worktree
+                            (branch chief/<name>) instead of the current checkout
   --help, -h                Show this help message
   --version, -v             Show version number
 
@@ -44,6 +51,10 @@ Examples:
   chief --max-iterations=5 auth
                             Launch auth PRD with 5 max iterations
   chief --verbose           Launch with raw agent output visible
+  chief start auth --headless
+                            Run the auth PRD to completion with no TUI
+  chief start auth --headless --worktree > run.log 2>&1
+                            The same, in its own worktree, logging to a file
   chief --agent codex       Use Codex CLI instead of Claude
   chief --agent cursor      Use Cursor CLI as agent
   chief --model my-local-model

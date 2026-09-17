@@ -178,20 +178,9 @@ func NewAppWithOptions(prdPath string, maxIter int, provider loop.Provider) (*Ap
 		return nil, err
 	}
 
-	// Calculate dynamic default if maxIter <= 0. Each story may be attempted up
-	// to DefaultMaxAttemptsPerStory times before being parked, so the global cap
-	// is only a runaway backstop and must sit above that per-story budget.
+	// Calculate the dynamic default if maxIter <= 0.
 	if maxIter <= 0 {
-		remaining := 0
-		for _, story := range p.UserStories {
-			if !story.Passes && !story.NeedsReview {
-				remaining++
-			}
-		}
-		maxIter = remaining*loop.DefaultMaxAttemptsPerStory + 5
-		if maxIter < 5 {
-			maxIter = 5
-		}
+		maxIter = loop.DefaultMaxIterations(p)
 	}
 
 	// Extract PRD name from path (directory name or filename without extension)
@@ -1419,7 +1408,7 @@ func (a App) finishWorktreeSetup() (tea.Model, tea.Cmd) {
 	// direct-path layouts) is what the run is registered with; where it works
 	// from is the manager's answer, below.
 	homePath := a.homePRDPath(prdName)
-	if err := seedWorktreePRD(a.baseDir, homePath, worktreePath, a.pendingWorktreeReused); err != nil {
+	if err := prd.SeedWorktree(a.baseDir, homePath, worktreePath, a.pendingWorktreeReused); err != nil {
 		a.worktreeSpinner.SetError(err.Error())
 		return a, nil
 	}
@@ -1448,36 +1437,6 @@ func (a App) finishWorktreeSetup() (tea.Model, tea.Cmd) {
 	// The loop start takes it from here, including pointing the dashboard at the
 	// copy of the PRD this run writes to.
 	return a.doStartLoop(prdName, prdDir)
-}
-
-// seedWorktreePRD gives the worktree its own copy of the PRD's working files.
-// This is what keeps a worktree run out of the project's working tree:
-// everything downstream — the agent's prompt, the in-progress status,
-// progress.md, the run log, the per-story commit — works from that copy, so the
-// project's stays as the user left it and the branch carries the state the run
-// records.
-//
-// A reused worktree keeps the copy it has: it is where an earlier run recorded
-// its progress, and the project's copy is the one that fell behind. A worktree
-// that was just created only holds whatever its branch happens to carry — in a
-// project that tracks .chief/ that is the PRD as it was last committed, missing
-// every edit since — so there the project's copy is written over it. A PRD
-// living outside the project has no counterpart in a worktree and is used where
-// it is.
-func seedWorktreePRD(baseDir, homePRDPath, worktreePath string, reused bool) error {
-	mapped, ok := prd.PathIn(baseDir, homePRDPath, worktreePath)
-	if !ok {
-		return nil
-	}
-	if reused {
-		if _, err := os.Stat(mapped); err == nil {
-			return nil
-		}
-	}
-	if err := prd.Mirror(filepath.Dir(homePRDPath), filepath.Dir(mapped)); err != nil {
-		return fmt.Errorf("failed to copy the PRD into the worktree: %w", err)
-	}
-	return nil
 }
 
 // followPRDFile re-points the dashboard at prdPath: the PRD it shows, both

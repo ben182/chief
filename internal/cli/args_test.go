@@ -177,3 +177,57 @@ func mustMkPRD(t *testing.T, base, name string) {
 		t.Fatal(err)
 	}
 }
+
+func TestParseArgs_HeadlessAndWorktree(t *testing.T) {
+	tests := []struct {
+		name            string
+		args            []string
+		headless, wtree bool
+		prdPath         string
+	}{
+		{"neither by default", []string{"auth"}, false, false, "Y"},
+		{"headless alone", []string{"--headless", "auth"}, true, false, "Y"},
+		{"headless in a worktree", []string{"auth", "--headless", "--worktree"}, true, true, "Y"},
+		{"worktree without headless", []string{"--worktree"}, false, true, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts, err := ParseArgs(tt.args)
+			if err != nil {
+				t.Fatalf("ParseArgs(%v): %v", tt.args, err)
+			}
+			if opts.Headless != tt.headless {
+				t.Errorf("Headless = %v, want %v", opts.Headless, tt.headless)
+			}
+			if opts.Worktree != tt.wtree {
+				t.Errorf("Worktree = %v, want %v", opts.Worktree, tt.wtree)
+			}
+			// The flags must not be mistaken for the positional PRD argument.
+			if tt.prdPath == "" && opts.PRDPath != "" {
+				t.Errorf("PRDPath = %q, want it unset", opts.PRDPath)
+			}
+			if tt.prdPath == "Y" && opts.PRDPath == "" {
+				t.Error("PRDPath is unset, want the named PRD")
+			}
+		})
+	}
+}
+
+func TestParseArgs_HeadlessCombinesWithTheOtherRunFlags(t *testing.T) {
+	opts, err := ParseArgs([]string{"--headless", "--worktree", "-n", "12", "--verbose", "--no-retry", "--agent", "codex", "billing"})
+	if err != nil {
+		t.Fatalf("ParseArgs: %v", err)
+	}
+	if !opts.Headless || !opts.Worktree || !opts.Verbose || !opts.NoRetry {
+		t.Errorf("flags lost: %+v", opts)
+	}
+	if opts.MaxIterations != 12 {
+		t.Errorf("MaxIterations = %d, want 12", opts.MaxIterations)
+	}
+	if opts.Agent != "codex" {
+		t.Errorf("Agent = %q, want codex", opts.Agent)
+	}
+	if opts.PRDPath == "" {
+		t.Error("PRDPath is unset, want the named PRD")
+	}
+}

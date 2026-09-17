@@ -1,6 +1,7 @@
 package prd
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -134,4 +135,33 @@ func copyFile(src, dst string) (err error) {
 		return err
 	}
 	return os.Rename(tmpName, dst)
+}
+
+// SeedWorktree gives a worktree its own copy of a PRD's working files, and is
+// what keeps a worktree run out of the project's working tree: everything
+// downstream — the agent's prompt, the in-progress status, progress.md, the run
+// log, the per-story commit — works from that copy, so the project's stays as
+// the user left it and the branch carries the state the run records.
+//
+// A reused worktree keeps the copy it has: it is where an earlier run recorded
+// its progress, and the project's copy is the one that fell behind. A worktree
+// that was just created only holds whatever its branch happens to carry — in a
+// project that tracks .chief/ that is the PRD as it was last committed, missing
+// every edit since — so there the project's copy is written over it. A PRD
+// living outside the project has no counterpart in a worktree and is used where
+// it is.
+func SeedWorktree(baseDir, homePRDPath, worktreePath string, reused bool) error {
+	mapped, ok := PathIn(baseDir, homePRDPath, worktreePath)
+	if !ok {
+		return nil
+	}
+	if reused {
+		if _, err := os.Stat(mapped); err == nil {
+			return nil
+		}
+	}
+	if err := Mirror(filepath.Dir(homePRDPath), filepath.Dir(mapped)); err != nil {
+		return fmt.Errorf("failed to copy the PRD into the worktree: %w", err)
+	}
+	return nil
 }

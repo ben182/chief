@@ -1,0 +1,375 @@
+#!/usr/bin/env bash
+#
+# chief-box — run a chief PRD on a throwaway Hetzner instance.
+#
+# The problem it solves: a chief run takes hours, and for those hours it owns
+# the machine it runs on — the CPU, the rate limit, the laptop lid. Moving it to
+# a box you create for the run and destroy afterwards costs a few cents and
+# gives the afternoon back.
+#
+# What it does, in order: creates the instance from deploy/cloud-init.yaml,
+# uploads the chief binary built from this working copy, clones the project,
+# copies over the files git does not carry (the PRD itself, .env), and starts
+# the run as a systemd unit so it survives every dropped connection after that.
+#
+#   chief-box up <prd>       create the box and start the run, then return
+#   chief-box logs           follow the running box's log
+#   chief-box run <prd>      up + logs, blocking until the run ends
+#   chief-box status         what the box is doing
+#   chief-box ssh [cmd]      a shell on the box
+#   chief-box down           destroy the box
+#
+# Run it from inside the project you want built. State about the current box is
+# kept in that project's .chief/box, which git already ignores.
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Configuration. Every value can be overridden from the environment, and the
+# defaults are the ones that suit a run rather than a server: German region,
+# enough cores to run a test suite, an image that matches deploy/cloud-init.yaml.
+# ---------------------------------------------------------------------------
+
+BOX_TYPE="${CHIEF_BOX_TYPE:-cpx31}"       # 4 vCPU, 8 GB — about 2.7 cents/hour
+BOX_IMAGE="${CHIEF_BOX_IMAGE:-ubuntu-24.04}"
+BOX_LOCATION="${CHIEF_BOX_LOCATION:-fsn1}"
+BOX_SSH_KEY="${CHIEF_BOX_SSH_KEY:-}"      # name of a key in your Hetzner project
+# Files git does not carry but a run needs. The PRD is always included; this is
+# for the rest — the .env a project cannot boot without, a local config.
+BOX_EXTRA_FILES="${CHIEF_BOX_EXTRA_FILES:-.env}"
+# Where the secrets live. Sourced, so it is a shell file of exports.
+BOX_SECRETS="${CHIEF_BOX_SECRETS:-$HOME/.config/chief-box/env}"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLOUD_INIT="$SCRIPT_DIR/cloud-init.yaml"
+# The chief checkout this script lives in, which is what gets built and uploaded.
+CHIEF_SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+REMOTE_USER="chief"
+REMOTE_PROJECT="/home/chief/project"
+
+# ---------------------------------------------------------------------------
+# Output
+# ---------------------------------------------------------------------------
+
+if [ -t 2 ]; then
+  BOLD=$'\033[1m'; DIM=$'\033[2m'; RED=$'\033[31m'; GREEN=$'\033[32m'; RESET=$'\033[0m'
+else
+  BOLD=""; DIM=""; RED=""; GREEN=""; RESET=""
+fi
+
+say()  { printf '%s==>%s %s\n' "$BOLD" "$RESET" "$*" >&2; }
+note() { printf '%s    %s%s\n' "$DIM" "$*" "$RESET" >&2; }
+ok()   { printf '%s    %s%s\n' "$GREEN" "$*" "$RESET" >&2; }
+die()  { printf '%serror:%s %s\n' "$RED" "$RESET" "$*" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# Project and box state
+# ---------------------------------------------------------------------------
+
+project_root() {
+  git rev-parse --show-toplevel 2>/dev/null || die "not inside a git repository"
+}
+
+state_file() { echo "$(project_root)/.chief/box/current"; }
+
+# save_box records the instance this project is currently using.
+#
+# It lives under .chief, which chief's own setup adds to .gitignore — but not
+# every project takes that offer, and a machine's address has no business in a
+# commit either way, so the directory carries its own .gitignore.
+save_box() {
+  local dir; dir="$(dirname "$(state_file)")"
+  mkdir -p "$dir"
+  printf '# a throwaway machine'"'"'s address is nobody'"'"'s business but this checkout'"'"'s\n*\n' \
+    > "$dir/.gitignore"
+  printf 'BOX_NAME=%s\nBOX_IP=%s\nBOX_PRD=%s\n' "$1" "$2" "$3" > "$(state_file)"
+  chmod 600 "$(state_file)"
+}
+
+load_box() {
+  local f; f="$(state_file)"
+  [ -f "$f" ] || die "no box for this project — start one with: chief-box up <prd>"
+  # shellcheck disable=SC1090
+  . "$f"
+  [ -n "${BOX_IP:-}" ] || die "the recorded box has no address; run: chief-box down"
+}
+
+forget_box() { rm -f "$(state_file)"; }
+
+# ---------------------------------------------------------------------------
+# Preflight
+# ---------------------------------------------------------------------------
+
+need() { command -v "$1" >/dev/null 2>&1 || die "$2"; }
+
+preflight() {
+  need hcloud "the Hetzner CLI is missing. Install it with: brew install hcloud"
+  need go "Go is missing — it builds the chief binary the box runs. Install it with: brew install go"
+  need rsync "rsync is missing"
+  need ssh "ssh is missing"
+
+  hcloud context active >/dev/null 2>&1 || \
+    die "no active hcloud context. Create one with: hcloud context create chief"
+
+  [ -f "$CLOUD_INIT" ] || die "cloud-init file not found at $CLOUD_INIT"
+
+  [ -f "$BOX_SECRETS" ] || die "no secrets file at $BOX_SECRETS. See deploy/README.md"
+  # shellcheck disable=SC1090
+  . "$BOX_SECRETS"
+  [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || \
+    die "CLAUDE_CODE_OAUTH_TOKEN is not set in $BOX_SECRETS. Create one with: claude setup-token"
+  [ -n "${GH_TOKEN:-}" ] || \
+    die "GH_TOKEN is not set in $BOX_SECRETS — the box needs it to clone and to push"
+
+  if [ -z "$BOX_SSH_KEY" ]; then
+    # One key in the project is unambiguous; more than one needs to be named.
+    local keys count
+    keys="$(hcloud ssh-key list -o noheader -o columns=name)"
+    count="$(printf '%s\n' "$keys" | grep -c . || true)"
+    [ "$count" -eq 1 ] || die "set CHIEF_BOX_SSH_KEY to one of: $(echo "$keys" | tr '\n' ' ')"
+    BOX_SSH_KEY="$keys"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Remote helpers
+# ---------------------------------------------------------------------------
+
+# ssh_opts keeps a throwaway instance out of known_hosts: its address is reused
+# across boxes, and the mismatch on the next run would be an error rather than
+# the warning it deserves.
+ssh_opts=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)
+
+# The command is deliberately expanded on this side: the callers below build it
+# from local values (the project's git identity, the PRD name) that the box has
+# no way of knowing.
+# shellcheck disable=SC2029
+rsh() { ssh "${ssh_opts[@]}" "$REMOTE_USER@$BOX_IP" "$@"; }
+
+# wait_for_ssh returns once the instance accepts a connection.
+wait_for_ssh() {
+  local deadline=$((SECONDS + 180))
+  until ssh "${ssh_opts[@]}" -o ConnectTimeout=5 "root@$BOX_IP" true 2>/dev/null; do
+    [ $SECONDS -lt $deadline ] || die "the box never accepted an SSH connection"
+    sleep 3
+  done
+}
+
+# wait_for_provisioning returns once cloud-init has written its marker. It is the
+# slow part — apt, PHP, Node — and the one worth showing progress for.
+wait_for_provisioning() {
+  local deadline=$((SECONDS + 900))
+  until ssh "${ssh_opts[@]}" "root@$BOX_IP" test -f /var/lib/cloud/chief-ready 2>/dev/null; do
+    if [ $SECONDS -ge $deadline ]; then
+      note "provisioning log:"
+      ssh "${ssh_opts[@]}" "root@$BOX_IP" tail -30 /var/log/cloud-init-output.log >&2 || true
+      die "the box did not finish provisioning within 15 minutes"
+    fi
+    sleep 5
+  done
+}
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+cmd_up() {
+  local prd="${1:-}"
+  [ -n "$prd" ] || die "usage: chief-box up <prd>"
+
+  local root; root="$(project_root)"
+  local prd_dir="$root/.chief/prds/$prd"
+  [ -f "$prd_dir/prd.md" ] || die "no PRD at .chief/prds/$prd/prd.md — create one with: chief new $prd"
+
+  preflight
+
+  local remote_url; remote_url="$(git -C "$root" remote get-url origin 2>/dev/null)" ||
+    die "this project has no 'origin' remote for the box to clone"
+  # Rewrite to an HTTPS URL the box can authenticate with GH_TOKEN, since it has
+  # no SSH key for GitHub and should not be given one.
+  local clone_url
+  case "$remote_url" in
+    git@github.com:*) clone_url="https://github.com/${remote_url#git@github.com:}" ;;
+    *)                clone_url="$remote_url" ;;
+  esac
+  clone_url="${clone_url%.git}.git"
+
+  if [ -f "$(state_file)" ]; then
+    # shellcheck disable=SC1090
+    . "$(state_file)"
+    die "this project already has a box ($BOX_NAME at $BOX_IP). Destroy it first: chief-box down"
+  fi
+
+  # Build the binary before creating anything: a compile error should not cost
+  # an instance.
+  say "Building chief for linux/amd64"
+  local bin version
+  bin="$(mktemp -t chief-linux)"
+  trap 'rm -f "$bin"' EXIT
+  # The same version stamp the Makefile applies, so `chief --version` on the box
+  # names the commit the run was built from rather than "dev".
+  version="$(git -C "$CHIEF_SRC" describe --tags --always --dirty 2>/dev/null || echo dev)"
+  # -s -w drops the symbol table and DWARF: nobody debugs this binary on the box,
+  # and it halves what has to go over the wire.
+  (cd "$CHIEF_SRC" && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -ldflags "-s -w -X main.Version=$version" -o "$bin" ./cmd/chief) ||
+    die "the build failed — fix it before spending money on a box"
+  ok "$version, $(du -h "$bin" | cut -f1) from $CHIEF_SRC"
+
+  local name
+  name="chief-$(basename "$root")-$prd-$(date +%H%M%S)"
+  name="$(echo "$name" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | cut -c1-60)"
+
+  say "Creating $name ($BOX_TYPE in $BOX_LOCATION)"
+  hcloud server create \
+    --name "$name" \
+    --type "$BOX_TYPE" \
+    --image "$BOX_IMAGE" \
+    --location "$BOX_LOCATION" \
+    --ssh-key "$BOX_SSH_KEY" \
+    --user-data-from-file "$CLOUD_INIT" >/dev/null ||
+    die "hcloud could not create the instance"
+
+  BOX_IP="$(hcloud server ip "$name")"
+  save_box "$name" "$BOX_IP" "$prd"
+  ok "$BOX_IP"
+
+  say "Waiting for the box to come up"
+  wait_for_ssh
+  say "Waiting for provisioning (PHP, Node, Postgres, Claude Code — a few minutes)"
+  wait_for_provisioning
+  ok "provisioned"
+
+  say "Installing chief and the credentials"
+  scp "${ssh_opts[@]}" -q "$bin" "root@$BOX_IP:/usr/local/bin/chief"
+  ssh "${ssh_opts[@]}" "root@$BOX_IP" chmod 0755 /usr/local/bin/chief
+  # The tokens go over stdin into a file that is already 0600, so they never
+  # appear in a command line any other process could read.
+  rsh 'cat > ~/.chief-env && chmod 600 ~/.chief-env' <<EOF
+CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN
+GH_TOKEN=$GH_TOKEN
+EOF
+  rsh "gh auth setup-git 2>/dev/null || true" <<<""
+  ok "chief $(rsh /usr/local/bin/chief --version)"
+
+  say "Cloning the project"
+  local branch; branch="$(git -C "$root" rev-parse --abbrev-ref HEAD)"
+  rsh "set -e
+    . ~/.chief-env
+    git config --global credential.helper '!f() { echo username=x-access-token; echo password=\$GH_TOKEN; }; f'
+    git config --global user.name  '$(git -C "$root" config user.name)'
+    git config --global user.email '$(git -C "$root" config user.email)'
+    rm -rf $REMOTE_PROJECT
+    git clone --quiet '$clone_url' $REMOTE_PROJECT
+    cd $REMOTE_PROJECT && git checkout --quiet '$branch' 2>/dev/null || true"
+  ok "$clone_url on $branch"
+
+  # The PRD lives under .chief, which is gitignored in most projects, so the
+  # clone does not have it. It is the one thing the run cannot start without.
+  say "Copying the PRD and the untracked files"
+  rsync -az -e "ssh ${ssh_opts[*]}" --exclude '*.log' \
+    "$prd_dir/" "$REMOTE_USER@$BOX_IP:$REMOTE_PROJECT/.chief/prds/$prd/"
+  if [ -f "$root/.chief/config.yaml" ]; then
+    rsync -az -e "ssh ${ssh_opts[*]}" \
+      "$root/.chief/config.yaml" "$REMOTE_USER@$BOX_IP:$REMOTE_PROJECT/.chief/config.yaml"
+  fi
+  for f in $BOX_EXTRA_FILES; do
+    if [ -e "$root/$f" ]; then
+      rsync -az -e "ssh ${ssh_opts[*]}" "$root/$f" "$REMOTE_USER@$BOX_IP:$REMOTE_PROJECT/$f"
+      note "$f"
+    fi
+  done
+  ok "PRD $prd"
+
+  say "Starting the run"
+  rsh "sudo systemctl start --no-block chief-run@$prd"
+  ok "started"
+
+  cat >&2 <<EOF
+
+  ${BOLD}The run is going.${RESET} It survives this terminal, your laptop closing,
+  and the connection dropping.
+
+    chief-box logs     follow along
+    chief-box status   is it still running
+    chief-box down     destroy the box (do this when you are done — it bills by the hour)
+
+EOF
+}
+
+cmd_logs() {
+  load_box
+  rsh "journalctl -u chief-run@$BOX_PRD -f --no-hostname -o cat"
+}
+
+cmd_status() {
+  load_box
+  printf '%s at %s, PRD %s\n' "$BOX_NAME" "$BOX_IP" "$BOX_PRD" >&2
+  rsh "systemctl is-active chief-run@$BOX_PRD; systemctl show chief-run@$BOX_PRD -p Result --value" || true
+  echo >&2
+  rsh "journalctl -u chief-run@$BOX_PRD --no-hostname -o cat -n 15" || true
+}
+
+cmd_ssh() {
+  load_box
+  if [ $# -gt 0 ]; then
+    rsh "cd $REMOTE_PROJECT && $*"
+  else
+    ssh "${ssh_opts[@]}" -t "$REMOTE_USER@$BOX_IP" "cd $REMOTE_PROJECT; exec bash -l"
+  fi
+}
+
+# cmd_run is up followed by logs: the blocking form, for when you do want to
+# watch. Ctrl-C stops watching, not the run — the box keeps going.
+cmd_run() {
+  cmd_up "$@"
+  local prd="$1"
+  load_box
+  say "Following the log. Ctrl-C detaches; the run keeps going."
+  rsh "journalctl -u chief-run@$prd -f --no-hostname -o cat" || true
+  echo >&2
+  cmd_status
+}
+
+cmd_down() {
+  load_box
+  # Committed work that was never pushed dies with the box, and that is worth a
+  # question even when the answer is usually yes.
+  local unpushed
+  unpushed="$(rsh "cd $REMOTE_PROJECT 2>/dev/null && git log --oneline @{upstream}..HEAD 2>/dev/null | wc -l" 2>/dev/null || echo 0)"
+  if [ "${unpushed//[[:space:]]/}" != "0" ]; then
+    printf '%swarning:%s the box has %s commit(s) that were never pushed.\n' \
+      "$RED" "$RESET" "${unpushed//[[:space:]]/}" >&2
+    printf '  Look with: chief-box ssh git log\n' >&2
+    read -r -p "  Destroy it anyway? [y/N] " answer
+    case "$answer" in [yY]*) ;; *) die "kept $BOX_NAME" ;; esac
+  fi
+
+  say "Destroying $BOX_NAME"
+  hcloud server delete "$BOX_NAME" >/dev/null
+  forget_box
+  ok "gone"
+}
+
+usage() {
+  sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  exit "${1:-0}"
+}
+
+main() {
+  local cmd="${1:-}"
+  [ $# -gt 0 ] && shift || true
+  case "$cmd" in
+    up)     cmd_up "$@" ;;
+    run)    cmd_run "$@" ;;
+    logs)   cmd_logs "$@" ;;
+    status) cmd_status "$@" ;;
+    ssh)    cmd_ssh "$@" ;;
+    down)   cmd_down "$@" ;;
+    ""|-h|--help|help) usage 0 ;;
+    *)      printf 'unknown command: %s\n\n' "$cmd" >&2; usage 1 ;;
+  esac
+}
+
+main "$@"

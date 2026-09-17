@@ -1,16 +1,20 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/ben182/chief/internal/agent"
 	"github.com/ben182/chief/internal/cli"
 	"github.com/ben182/chief/internal/cmd"
 	"github.com/ben182/chief/internal/config"
 	"github.com/ben182/chief/internal/git"
+	"github.com/ben182/chief/internal/headless"
 	"github.com/ben182/chief/internal/loop"
 	"github.com/ben182/chief/internal/prd"
 	"github.com/ben182/chief/internal/tui"
@@ -61,6 +65,10 @@ func main() {
 				return
 			}
 			opts.AutoStart = true
+			if opts.Headless {
+				runHeadless(opts)
+				return
+			}
 			runTUIWithOptions(opts)
 			return
 		}
@@ -70,6 +78,14 @@ func main() {
 	opts := parseTUIOptions()
 	if opts == nil {
 		// Already handled (--help or --version)
+		return
+	}
+
+	// A headless run is a run, not a session: there is no screen to open and
+	// nothing to press, so the flag starts the loop by itself whether or not it
+	// came in through `chief start`.
+	if opts.Headless {
+		runHeadless(opts)
 		return
 	}
 
@@ -446,4 +462,67 @@ func handlePostExit(model tea.Model, opts *cli.Options, provider loop.Provider) 
 	}
 	opts.PRDPath = prd.PRDPath("", finalApp.PostExitPRD)
 	return true
+}
+
+// runHeadless runs a PRD to completion without the TUI and exits with a status
+// that says how it went: 0 when every story is resolved, 1 when the run ended
+// with work left.
+//
+// It is the entry point for a run on a machine nobody is sitting at — a server
+// reached over SSH, a throwaway cloud instance — where the TUI has nothing to
+// draw into and nobody to talk to. Ctrl-C and SIGTERM stop the agent and let
+// the run report what it got done, so a shutdown mid-story ends with a log that
+// says where it stopped instead of a killed process and silence.
+func runHeadless(opts *cli.Options) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		fatal(err)
+	}
+	cfg, err := config.Load(cwd)
+	if err != nil {
+		fatalf("failed to load .chief/config.yaml: %v", err)
+	}
+
+	provider := resolveProvider(opts.Agent, opts.AgentPath, opts.Model)
+
+	// A headless run never invents a PRD: the interactive fallbacks end in a
+	// first-time setup interview, which is the one thing this mode cannot do.
+	prdPath := opts.PRDPath
+	if prdPath == "" {
+		if name := cmd.PRDNameFromBranch(""); name != "" {
+			prdPath = prd.PRDPath("", name)
+		} else if available := cli.FindAvailablePRD(""); available != "" {
+			prdPath = available
+		} else {
+			fatalf("no PRD to run. Create one with 'chief new <name>', then run 'chief start <name> --headless'")
+		}
+	}
+	if !fileExists(prdPath) {
+		fatalf("no PRD at %s", prdPath)
+	}
+
+	maybeMigrate(filepath.Dir(prdPath))
+
+	// Signals stop the run rather than the process: the agent is killed, the
+	// commits it made stay, and Run returns with what it managed.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	res, err := headless.Run(ctx, headless.Options{
+		PRDPath:       prdPath,
+		BaseDir:       cwd,
+		Provider:      provider,
+		Config:        cfg,
+		MaxIterations: opts.MaxIterations,
+		Worktree:      opts.Worktree,
+		NoRetry:       opts.NoRetry,
+		Verbose:       opts.Verbose,
+		Out:           os.Stdout,
+	})
+	if err != nil {
+		fatal(err)
+	}
+	if !res.Completed {
+		os.Exit(1)
+	}
 }

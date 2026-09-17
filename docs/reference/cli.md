@@ -47,6 +47,8 @@ chief [name]
 | `--max-iterations <n>`, `-n` | Maximum loop iterations | Dynamic |
 | `--no-retry` | Disable auto-retry on agent crashes — and waiting out a rate limit window | `false` |
 | `--verbose` | Show raw agent output in log | `false` |
+| `--headless` | Run without the TUI, logging to stdout — see [below](#headless-runs) | `false` |
+| `--worktree` | With `--headless`, run in the PRD's own worktree | `false` |
 
 **Examples:**
 
@@ -109,6 +111,57 @@ chief start auth-system -n 50
 
 ::: info Branch safety
 If you're on a protected branch (e.g. `main`) or another PRD is already running in the same directory, Chief still shows the branch/worktree confirmation before starting.
+:::
+
+---
+
+### Headless runs
+
+`--headless` runs a PRD to completion with no TUI at all. It exists for the
+machine nobody is sitting at — a server reached over SSH, a cloud instance
+created for one run — where the alternate screen has nothing to draw into and
+nobody to ask.
+
+```bash
+chief start auth-system --headless
+```
+
+What changes:
+
+- **Output is a log, not a screen.** One timestamped line per thing worth
+  knowing: which story started, how it ended, reviews, retries, rate limit
+  pauses, what the run cost. `--verbose` adds the agent's narration and every
+  tool call — useful when debugging a run, overwhelming over five hours.
+- **Nothing is ever asked.** The branch dialog does not appear, so the decision
+  it makes is made by rule instead: `--worktree` runs in the PRD's own worktree
+  (branch `chief/<name>`, with `worktree.setup` run inside it), and without it
+  the run works in the current checkout. Starting from a protected branch is not
+  an error — Chief cuts and checks out `chief/<name>` first, because an
+  unattended agent committing onto `main` is the thing that must not happen.
+- **It survives the terminal.** Under `nohup`, `systemd` or `tmux`, a dropped
+  SSH session does not touch the run.
+- **SIGINT and SIGTERM stop it cleanly.** The agent is killed, its commits stay
+  on the branch, and the post-completion actions are skipped — an interrupted
+  run has not finished, so nothing is pushed on its behalf.
+- **The exit code is the verdict.** `0` when every story is resolved, `1`
+  otherwise, which is what a script wrapping the run needs.
+
+`onComplete` works exactly as it does interactively: a finished run writes its
+summary, pushes, and opens the pull request if the project asks for it. Each is
+best-effort and reported — a push that fails for want of credentials is a line
+in the log, not a failed run.
+
+```bash
+# On a server, detached, logging to a file
+nohup chief start auth-system --headless --worktree > run.log 2>&1 &
+
+# In CI, where the exit code decides
+chief start auth-system --headless || echo "stories left over"
+```
+
+::: tip Running it on a throwaway cloud box
+`deploy/` in the Chief repository has a cloud-init file and a `chief-box` script
+that create a Hetzner instance for one run and tear it down afterwards.
 :::
 
 ---

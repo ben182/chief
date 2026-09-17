@@ -1444,3 +1444,31 @@ func (l *Loop) WatchdogTimeout() time.Duration {
 	defer l.mu.Unlock()
 	return l.watchdogTimeout
 }
+
+// DefaultMaxIterations sizes a run's iteration budget from the work it has
+// left: every story that is neither passing nor parked gets the attempts the
+// loop is willing to give it, plus a small margin for the iterations that are
+// not a story attempt at all.
+//
+// The cap is a runaway backstop, not a schedule — the loop ends when the PRD is
+// resolved, whatever this says — so it has to sit comfortably above the
+// per-story budget. A cap below it would park stories the loop was still
+// willing to retry, which reads as "max iterations reached" and looks exactly
+// like an agent that gave up.
+//
+// The floor of 5 covers the PRD with nothing left to do, where a budget of zero
+// would end the run before its first iteration.
+func DefaultMaxIterations(p *prd.PRD) int {
+	remaining := 0
+	if p != nil {
+		for _, story := range p.UserStories {
+			if !story.Passes && !story.NeedsReview {
+				remaining++
+			}
+		}
+	}
+	if n := remaining*DefaultMaxAttemptsPerStory + 5; n > 5 {
+		return n
+	}
+	return 5
+}

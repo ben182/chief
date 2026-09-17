@@ -114,3 +114,122 @@ func TestMirrorMissingSourceIsNoError(t *testing.T) {
 		t.Errorf("Mirror() error = %v, want nil for a missing source", err)
 	}
 }
+
+func TestSeedWorktreeGivesAFreshWorktreeTheProjectsCopy(t *testing.T) {
+	base := t.TempDir()
+	wt := t.TempDir()
+
+	prdDir := filepath.Join(base, ".chief", "prds", "auth")
+	if err := os.MkdirAll(prdDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	homePRD := filepath.Join(prdDir, "prd.md")
+	if err := os.WriteFile(homePRD, []byte("the project's copy"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// A worktree that already carries an older copy — what a project tracking
+	// .chief gets from the branch, missing every edit since it was committed.
+	wtPRDDir := filepath.Join(wt, ".chief", "prds", "auth")
+	if err := os.MkdirAll(wtPRDDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wtPRD := filepath.Join(wtPRDDir, "prd.md")
+	if err := os.WriteFile(wtPRD, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SeedWorktree(base, homePRD, wt, false); err != nil {
+		t.Fatalf("SeedWorktree: %v", err)
+	}
+	got, err := os.ReadFile(wtPRD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "the project's copy" {
+		t.Errorf("a fresh worktree kept %q, want the project's copy", got)
+	}
+}
+
+func TestSeedWorktreeLeavesAReusedWorktreesOwnProgressAlone(t *testing.T) {
+	base := t.TempDir()
+	wt := t.TempDir()
+
+	prdDir := filepath.Join(base, ".chief", "prds", "auth")
+	if err := os.MkdirAll(prdDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	homePRD := filepath.Join(prdDir, "prd.md")
+	if err := os.WriteFile(homePRD, []byte("the project's copy"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// A reused worktree's copy is where an earlier run recorded its progress.
+	// Overwriting it would throw that record away.
+	wtPRDDir := filepath.Join(wt, ".chief", "prds", "auth")
+	if err := os.MkdirAll(wtPRDDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wtPRD := filepath.Join(wtPRDDir, "prd.md")
+	if err := os.WriteFile(wtPRD, []byte("two stories already done"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SeedWorktree(base, homePRD, wt, true); err != nil {
+		t.Fatalf("SeedWorktree: %v", err)
+	}
+	got, err := os.ReadFile(wtPRD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "two stories already done" {
+		t.Errorf("a reused worktree's copy was overwritten with %q", got)
+	}
+}
+
+func TestSeedWorktreeSeedsAReusedWorktreeThatHasNoCopyYet(t *testing.T) {
+	base := t.TempDir()
+	wt := t.TempDir()
+
+	prdDir := filepath.Join(base, ".chief", "prds", "auth")
+	if err := os.MkdirAll(prdDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	homePRD := filepath.Join(prdDir, "prd.md")
+	if err := os.WriteFile(homePRD, []byte("the project's copy"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reused, but nothing to preserve: the run would otherwise start with no PRD.
+	if err := SeedWorktree(base, homePRD, wt, true); err != nil {
+		t.Fatalf("SeedWorktree: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(wt, ".chief", "prds", "auth", "prd.md"))
+	if err != nil {
+		t.Fatalf("the worktree was left without a PRD: %v", err)
+	}
+	if string(got) != "the project's copy" {
+		t.Errorf("got %q, want the project's copy", got)
+	}
+}
+
+func TestSeedWorktreeLeavesAPRDOutsideTheProjectWhereItIs(t *testing.T) {
+	base := t.TempDir()
+	wt := t.TempDir()
+	outside := t.TempDir()
+
+	homePRD := filepath.Join(outside, "prd.md")
+	if err := os.WriteFile(homePRD, []byte("kept elsewhere"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// A PRD that does not live under the project has no counterpart in a
+	// worktree, and inventing one would put the run's state somewhere nobody
+	// asked for.
+	if err := SeedWorktree(base, homePRD, wt, false); err != nil {
+		t.Fatalf("SeedWorktree: %v", err)
+	}
+	if entries, err := os.ReadDir(wt); err != nil || len(entries) != 0 {
+		t.Errorf("the worktree gained %v, want nothing", entries)
+	}
+}
