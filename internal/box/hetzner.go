@@ -237,6 +237,77 @@ func (h *hetzner) deleteServer(ctx context.Context, id int64) error {
 	return err
 }
 
+// availableTypes lists the server types that can actually be created in a
+// location right now.
+//
+// The price list is not the answer: a type is listed with a location's price
+// long after that location stopped offering it, and a superseded generation
+// disappears from what can be booked while still looking perfectly available.
+// The datacenters endpoint is the one that knows, and it answers in type IDs,
+// so this resolves them to names a person can pass back in.
+func (h *hetzner) availableTypes(ctx context.Context, location string) ([]string, error) {
+	var dcs struct {
+		Datacenters []struct {
+			Name     string `json:"name"`
+			Location struct {
+				Name string `json:"name"`
+			} `json:"location"`
+			ServerTypes struct {
+				Available []int64 `json:"available"`
+			} `json:"server_types"`
+		} `json:"datacenters"`
+	}
+	if err := h.do(ctx, http.MethodGet, "/datacenters", nil, &dcs); err != nil {
+		return nil, err
+	}
+
+	available := map[int64]bool{}
+	for _, dc := range dcs.Datacenters {
+		if dc.Location.Name == location {
+			for _, id := range dc.ServerTypes.Available {
+				available[id] = true
+			}
+		}
+	}
+	if len(available) == 0 {
+		return nil, fmt.Errorf("no datacenter in %s", location)
+	}
+
+	var types struct {
+		ServerTypes []struct {
+			ID           int64   `json:"id"`
+			Name         string  `json:"name"`
+			Cores        int     `json:"cores"`
+			Memory       float64 `json:"memory"`
+			Architecture string  `json:"architecture"`
+		} `json:"server_types"`
+	}
+	if err := h.do(ctx, http.MethodGet, "/server_types?per_page=50", nil, &types); err != nil {
+		return nil, err
+	}
+
+	var out []string
+	for _, t := range types.ServerTypes {
+		if available[t.ID] && t.Architecture == "x86" {
+			out = append(out, fmt.Sprintf("%s (%dC, %.0fGB)", t.Name, t.Cores, t.Memory))
+		}
+	}
+	return out, nil
+}
+
+// unsupportedCombination reports whether err is Hetzner refusing a server type
+// in a location that does not offer it — the one API failure with a specific,
+// actionable answer rather than a generic one.
+func unsupportedCombination(err error) bool {
+	var e apiError
+	if !asAPIError(err, &e) {
+		return false
+	}
+	return strings.Contains(e.Message, "unsupported location") ||
+		strings.Contains(e.Message, "unavailable") ||
+		e.Code == "resource_unavailable"
+}
+
 // findServer looks a server up by name, returning false when the project has
 // none by that name — which is what a box someone deleted in the console looks
 // like from here.

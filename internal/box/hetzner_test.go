@@ -3,6 +3,7 @@ package box
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -194,5 +195,62 @@ func TestFindServerReportsAbsence(t *testing.T) {
 	}
 	if found {
 		t.Error("found a server the project does not have")
+	}
+}
+
+func TestUnsupportedCombinationRecognisesARefusedTypeAndLocation(t *testing.T) {
+	// The one API failure with a specific answer: the price list still
+	// advertises superseded generations, so this reads like a bug in chief
+	// unless it is turned into "here is what that location does offer".
+	cases := []struct {
+		err  error
+		want bool
+	}{
+		{apiError{Status: 400, Code: "invalid_input", Message: "unsupported location for server type"}, true},
+		{apiError{Status: 400, Code: "resource_unavailable", Message: "no resources"}, true},
+		{apiError{Status: 400, Code: "invalid_input", Message: "server type unavailable in this location"}, true},
+		{apiError{Status: 401, Code: "unauthorized", Message: "bad token"}, false},
+		{errors.New("something else"), false},
+	}
+	for _, tc := range cases {
+		if got := unsupportedCombination(tc.err); got != tc.want {
+			t.Errorf("unsupportedCombination(%v) = %v, want %v", tc.err, got, tc.want)
+		}
+	}
+}
+
+func TestAvailableTypesResolvesWhatALocationActuallyOffers(t *testing.T) {
+	f := newFakeHetzner(t, map[string]any{
+		"GET /datacenters": `{"datacenters":[
+			{"name":"fsn1-dc14","location":{"name":"fsn1"},"server_types":{"available":[100,102]}},
+			{"name":"nbg1-dc3","location":{"name":"nbg1"},"server_types":{"available":[101]}}
+		]}`,
+		"GET /server_types": `{"server_types":[
+			{"id":100,"name":"cx33","cores":4,"memory":8,"architecture":"x86"},
+			{"id":101,"name":"cx23","cores":2,"memory":4,"architecture":"x86"},
+			{"id":102,"name":"cax31","cores":8,"memory":16,"architecture":"arm"}
+		]}`,
+	})
+
+	got, err := f.client("t").availableTypes(context.Background(), "fsn1")
+	if err != nil {
+		t.Fatalf("availableTypes: %v", err)
+	}
+	// Only what fsn1 offers, and only what the box's own x86 binary can run on.
+	if len(got) != 1 || !strings.HasPrefix(got[0], "cx33") {
+		t.Errorf("availableTypes = %v, want just cx33", got)
+	}
+	// The size has to be in there: the whole point is choosing a replacement.
+	if !strings.Contains(got[0], "4C") || !strings.Contains(got[0], "8GB") {
+		t.Errorf("availableTypes = %v, want the size alongside the name", got)
+	}
+}
+
+func TestAvailableTypesReportsALocationThatIsNotThere(t *testing.T) {
+	f := newFakeHetzner(t, map[string]any{
+		"GET /datacenters": `{"datacenters":[{"name":"fsn1-dc14","location":{"name":"fsn1"},"server_types":{"available":[100]}}]}`,
+	})
+	if _, err := f.client("t").availableTypes(context.Background(), "atlantis"); err == nil {
+		t.Error("expected an error for a location that does not exist")
 	}
 }

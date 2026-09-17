@@ -391,7 +391,7 @@ chief list
 
 Runs a PRD on a throwaway cloud instance, so a run that takes hours does not take
 your machine with it. The box is created for the run and destroyed when you are
-done; at current Hetzner prices a five-hour run costs about fourteen cents of
+done; at current Hetzner prices a five-hour run costs about five cents of
 computer, which is two orders of magnitude less than the tokens it spends.
 
 ```bash
@@ -410,13 +410,20 @@ chief box down          # destroy it — this is what stops the billing
 | `--worktree` | Run in the PRD's own worktree on the box | On when the project configures `worktree.setup` |
 | `--verbose` | Put the agent's narration in the box's log | `false` |
 | `--max-iterations <n>`, `-n` | Cap the run's iterations | Dynamic |
-| `--type <name>` | Hetzner server type | `cpx31` (4 vCPU, 8 GB) |
+| `--type <name>` | Hetzner server type | `cx33` (4 vCPU, 8 GB, ~1 ct/h) |
 | `--location <name>` | Hetzner location | `fsn1` |
 | `--image <name>` | Hetzner image | `ubuntu-26.04` |
 | `--file <path>` | An untracked file the run needs; repeatable | `.env` |
 | `--package <name>` | An apt package to install on the box; repeatable | — |
 
 `down` takes `--force` to skip the question about commits the box never pushed.
+
+::: tip A refused server type
+Hetzner's server types are generational: a line stops being bookable in a
+location when its successor arrives, while still appearing in the price list.
+If `up` fails with "unsupported location", the error lists the types that
+location actually offers — pick one with `--type`.
+:::
 
 #### What happens on `up`
 

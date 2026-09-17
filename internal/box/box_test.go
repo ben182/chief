@@ -330,7 +330,7 @@ func TestCommandsWithoutABoxSayHowToStartOne(t *testing.T) {
 	for name, err := range map[string]error{
 		"logs":   Logs(ctx, dir, os.Stderr),
 		"status": Status(ctx, dir, os.Stderr),
-		"ssh":    SSH(ctx, dir),
+		"ssh":    SSH(ctx, dir, "", io.Discard),
 		"down":   Down(ctx, DownOptions{BaseDir: dir}),
 	} {
 		if err == nil {
@@ -507,85 +507,67 @@ func TestBuildForLinuxProducesALinuxBinary(t *testing.T) {
 	}
 }
 
-func TestLoginRejectsAnEmptyToken(t *testing.T) {
-	isolateConfig(t)
-	// Reading from a pipe rather than a terminal: there is no echo to disable,
-	// and the read still has to work.
+// pipeWith returns a readable file carrying input, standing in for a terminal
+// that is not there.
+func pipeWith(t *testing.T, input string) *os.File {
+	t.Helper()
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 	go func() {
-		_, _ = w.WriteString("\n")
+		_, _ = w.WriteString(input)
 		_ = w.Close()
 	}()
+	t.Cleanup(func() { _ = r.Close() })
+	return r
+}
 
-	err = Login(context.Background(), r, io.Discard)
+// fakeDial builds the injected client factory pointing at a fake API.
+func fakeDial(f *fakeHetzner) func(string) *hetzner {
+	return func(token string) *hetzner {
+		h := newHetzner(token)
+		h.base = f.URL
+		return h
+	}
+}
+
+func TestSetUpHetznerRejectsAnEmptyToken(t *testing.T) {
+	isolateConfig(t)
+	f := newFakeHetzner(t, map[string]any{"GET /ssh_keys": `{"ssh_keys":[]}`})
+
+	err := setUpHetzner(context.Background(), pipeWith(t, "\n"), io.Discard, fakeDial(f))
 	if err == nil {
 		t.Fatal("expected an error for an empty token")
 	}
-	if !strings.Contains(err.Error(), "no token") {
-		t.Errorf("error = %q", err)
-	}
-	// Nothing must have been saved.
 	if got := readToken("hetzner-token"); got != "" {
 		t.Errorf("an empty token was saved as %q", got)
 	}
 }
 
-func TestLoginDoesNotSaveATokenTheAPIRejects(t *testing.T) {
+func TestSetUpHetznerDoesNotSaveATokenTheAPIRejects(t *testing.T) {
 	isolateConfig(t)
 	f := newFakeHetzner(t, map[string]any{"GET /ssh_keys": http.StatusUnauthorized})
 
 	// The check has to happen before the save, or a typo is discovered later as
 	// a confusing failure in the middle of creating a box.
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	go func() {
-		_, _ = w.WriteString("wrong-token\n")
-		_ = w.Close()
-	}()
-
-	err = loginWith(context.Background(), r, io.Discard, func(token string) *hetzner {
-		h := newHetzner(token)
-		h.base = f.URL
-		return h
-	})
+	err := setUpHetzner(context.Background(), pipeWith(t, "wrong-token\n"), io.Discard, fakeDial(f))
 	if err == nil {
 		t.Fatal("expected an error for a rejected token")
-	}
-	if !strings.Contains(err.Error(), "not saved") {
-		t.Errorf("error = %q, want it to say the token was not saved", err)
 	}
 	if got := readToken("hetzner-token"); got != "" {
 		t.Errorf("a rejected token was saved as %q", got)
 	}
 }
 
-func TestLoginSavesAGoodTokenPrivately(t *testing.T) {
+func TestSetUpHetznerSavesAGoodTokenPrivately(t *testing.T) {
 	isolateConfig(t)
 	f := newFakeHetzner(t, map[string]any{"GET /ssh_keys": `{"ssh_keys":[]}`})
 
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	go func() {
-		// Trailing whitespace is what a paste brings along; it must not become
-		// part of the token.
-		_, _ = w.WriteString("  good-token  \n")
-		_ = w.Close()
-	}()
-
-	err = loginWith(context.Background(), r, io.Discard, func(token string) *hetzner {
-		h := newHetzner(token)
-		h.base = f.URL
-		return h
-	})
-	if err != nil {
-		t.Fatalf("Login: %v", err)
+	// Trailing whitespace is what a paste brings along; it must not become part
+	// of the token.
+	if err := setUpHetzner(context.Background(), pipeWith(t, "  good-token  \n"), io.Discard, fakeDial(f)); err != nil {
+		t.Fatalf("setUpHetzner: %v", err)
 	}
 	if got := readToken("hetzner-token"); got != "good-token" {
 		t.Errorf("saved %q, want the trimmed token", got)
@@ -598,5 +580,167 @@ func TestLoginSavesAGoodTokenPrivately(t *testing.T) {
 	}
 	if perm := info.Mode().Perm(); perm != 0o600 {
 		t.Errorf("token file mode = %o, want 600", perm)
+	}
+}
+
+func TestSetUpHetznerDoesNotAskAgainForAWorkingToken(t *testing.T) {
+	isolateConfig(t)
+	f := newFakeHetzner(t, map[string]any{"GET /ssh_keys": `{"ssh_keys":[]}`})
+	if err := writeToken("hetzner-token", "already-good"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Nothing on the input: if this reaches the prompt at all, the read returns
+	// empty and the call fails — which is the assertion.
+	var out strings.Builder
+	if err := setUpHetzner(context.Background(), pipeWith(t, ""), &out, fakeDial(f)); err != nil {
+		t.Fatalf("a stored, working token was not accepted: %v", err)
+	}
+	if !strings.Contains(out.String(), "already stored") {
+		t.Errorf("output does not say the token was already there:\n%s", out.String())
+	}
+}
+
+func TestSetUpHetznerReplacesATokenThatStoppedWorking(t *testing.T) {
+	isolateConfig(t)
+	// A token revoked in the console looks identical to a good one until a box
+	// fails to appear, so the stored one is checked rather than trusted.
+	calls := 0
+	f := newFakeHetzner(t, map[string]any{})
+	dial := func(token string) *hetzner {
+		calls++
+		h := newHetzner(token)
+		if token == "revoked" {
+			h.base = f.URL // the fake answers 404 for unknown routes
+			return h
+		}
+		good := newFakeHetzner(t, map[string]any{"GET /ssh_keys": `{"ssh_keys":[]}`})
+		h.base = good.URL
+		return h
+	}
+	if err := writeToken("hetzner-token", "revoked"); err != nil {
+		t.Fatal(err)
+	}
+
+	var out strings.Builder
+	if err := setUpHetzner(context.Background(), pipeWith(t, "fresh-token\n"), &out, dial); err != nil {
+		t.Fatalf("setUpHetzner: %v", err)
+	}
+	if got := readToken("hetzner-token"); got != "fresh-token" {
+		t.Errorf("stored %q, want the replacement", got)
+	}
+	if !strings.Contains(out.String(), "rejected") {
+		t.Errorf("output does not explain why it asked again:\n%s", out.String())
+	}
+}
+
+func TestLoginReportsEveryMissingCredential(t *testing.T) {
+	isolateConfig(t)
+	f := newFakeHetzner(t, map[string]any{"GET /ssh_keys": `{"ssh_keys":[]}`})
+
+	var out strings.Builder
+	err := loginWith(context.Background(), pipeWith(t, "good-token\n"), &out, fakeDial(f))
+	// Hetzner succeeds; GitHub and Claude cannot, because the isolated PATH has
+	// neither gh nor claude on it.
+	if err == nil {
+		t.Fatal("expected an error while credentials are still missing")
+	}
+	text := out.String()
+	// All three are named, so somebody reading this knows what is left.
+	for _, want := range []string{"Hetzner", "GitHub", "Claude"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("output never mentions %s:\n%s", want, text)
+		}
+	}
+	// The one that worked is not reported as a problem.
+	if !strings.Contains(text, "saved to") {
+		t.Errorf("the Hetzner token was not reported as saved:\n%s", text)
+	}
+}
+
+func TestCloudInitGivesTheUserTheirOwnHome(t *testing.T) {
+	out := cloudInit(cloudInitOptions{Hostname: "h"})
+
+	// write_files runs before users exist. Without `defer`, cloud-init creates
+	// /home/chief as root to hold the env file, useradd then leaves the existing
+	// directory alone, and the user is locked out of their own home — a box that
+	// provisions perfectly and then fails every write with "Permission denied".
+	var parsed struct {
+		WriteFiles []struct {
+			Path  string `yaml:"path"`
+			Owner string `yaml:"owner"`
+			Defer bool   `yaml:"defer"`
+		} `yaml:"write_files"`
+		Runcmd []string `yaml:"runcmd"`
+	}
+	if err := yaml.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, f := range parsed.WriteFiles {
+		if f.Owner != "" && !strings.HasPrefix(f.Owner, "root") && !f.Defer {
+			t.Errorf("%s is owned by %q but not deferred; it will be written before that user exists", f.Path, f.Owner)
+		}
+	}
+
+	// And the belt to that pair of braces: whatever else happened, the home
+	// belongs to its user before anything is written into it.
+	var chownIndex = -1
+	for i, cmd := range parsed.Runcmd {
+		if strings.Contains(cmd, "chown chief:chief /home/chief") && !strings.Contains(cmd, ".ssh") {
+			chownIndex = i
+			break
+		}
+	}
+	if chownIndex != 0 {
+		t.Errorf("the home is chowned at runcmd step %d, want it first", chownIndex)
+	}
+}
+
+func TestCloudInitInstallsComposerWithAHome(t *testing.T) {
+	out := cloudInit(cloudInitOptions{Hostname: "h"})
+	var parsed struct {
+		Runcmd []string `yaml:"runcmd"`
+	}
+	if err := yaml.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatal(err)
+	}
+	runcmd := strings.Join(parsed.Runcmd, "\n")
+
+	// The installer refuses to do anything without HOME ("The HOME or
+	// COMPOSER_HOME environment variable must be set") — and reports that on
+	// stdout while still exiting 0, so the failure is silent and composer is
+	// simply absent hours later when a project's setup needs it.
+	if !strings.Contains(runcmd, "HOME=/root php /tmp/composer-setup.php") {
+		t.Error("the Composer installer runs without HOME; it will silently do nothing")
+	}
+	// Which is why its result is checked rather than assumed.
+	if !strings.Contains(runcmd, "test -x /usr/local/bin/composer") {
+		t.Error("nothing verifies that composer actually landed")
+	}
+}
+
+func TestCloneScriptExportsTheCredentialsItSources(t *testing.T) {
+	script := cloneScript("https://github.com/x/y.git", "main")
+
+	// Sourcing alone makes these shell variables, not environment ones. The
+	// credential helper runs as a child of git and would see no password at all,
+	// which GitHub reports as "Invalid username or token" — an error that points
+	// at the token rather than at the shell, and sends you looking in the wrong
+	// place entirely.
+	if !strings.Contains(script, "set -a") {
+		t.Error("the script sources the env file without exporting it; git's credential helper will see nothing")
+	}
+	// And the file itself cannot carry `export`: systemd reads it as an
+	// EnvironmentFile, where every line has to be a bare KEY=VALUE.
+	if strings.Contains(script, "export GH_TOKEN") {
+		t.Error("the script expects an exported token in the file, which systemd's EnvironmentFile cannot carry")
+	}
+	// set -a stays on only as long as it is needed.
+	if !strings.Contains(script, "set +a") {
+		t.Error("automatic export is never turned off again")
+	}
+	if strings.Index(script, "set -a") > strings.Index(script, ". ~/.chief-env") {
+		t.Error("export is switched on after the file is sourced, which is too late")
 	}
 }

@@ -3,8 +3,8 @@
 // A chief run takes hours, and for those hours it owns the machine it runs on:
 // the CPU, the rate limit window, and the laptop that has to stay open. This
 // package moves the run onto a machine created for it and destroyed afterwards.
-// At current Hetzner prices a five-hour run costs about fourteen cents of
-// computer, which is two orders of magnitude less than the tokens it spends.
+// At current Hetzner prices a five-hour run costs about five cents of computer,
+// which is two orders of magnitude less than the tokens it spends.
 //
 // The sequence is: create the instance from a generated cloud-config, upload the
 // chief binary this process is running, clone the project, copy over the files
@@ -30,8 +30,15 @@ import (
 // that suit a chief run rather than a server — a German region, and enough
 // cores that a test suite is not the slow part.
 const (
-	// DefaultType is 4 vCPU and 8 GB, about 2.7 cents an hour.
-	DefaultType = "cpx31"
+	// DefaultType is 4 vCPU and 8 GB for about a cent an hour — enough that a
+	// test suite is not the slow part, on the cheaper of the two CPU lines.
+	//
+	// Server types are generational: a line that is current today stops being
+	// bookable in a location when its successor arrives, while still appearing
+	// in the price list. If creating a box starts failing with "unsupported
+	// location", this is the constant to raise — the error says which types the
+	// location actually offers.
+	DefaultType = "cx33"
 	// DefaultLocation is Falkenstein.
 	DefaultLocation = "fsn1"
 )
@@ -199,6 +206,15 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 		Labels:   map[string]string{"managed-by": "chief"},
 	})
 	if err != nil {
+		// A refused type/location pair is the one failure worth turning into an
+		// answer: the price list still advertises superseded generations, so
+		// "unsupported" reads like a bug in chief rather than a type to change.
+		if unsupportedCombination(err) {
+			if types, listErr := api.availableTypes(ctx, location); listErr == nil && len(types) > 0 {
+				return state, fmt.Errorf("%w\n  %s does not offer %s. It does offer:\n    %s\n  Pick one with --type",
+					err, location, instanceType, strings.Join(types, "\n    "))
+			}
+		}
 		return state, err
 	}
 
@@ -319,7 +335,15 @@ func runFlags(opts UpOptions) string {
 // quote in it cannot break out of it.
 func cloneScript(cloneURL, branch string) string {
 	return `set -e
+# set -a, because sourcing alone makes these shell variables rather than
+# environment ones, and the credential helper below runs as a child of git —
+# which would see no password at all and fail with "Invalid username or token".
+#
+# The file cannot simply say "export" instead: systemd reads the same file as an
+# EnvironmentFile, where every line has to be a bare KEY=VALUE.
+set -a
 . ~/.chief-env
+set +a
 read -r NAME
 read -r EMAIL
 git config --global user.name "$NAME"
@@ -652,14 +676,22 @@ func Status(ctx context.Context, baseDir string, out io.Writer) error {
 	return nil
 }
 
-// SSH opens a shell on the box, in the project directory.
-func SSH(ctx context.Context, baseDir string) error {
+// SSH opens a shell on the box in the project directory, or runs command there
+// and streams its output back.
+//
+// The one-shot form is what makes the box inspectable without a round trip: a
+// question about what is installed, what the working tree looks like, or what a
+// setup script left behind is one line rather than a session.
+func SSH(ctx context.Context, baseDir string, command string, out io.Writer) error {
 	s, ok := LoadState(baseDir)
 	if !ok {
 		return errNoBox
 	}
 	r := remote{user: remoteUser, host: s.IP}
-	return r.shell(ctx, remoteProject)
+	if strings.TrimSpace(command) == "" {
+		return r.shell(ctx, remoteProject)
+	}
+	return r.stream(ctx, "cd "+shellQuote(remoteProject)+" && "+command, out)
 }
 
 // DownOptions controls destroying a box.

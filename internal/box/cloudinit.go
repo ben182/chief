@@ -109,9 +109,16 @@ write_files:
 
   # Where the tokens land. Created empty and locked down first, so there is no
   # window in which it exists world-readable.
+  #
+  # deferred, because write_files runs before users exist: without it, cloud-init
+  # creates /home/chief as root to hold this file, useradd then finds the
+  # directory already there and leaves it alone, and the user ends up locked out
+  # of their own home. Everything after that — the clone, the env file, the run —
+  # fails with "Permission denied" on a machine that otherwise looks fine.
   - path: /home/chief/.chief-env
     owner: chief:chief
     permissions: "0600"
+    defer: true
     content: |
       # filled in by chief once the instance is up
 
@@ -154,6 +161,11 @@ users:
     ssh_authorized_keys: []
 
 runcmd:
+  # The home has to belong to its user before anything is written into it. This
+  # repeats what the deferred write above already arranges, because the cost of
+  # being wrong here is a box that provisions perfectly and then cannot be worked
+  # in.
+  - chown chief:chief /home/chief
   # Give the chief user the key the instance was created with, so nothing has to
   # run as root to get work done.
   - mkdir -p /home/chief/.ssh
@@ -182,10 +194,15 @@ runcmd:
   - apt-get update
   - apt-get install -y claude-code gh nodejs
 
-  # Composer.
+  # Composer. HOME is set explicitly: runcmd runs without one, and the installer
+  # refuses to do anything without it ("The HOME or COMPOSER_HOME environment
+  # variable must be set"), which it reports on stdout while still exiting 0 —
+  # so the failure is silent and composer is simply absent later.
   - curl -fsSL https://getcomposer.org/installer -o /tmp/composer-setup.php
-  - php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
+  - HOME=/root php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
   - rm -f /tmp/composer-setup.php
+  # And a check, so a silent failure cannot reach the ready marker.
+  - test -x /usr/local/bin/composer
 
   # A database superuser named after the account that will use it, so a project's
   # setup script can create and drop its own databases without a password.

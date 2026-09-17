@@ -116,3 +116,32 @@ func TestBoxUsageNamesEveryCommandAndTheCostWarning(t *testing.T) {
 		t.Error("the usage does not show the real default image")
 	}
 }
+
+func TestParseBoxArgsTakesTheSSHCommandVerbatim(t *testing.T) {
+	// Everything after `ssh` belongs to the box, flags included. Parsing them
+	// here would swallow them as chief's own and leave the remote command
+	// mangled — `chief box ssh ls -la` must not lose the -la.
+	o, err := ParseBoxArgs([]string{"ssh", "git", "log", "--oneline", "-n", "5"})
+	if err != nil {
+		t.Fatalf("ParseBoxArgs: %v", err)
+	}
+	if o.Command != "ssh" {
+		t.Errorf("Command = %q", o.Command)
+	}
+	if o.Command2 != "git log --oneline -n 5" {
+		t.Errorf("Command2 = %q, want the command unchanged", o.Command2)
+	}
+	// The flags must not have leaked into chief's own options.
+	if o.MaxIterations != 0 {
+		t.Errorf("-n was parsed as chief's own flag: MaxIterations = %d", o.MaxIterations)
+	}
+
+	// Bare ssh opens a shell.
+	o, err = ParseBoxArgs([]string{"ssh"})
+	if err != nil {
+		t.Fatalf("ParseBoxArgs: %v", err)
+	}
+	if o.Command2 != "" {
+		t.Errorf("Command2 = %q, want empty for an interactive shell", o.Command2)
+	}
+}

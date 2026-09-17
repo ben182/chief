@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -82,7 +83,7 @@ var claudeTokenPattern = regexp.MustCompile(`sk-ant-[A-Za-z0-9_-]{20,}`)
 // browser login. With no one there, a missing token is an error naming the
 // command that would fix it rather than a process quietly waiting forever on a
 // prompt nobody will answer.
-func ResolveSecrets(ctx context.Context, interactive bool, out, errOut *os.File) (Secrets, error) {
+func ResolveSecrets(ctx context.Context, interactive bool, out *os.File, errOut io.Writer) (Secrets, error) {
 	var s Secrets
 	var err error
 
@@ -211,7 +212,7 @@ func resolveGitHubToken(ctx context.Context) (string, error) {
 // it the terminal to do that in. It is the difference between a setup step
 // somebody has to read about and one that happens the first time they ask for a
 // box — and it happens once, because the result is saved.
-func resolveClaudeToken(ctx context.Context, interactive bool, out, errOut *os.File) (string, error) {
+func resolveClaudeToken(ctx context.Context, interactive bool, out *os.File, errOut io.Writer) (string, error) {
 	if t := strings.TrimSpace(os.Getenv("CLAUDE_CODE_OAUTH_TOKEN")); t != "" {
 		return t, nil
 	}
@@ -227,22 +228,20 @@ func resolveClaudeToken(ctx context.Context, interactive bool, out, errOut *os.F
 				"or set CLAUDE_CODE_OAUTH_TOKEN")
 	}
 	if !interactive {
-		return "", fmt.Errorf(
-			"no Claude token, and nobody at the terminal to complete a login.\n" +
-				"  Run 'claude setup-token' and set CLAUDE_CODE_OAUTH_TOKEN to what it prints")
+		return "", fmt.Errorf("no Claude token — the agent on the box would have nothing to log in with")
 	}
 
 	_, _ = fmt.Fprintln(errOut, "No Claude token yet. Running 'claude setup-token' — "+
 		"it opens a browser once, and the result is saved for every run after this.")
 
-	// The token is on stdout, which is captured to read it; the login flow's own
-	// prompts go to stderr and the terminal, which is why stdin and stderr are
-	// passed straight through.
+	// The token is on stdout, captured to read it. The login flow's own prompts
+	// and its browser URL go to stderr and must reach the real terminal, not a
+	// buffer — so os.Stderr, rather than wherever this function reports to.
 	cmd := exec.CommandContext(ctx, claude, "setup-token")
 	var stdout bytes.Buffer
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = &stdout
-	cmd.Stderr = errOut
+	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("claude setup-token: %w", err)
 	}

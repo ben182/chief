@@ -21,12 +21,12 @@ Run a PRD on a throwaway cloud instance, so a run that takes hours does not take
 your machine with it.
 
 Commands:
-  token         Save your Hetzner API token (asks for it, checks it, stores it)
+  token         Set up the credentials a box needs (asks only for what is missing)
   up <prd>      Create a box, put the project on it, and start the run
   run <prd>     The same, then follow the log until you stop watching
   logs          Follow the running box's log
   status        What the box is doing, and how long it has been billing
-  ssh           A shell on the box, in the project directory
+  ssh [cmd]     A shell on the box, or run one command there
   down          Destroy the box — this is what stops the billing
 
 Options for up/run:
@@ -50,7 +50,9 @@ can mint — run 'chief box token' once to store it.`
 // BoxOptions are the parsed arguments of a box command.
 type BoxOptions struct {
 	Command string
-	PRD     string
+	// Command2 is the command `chief box ssh` runs on the box, empty for a shell.
+	Command2 string
+	PRD      string
 
 	Worktree      bool
 	Verbose       bool
@@ -69,6 +71,13 @@ func ParseBoxArgs(args []string) (BoxOptions, error) {
 		return o, fmt.Errorf("no command")
 	}
 	o.Command = args[0]
+
+	// `ssh` takes the rest of the line verbatim: it is a command for the box, and
+	// parsing it here would swallow its flags as chief's own.
+	if o.Command == "ssh" {
+		o.Command2 = strings.Join(args[1:], " ")
+		return o, nil
+	}
 
 	value := func(i *int, flag string) (string, error) {
 		if *i+1 >= len(args) {
@@ -168,7 +177,7 @@ func RunBox(ctx context.Context, opts BoxOptions) error {
 	case "status":
 		return box.Status(ctx, baseDir, os.Stdout)
 	case "ssh":
-		return box.SSH(ctx, baseDir)
+		return box.SSH(ctx, baseDir, opts.Command2, os.Stdout)
 	case "down":
 		return box.Down(ctx, box.DownOptions{
 			BaseDir: baseDir,
@@ -229,10 +238,14 @@ func runBoxUp(ctx context.Context, baseDir string, opts BoxOptions) error {
 		return err
 	}
 
-	interactive := isTerminal(os.Stdin)
-	up.Secrets, err = box.ResolveSecrets(ctx, interactive, os.Stdout, os.Stderr)
+	// Never interactive, even at a terminal. Creating a box is something scripts
+	// and background shells do, and a browser login started there waits forever
+	// on a prompt nobody will answer — a hang, which is worse than a failure
+	// because it looks like work. The login lives in 'chief box token' instead,
+	// which is done once, deliberately, by a person.
+	up.Secrets, err = box.ResolveSecrets(ctx, false, os.Stdout, os.Stderr)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w\n  Run 'chief box token' once to set this up", err)
 	}
 
 	state, err := box.Up(ctx, up)
