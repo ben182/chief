@@ -116,14 +116,14 @@ func resolveHetznerToken() (string, error) {
 	if t := hcloudCLIToken(); t != "" {
 		return t, nil
 	}
-	path, _ := tokenFile("hetzner-token")
-	// The path is quoted because on macOS it contains spaces, and an instruction
-	// that breaks when pasted is worse than no instruction.
+	// The instruction is a command rather than a shell one-liner writing to a
+	// path: the path contains a space on macOS, and a `read` in a pasted block
+	// swallows the next line of the paste as its input.
 	return "", fmt.Errorf(
-		"no Hetzner API token.\n"+
-			"  Create one in the Hetzner console (Security → API tokens, Read & Write), then:\n"+
-			"    echo '<token>' > %q && chmod 600 %q\n"+
-			"  or set CHIEF_BOX_HETZNER_TOKEN", path, path)
+		"no Hetzner API token.\n" +
+			"  Create one in the Hetzner console (Security → API tokens, Read & Write),\n" +
+			"  then run:  chief box token\n" +
+			"  or set CHIEF_BOX_HETZNER_TOKEN")
 }
 
 // hcloudCLIToken reads the active context's token out of the hcloud CLI's own

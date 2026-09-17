@@ -2,6 +2,8 @@ package box
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -502,5 +504,99 @@ func TestBuildForLinuxProducesALinuxBinary(t *testing.T) {
 	}
 	if header[18] != 0x3e {
 		t.Errorf("machine type = %#x, want 0x3e (x86-64)", header[18])
+	}
+}
+
+func TestLoginRejectsAnEmptyToken(t *testing.T) {
+	isolateConfig(t)
+	// Reading from a pipe rather than a terminal: there is no echo to disable,
+	// and the read still has to work.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		_, _ = w.WriteString("\n")
+		_ = w.Close()
+	}()
+
+	err = Login(context.Background(), r, io.Discard)
+	if err == nil {
+		t.Fatal("expected an error for an empty token")
+	}
+	if !strings.Contains(err.Error(), "no token") {
+		t.Errorf("error = %q", err)
+	}
+	// Nothing must have been saved.
+	if got := readToken("hetzner-token"); got != "" {
+		t.Errorf("an empty token was saved as %q", got)
+	}
+}
+
+func TestLoginDoesNotSaveATokenTheAPIRejects(t *testing.T) {
+	isolateConfig(t)
+	f := newFakeHetzner(t, map[string]any{"GET /ssh_keys": http.StatusUnauthorized})
+
+	// The check has to happen before the save, or a typo is discovered later as
+	// a confusing failure in the middle of creating a box.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		_, _ = w.WriteString("wrong-token\n")
+		_ = w.Close()
+	}()
+
+	err = loginWith(context.Background(), r, io.Discard, func(token string) *hetzner {
+		h := newHetzner(token)
+		h.base = f.URL
+		return h
+	})
+	if err == nil {
+		t.Fatal("expected an error for a rejected token")
+	}
+	if !strings.Contains(err.Error(), "not saved") {
+		t.Errorf("error = %q, want it to say the token was not saved", err)
+	}
+	if got := readToken("hetzner-token"); got != "" {
+		t.Errorf("a rejected token was saved as %q", got)
+	}
+}
+
+func TestLoginSavesAGoodTokenPrivately(t *testing.T) {
+	isolateConfig(t)
+	f := newFakeHetzner(t, map[string]any{"GET /ssh_keys": `{"ssh_keys":[]}`})
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		// Trailing whitespace is what a paste brings along; it must not become
+		// part of the token.
+		_, _ = w.WriteString("  good-token  \n")
+		_ = w.Close()
+	}()
+
+	err = loginWith(context.Background(), r, io.Discard, func(token string) *hetzner {
+		h := newHetzner(token)
+		h.base = f.URL
+		return h
+	})
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	if got := readToken("hetzner-token"); got != "good-token" {
+		t.Errorf("saved %q, want the trimmed token", got)
+	}
+
+	path, _ := tokenFile("hetzner-token")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("token file mode = %o, want 600", perm)
 	}
 }

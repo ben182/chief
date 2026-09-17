@@ -21,6 +21,7 @@ Run a PRD on a throwaway cloud instance, so a run that takes hours does not take
 your machine with it.
 
 Commands:
+  token         Save your Hetzner API token (asks for it, checks it, stores it)
   up <prd>      Create a box, put the project on it, and start the run
   run <prd>     The same, then follow the log until you stop watching
   logs          Follow the running box's log
@@ -43,8 +44,8 @@ Options for down:
 
 Credentials are worked out rather than configured: the GitHub token comes from
 'gh auth token', and the Claude token from 'claude setup-token' the first time
-one is needed, saved afterwards. The Hetzner API token is the one thing to put
-in place by hand — see 'chief box up' for where.`
+one is needed, saved afterwards. The Hetzner API token is the one thing nothing
+can mint — run 'chief box token' once to store it.`
 
 // BoxOptions are the parsed arguments of a box command.
 type BoxOptions struct {
@@ -158,6 +159,8 @@ func RunBox(ctx context.Context, opts BoxOptions) error {
 	}
 
 	switch opts.Command {
+	case "token", "login":
+		return box.Login(ctx, os.Stdin, os.Stderr)
 	case "up", "run":
 		return runBoxUp(ctx, baseDir, opts)
 	case "logs":
