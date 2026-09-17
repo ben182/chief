@@ -160,8 +160,8 @@ chief start auth-system --headless || echo "stories left over"
 ```
 
 ::: tip Running it on a throwaway cloud box
-`deploy/` in the Chief repository has a cloud-init file and a `chief-box` script
-that create a Hetzner instance for one run and tear it down afterwards.
+[`chief box`](#chief-box) creates a Hetzner instance for one run, starts the run
+on it, and tears it down when you are done.
 :::
 
 ---
@@ -384,6 +384,85 @@ chief list
 #   landing-page: Marketing Site (12/12, 100%)
 #   api-v2: Public API (0/6, 0%)
 ```
+
+---
+
+### chief box
+
+Runs a PRD on a throwaway cloud instance, so a run that takes hours does not take
+your machine with it. The box is created for the run and destroyed when you are
+done; at current Hetzner prices a five-hour run costs about fourteen cents of
+computer, which is two orders of magnitude less than the tokens it spends.
+
+```bash
+chief box up <prd>      # create the box, put the project on it, start the run
+chief box run <prd>     # the same, then follow the log until you stop watching
+chief box logs          # follow the running box's log
+chief box status        # what it is doing, and how long it has been billing
+chief box ssh           # a shell on the box, in the project directory
+chief box down          # destroy it — this is what stops the billing
+```
+
+**Flags for `up` and `run`:**
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--worktree` | Run in the PRD's own worktree on the box | On when the project configures `worktree.setup` |
+| `--verbose` | Put the agent's narration in the box's log | `false` |
+| `--max-iterations <n>`, `-n` | Cap the run's iterations | Dynamic |
+| `--type <name>` | Hetzner server type | `cpx31` (4 vCPU, 8 GB) |
+| `--location <name>` | Hetzner location | `fsn1` |
+| `--image <name>` | Hetzner image | `ubuntu-26.04` |
+| `--file <path>` | An untracked file the run needs; repeatable | `.env` |
+| `--package <name>` | An apt package to install on the box; repeatable | — |
+
+`down` takes `--force` to skip the question about commits the box never pushed.
+
+#### What happens on `up`
+
+1. **Builds chief for the box** from the checkout you are running, so the box
+   runs the chief you have rather than the last one that was released.
+2. **Creates the instance** and provisions it: PHP, PostgreSQL, Redis, Node,
+   Composer, the GitHub CLI, and Claude Code from its signed apt repository.
+3. **Clones the project** from `origin`, on the branch you are standing on.
+4. **Copies what git does not carry** — the PRD (`.chief` is gitignored in most
+   projects), `.chief/config.yaml`, and the files named by `--file`.
+5. **Starts the run** as a systemd unit, so it survives every dropped connection
+   after that.
+
+Only the base is installed on the box. Everything specific to a project — its
+dependencies, its schema, its `.env` — belongs in that project's
+[`worktree.setup`](/reference/configuration#worktree-setup), which runs inside
+the checkout before the agent starts.
+
+#### Credentials
+
+Chief works these out rather than asking you to configure them:
+
+- **GitHub** comes from `gh auth token`. Anyone who can open a pull request from
+  this machine already has a token that works.
+- **Claude** comes from `claude setup-token`, which chief runs for you the first
+  time a box needs one. It opens a browser once; the result is saved to your
+  config directory and reused for every run after that.
+- **Hetzner** is the one thing to put in place by hand, because nothing can mint
+  it: create a Read & Write API token in the Hetzner console, then save it to
+  `<config>/chief/hetzner-token` or set `CHIEF_BOX_HETZNER_TOKEN`. An existing
+  `hcloud` CLI context is read too, so a machine that already has that set up
+  needs nothing.
+
+Your SSH key is registered with Hetzner automatically if the project does not
+have it yet, matched by fingerprint so an existing key is reused rather than
+duplicated.
+
+::: warning What the box is trusted with
+The box holds a token that can act as you on GitHub and one that can spend your
+Claude subscription, and the agent runs on it with `--dangerously-skip-permissions`.
+A fine-grained GitHub token scoped to the one repository is a better fit here
+than a classic token with `repo`.
+
+A box nobody destroyed bills until somebody does. `chief box down` is the only
+thing that stops it.
+:::
 
 ---
 

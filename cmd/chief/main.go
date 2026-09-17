@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -45,6 +46,9 @@ func main() {
 			return
 		case "worktree":
 			runWorktree()
+			return
+		case "box":
+			runBox()
 			return
 		case "help", "--help", "-h":
 			printHelp()
@@ -523,6 +527,42 @@ func runHeadless(opts *cli.Options) {
 		fatal(err)
 	}
 	if !res.Completed {
+		os.Exit(1)
+	}
+}
+
+// runBox dispatches `chief box`, which runs a PRD on a throwaway cloud instance.
+//
+// Signals cancel the command rather than killing it outright: interrupting
+// `chief box run` while it follows a log should stop the watching and leave the
+// run — and the machine it is billing for — in a state the next command can
+// still see.
+func runBox() {
+	opts, err := cmd.ParseBoxArgs(os.Args[2:])
+	if err != nil {
+		if err.Error() == "no command" {
+			fmt.Println(cmd.BoxUsage)
+			return
+		}
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	switch opts.Command {
+	case "help", "--help", "-h":
+		fmt.Println(cmd.BoxUsage)
+		return
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := cmd.RunBox(ctx, opts); err != nil {
+		// A cancelled command said what it was doing as it went; repeating the
+		// context error on top of that adds nothing.
+		if errors.Is(err, context.Canceled) {
+			return
+		}
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }

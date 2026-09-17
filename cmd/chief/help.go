@@ -19,6 +19,7 @@ Commands:
   status [name]             Show progress for a PRD (default: default)
   list                      List all PRDs with progress
   worktree <cmd> <prd>      Run a PRD worktree's setup or teardown command by hand
+  box <cmd> [prd]           Run a PRD on a throwaway cloud instance ('chief box' for detail)
   help                      Show this help message
 
 Global Options:
@@ -72,6 +73,9 @@ Examples:
   chief worktree setup auth Re-run worktree.setup in the auth PRD's worktree
   chief worktree teardown auth
                             Run worktree.teardown without removing the worktree
+  chief box up auth         Create a cloud box and run the auth PRD on it
+  chief box logs            Follow the running box's log
+  chief box down            Destroy the box when you are done
   chief --version           Show version number`)
 }
 
