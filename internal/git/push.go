@@ -128,6 +128,29 @@ func prCreateArgs(branch, base, title, body string) []string {
 	return append(args, "--title", title, "--body", body)
 }
 
+// AssignSelf puts the account `gh` is authenticated as on the pull request.
+//
+// It is how an unattended run ends up somewhere its author will find it: a box
+// run finishes at three in the morning on a machine that is then destroyed, and
+// the pull request is the only thing left that anyone looks at. Assigned, it is
+// in the "Assigned to you" list instead of being one branch among the others.
+//
+// This is not a push notification, and cannot be: the box authenticates as the
+// same account that would be notified, and GitHub does not report your own
+// actions back to you.
+//
+// A separate call rather than a flag on `gh pr create`, because assignment goes
+// through the issues API and a token that may not carry that permission must
+// not be able to cost the pull request itself.
+func AssignSelf(dir, pr string) error {
+	cmd := exec.Command("gh", "pr", "edit", pr, "--add-assignee", "@me")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // PRTitleFromPRD generates a conventional-commits title for a PR.
 // Format: feat(<prd-name>): <project name>
 func PRTitleFromPRD(prdName string, p *prd.PRD) string {

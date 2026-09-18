@@ -182,6 +182,17 @@ func createPR(log *logger, opts Options, name string, p *prd.PRD, res *Result) e
 	}
 	res.PRURL = pr.URL
 	log.event("pr", "%s", pr.URL)
+
+	// Best-effort, and never fatal: the pull request is the run's result, and
+	// failing to put a name on it is not a reason to report the run as failed.
+	// A pull request that was already open keeps whoever it was assigned to.
+	if !pr.AlreadyExisted {
+		if err := git.AssignSelf(res.WorkDir, pr.URL); err != nil {
+			log.event("pr", "could not assign it to you: %v", err)
+		} else {
+			log.event("pr", "assigned to you")
+		}
+	}
 	return nil
 }
 
