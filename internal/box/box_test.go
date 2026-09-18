@@ -900,3 +900,176 @@ func TestCloneScriptExportsTheCredentialsItSources(t *testing.T) {
 		t.Error("export is switched on after the file is sourced, which is too late")
 	}
 }
+
+// git runs a git command in dir and fails the test when it does not work. The
+// tests below build real repositories, because what is being checked is what
+// git actually answers rather than what chief believes it answers.
+func gitIn(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// clonedProject builds a bare "origin" with one commit on main, and a clone of
+// it, which is the shape every box works in.
+func clonedProject(t *testing.T) (origin, work string) {
+	t.Helper()
+	root := t.TempDir()
+	origin = filepath.Join(root, "origin.git")
+	work = filepath.Join(root, "work")
+	gitIn(t, root, "init", "--quiet", "--bare", "--initial-branch=main", origin)
+	gitIn(t, root, "clone", "--quiet", origin, work)
+	if err := os.WriteFile(filepath.Join(work, "README"), []byte("hello\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, work, "add", "README")
+	gitIn(t, work, "commit", "--quiet", "-m", "first")
+	gitIn(t, work, "push", "--quiet", "-u", "origin", "main")
+	return origin, work
+}
+
+// TestUnpushedProbeSeesCommitsThatExistNowhereElse is the test the old probe
+// would have failed. It ran `git log @{upstream}..HEAD`, which on a branch with
+// no upstream — every branch a box creates — fails, prints nothing, and is
+// counted as zero: the question "is there work here that only exists on this
+// machine" answered "no" precisely when the answer was "yes".
+func TestUnpushedProbeSeesCommitsThatExistNowhereElse(t *testing.T) {
+	_, work := clonedProject(t)
+
+	// The probe runs on the box, where the project sits at a fixed path. Here it
+	// runs against a real repository in the same shape.
+	probe := strings.Replace(unpushedProbe, "cd "+remoteProject, "cd "+work, 1)
+	count := func() string {
+		cmd := exec.Command("sh", "-c", probe)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("probe: %v", err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+
+	if got := count(); got != "0" {
+		t.Errorf("a fresh clone reports %s unpushed commits, want 0", got)
+	}
+
+	// What a run does: a branch of its own, never pushed.
+	gitIn(t, work, "checkout", "--quiet", "-b", "chief/feature")
+	if err := os.WriteFile(filepath.Join(work, "story"), []byte("work\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, work, "add", "story")
+	gitIn(t, work, "commit", "--quiet", "-m", "story one")
+	if got := count(); got != "1" {
+		t.Errorf("a branch with no upstream reports %s unpushed commits, want 1", got)
+	}
+
+	// And what a --worktree run does: the commits are not on the checkout's own
+	// HEAD at all, which the old probe could not have seen either.
+	wt := filepath.Join(t.TempDir(), "wt")
+	gitIn(t, work, "worktree", "add", "--quiet", "-b", "chief/second", wt)
+	if err := os.WriteFile(filepath.Join(wt, "more"), []byte("more\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, wt, "add", "more")
+	gitIn(t, wt, "commit", "--quiet", "-m", "story two")
+	if got := count(); got != "2" {
+		t.Errorf("with a worktree commit the probe reports %s, want 2", got)
+	}
+
+	// Pushed work exists elsewhere and must stop counting, or the question is
+	// asked on every destroy and stops being read.
+	gitIn(t, work, "push", "--quiet", "origin", "chief/feature")
+	gitIn(t, work, "push", "--quiet", "origin", "chief/second")
+	if got := count(); got != "0" {
+		t.Errorf("after pushing, the probe still reports %s unpushed commits", got)
+	}
+}
+
+func TestBranchIsOnOriginRefusesABranchTheBoxCouldNotFind(t *testing.T) {
+	_, work := clonedProject(t)
+
+	if err := branchIsOnOrigin(work, "main"); err != nil {
+		t.Errorf("a pushed branch was refused: %v", err)
+	}
+
+	gitIn(t, work, "checkout", "--quiet", "-b", "local-only")
+	err := branchIsOnOrigin(work, "local-only")
+	if err == nil {
+		t.Fatal("a branch that was never pushed was accepted — the box would have run on main")
+	}
+	for _, want := range []string{"local-only", "git push"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want it to mention %q", err, want)
+		}
+	}
+}
+
+func TestBranchIsOnOriginRefusesCommitsOriginHasNotSeen(t *testing.T) {
+	_, work := clonedProject(t)
+
+	if err := os.WriteFile(filepath.Join(work, "later"), []byte("later\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, work, "add", "later")
+	gitIn(t, work, "commit", "--quiet", "-m", "not pushed yet")
+
+	err := branchIsOnOrigin(work, "main")
+	if err == nil {
+		t.Fatal("a branch ahead of origin was accepted — the run would have started without that commit")
+	}
+	if !strings.Contains(err.Error(), "1 commit") {
+		t.Errorf("error = %q, want it to count what origin is missing", err)
+	}
+
+	gitIn(t, work, "push", "--quiet", "origin", "main")
+	if err := branchIsOnOrigin(work, "main"); err != nil {
+		t.Errorf("after pushing, the check still refuses: %v", err)
+	}
+}
+
+func TestBranchIsOnOriginStaysOutOfTheWayWhenItCannotAsk(t *testing.T) {
+	// A detached HEAD has no branch to look for, and a repository with no origin
+	// at all is a case projectOrigin already refuses with a better message. In
+	// neither does this check get to be the one that blocks a run.
+	_, work := clonedProject(t)
+	if err := branchIsOnOrigin(work, "HEAD"); err != nil {
+		t.Errorf("a detached HEAD was refused: %v", err)
+	}
+	if err := branchIsOnOrigin(t.TempDir(), "main"); err != nil {
+		t.Errorf("an unreachable origin blocked the run: %v", err)
+	}
+}
+
+func TestProvisionTimeoutGrowsWithWhatIsInstalled(t *testing.T) {
+	bare := provisionTimeout(Profile{})
+	laravel := provisionTimeout(Profile{
+		PHP: "8.4", Node: "24", PackageManager: "bun",
+		Database: "pgsql", Redis: true, Browser: true, Chrome: true,
+	})
+	if laravel <= bare {
+		t.Errorf("a Laravel box gets %s and a bare one %s — the wait does not follow the work", laravel, bare)
+	}
+	if bare < 5*time.Minute {
+		t.Errorf("even a bare box needs apt: %s is not a budget", bare)
+	}
+	if laravel > maxProvision {
+		t.Errorf("the budget ran past its ceiling: %s > %s", laravel, maxProvision)
+	}
+	// Everything at once must still be capped, or a profile that grows a few
+	// more entries silently becomes an hour of waiting for a stuck box.
+	everything := provisionTimeout(Profile{
+		PHP: "8.4", Node: "24", PackageManager: "pnpm", Go: "1.27.0",
+		Database: "mysql", Redis: true, Meilisearch: true, Browser: true, Chrome: true,
+	})
+	if everything != maxProvision {
+		t.Errorf("the fullest profile gets %s, want it capped at %s", everything, maxProvision)
+	}
+}

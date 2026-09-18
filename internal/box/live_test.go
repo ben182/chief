@@ -122,7 +122,7 @@ func TestLiveHostKeyIsInPlaceBeforeSSHD(t *testing.T) {
 
 	// And it still has to match once provisioning is done, which is when
 	// anything that regenerates keys would have run.
-	if err := root.waitFile(ctx, readyMarker, provisionTimeout); err != nil {
+	if err := root.waitFile(ctx, readyMarker, provisionTimeout(Profile{})); err != nil {
 		t.Fatalf("provisioning did not finish: %v", err)
 	}
 	out, err := root.run(ctx, "cat /etc/ssh/ssh_host_ed25519_key.pub; ls /etc/ssh/ssh_host_*")
@@ -289,7 +289,7 @@ func TestLiveBoxIsBuiltToTheProject(t *testing.T) {
 		t.Fatalf("never reachable: %v", err)
 	}
 	started := time.Now()
-	err := root.waitProvisioned(ctx, readyMarker, failedMarker, provisionTimeout)
+	err := root.waitProvisioned(ctx, readyMarker, failedMarker, provisionTimeout(profile))
 	if os.Getenv("CHIEF_LIVE_BREAK") == "1" {
 		if err == nil || !strings.Contains(err.Error(), "failed") {
 			t.Fatalf("the sabotaged box was reported as %v after %s, want the failed marker", err, time.Since(started).Round(time.Second))

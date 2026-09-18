@@ -62,9 +62,62 @@ const (
 // How long each phase is given. Provisioning is apt working through a few
 // hundred megabytes and is by far the slowest.
 const (
-	bootTimeout      = 3 * time.Minute
-	provisionTimeout = 20 * time.Minute
+	bootTimeout = 3 * time.Minute
+	// baseProvision covers a box with no profile at all: apt's own update, the
+	// base packages, Claude Code and the GitHub CLI.
+	baseProvision = 10 * time.Minute
+	// maxProvision is the ceiling. Past this a box is not slow, it is stuck, and
+	// waiting longer only delays the report — the failed marker catches a step
+	// that dies, and this catches one that never returns.
+	maxProvision = 35 * time.Minute
 )
+
+// provisionTimeout is how long the profile's own installation is given on top
+// of the base, roughly what each part takes on a fresh instance with a fast
+// mirror, doubled — a timeout that trips on a slow morning is a box destroyed
+// for no reason, while one that is generous costs nothing on the normal run
+// because the ready marker ends the wait the moment it appears.
+//
+// A fixed twenty minutes was the same number for a bare Go box and for PHP plus
+// Node plus Chrome plus Playwright's system libraries, which is a few hundred
+// megabytes apart.
+func provisionTimeout(p Profile) time.Duration {
+	d := baseProvision
+	if p.PHP != "" {
+		// The PPA, the interpreter, its extensions, and Composer.
+		d += 5 * time.Minute
+	}
+	if p.Node != "" {
+		d += 3 * time.Minute
+	}
+	if p.PackageManager == "bun" || p.PackageManager == "pnpm" || p.PackageManager == "yarn" {
+		d += time.Minute
+	}
+	if p.Go != "" {
+		// A toolchain tarball, around 80 MB.
+		d += 3 * time.Minute
+	}
+	if p.Database != "" && p.Database != "sqlite" {
+		d += 2 * time.Minute
+	}
+	if p.Redis {
+		d += time.Minute
+	}
+	if p.Meilisearch {
+		d += 2 * time.Minute
+	}
+	if p.Browser {
+		// playwright install-deps pulls in the widest single thing a box installs.
+		d += 8 * time.Minute
+	}
+	if p.Chrome {
+		d += 4 * time.Minute
+	}
+	if d > maxProvision {
+		return maxProvision
+	}
+	return d
+}
 
 // UpOptions describes the box to create and the run to start on it.
 type UpOptions struct {
@@ -115,12 +168,13 @@ func (r reporter) detail(format string, args ...any) {
 }
 
 // Preflight checks everything about this machine and this project that can be
-// checked without credentials and without creating anything.
+// checked without creating anything.
 //
 // It is separate from Up, and called before the secrets are resolved, because
 // resolving them can open a browser: sending someone through a login only to
 // tell them afterwards that their project has no origin remote is a bad way to
-// spend their attention. Everything here fails in milliseconds.
+// spend their attention. Everything here fails in seconds — the one check that
+// leaves this machine asks origin for a list of branch names.
 func Preflight(opts UpOptions) error {
 	if existing, ok := LoadState(opts.BaseDir); ok {
 		return fmt.Errorf(
@@ -134,7 +188,11 @@ func Preflight(opts UpOptions) error {
 		return fmt.Errorf("no PRD at .chief/prds/%s/prd.md — create one with 'chief new %s'", opts.PRD, opts.PRD)
 	}
 
-	if _, _, err := projectOrigin(opts.BaseDir); err != nil {
+	_, branch, err := projectOrigin(opts.BaseDir)
+	if err != nil {
+		return err
+	}
+	if err := branchIsOnOrigin(opts.BaseDir, branch); err != nil {
 		return err
 	}
 
@@ -294,8 +352,10 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 		return fail(err)
 	}
 
+	budget := provisionTimeout(opts.Profile)
 	rep.step("Waiting for provisioning (%s)", opts.Profile.provisions())
-	if err := root.waitProvisioned(ctx, readyMarker, failedMarker, provisionTimeout); err != nil {
+	rep.detail("up to %s", budget)
+	if err := root.waitProvisioned(ctx, readyMarker, failedMarker, budget); err != nil {
 		if log, logErr := root.run(ctx, "tail -30 /var/log/cloud-init-output.log"); logErr == nil {
 			rep.detail("last lines of the provisioning log:")
 			for _, line := range strings.Split(log, "\n") {
@@ -447,7 +507,10 @@ git config --global user.email "$EMAIL"
 git config --global credential.helper '!f() { echo username=x-access-token; echo password=$GH_TOKEN; }; f'
 rm -rf ` + remoteProject + `
 git clone --quiet ` + shellQuote(cloneURL) + ` ` + remoteProject + `
-cd ` + remoteProject + ` && git checkout --quiet ` + shellQuote(branch) + ` 2>/dev/null || true`
+# No "|| true" here. Preflight established that origin carries this branch, so a
+# checkout that fails now means the box got something other than the project it
+# was created for — which is worth stopping for, not carrying on past.
+cd ` + remoteProject + ` && git checkout --quiet ` + shellQuote(branch)
 }
 
 // gitIdentity is the committer the box should use: this project's, so commits
@@ -493,6 +556,76 @@ func projectOrigin(baseDir string) (cloneURL, branch string, err error) {
 		branch = "HEAD"
 	}
 	return cloneURL, branch, nil
+}
+
+// branchIsOnOrigin refuses a run whose starting point the box would never see.
+//
+// The box does not copy the working copy; it clones origin and checks out a
+// branch by name. Two states of this checkout make that quietly wrong, and both
+// end the same way — hours of work against a base nobody chose:
+//
+// A branch that was never pushed does not exist for the clone. `git checkout`
+// fails, and the box works on whatever the default branch is, which looks
+// perfectly healthy in the log.
+//
+// A branch that is ahead of origin is worse, because it does exist: the box
+// checks it out at origin's commit, and the run builds on top of a version of
+// the project that is missing the last thing its author did.
+//
+// Neither is a state to guess about, and both are one `git push` from being
+// fine. Asking origin costs a second and happens before anything is created.
+func branchIsOnOrigin(baseDir, branch string) error {
+	// "HEAD" is what projectOrigin falls back to for a checkout that is not on a
+	// branch. The clone then stays on origin's default branch, which is the only
+	// thing a detached HEAD could have meant anyway.
+	if branch == "" || branch == "HEAD" {
+		return nil
+	}
+
+	out, err := exec.Command("git", "-C", baseDir, "ls-remote", "--heads", "origin", "refs/heads/"+branch).Output()
+	if err != nil {
+		// origin could not be asked at all: no network, or a remote this machine
+		// has no credentials for. The box authenticates as itself and may well
+		// manage what this did not, so a failure here does not block a run.
+		return nil //nolint:nilerr // an origin that cannot be asked is not an answer about the branch
+	}
+
+	remoteHead := ""
+	if fields := strings.Fields(strings.TrimSpace(string(out))); len(fields) > 0 {
+		remoteHead = fields[0]
+	}
+	if remoteHead == "" {
+		return fmt.Errorf(
+			"origin has no branch %q, and the box clones from origin.\n"+
+				"  The run would start on origin's default branch instead — hours of work\n"+
+				"  on a base you did not pick.\n"+
+				"  Push it first:  git push -u origin %s", branch, branch)
+	}
+
+	if n := commitsAhead(baseDir, remoteHead); n > 0 {
+		return fmt.Errorf(
+			"%d commit(s) on %s are only on this machine, and the box clones from origin.\n"+
+				"  The run would start without them.\n"+
+				"  Push them first:  git push", n, branch)
+	}
+	return nil
+}
+
+// commitsAhead counts the commits this checkout has on top of ref, and returns
+// zero whenever that cannot be established — a ref the local repository has
+// never heard of, a shallow clone, a git that answered something unexpected.
+// Being wrong in that direction lets a run start; being wrong in the other
+// would block one over a question this check could not answer.
+func commitsAhead(baseDir, ref string) int {
+	out, err := exec.Command("git", "-C", baseDir, "rev-list", "--count", ref+"..HEAD").Output()
+	if err != nil {
+		return 0
+	}
+	var n int
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(out)), "%d", &n); err != nil {
+		return 0
+	}
+	return n
 }
 
 // httpsRemote turns a git remote into one a token can authenticate against.
@@ -854,11 +987,20 @@ func secretsOrEnvHetzner() string {
 // unpushedCommits counts what the box has committed and not pushed. A box that
 // cannot be reached reports zero: it cannot be asked, and refusing to destroy a
 // machine that is not answering would leave it billing forever.
+//
+// The question is "is there a commit here that exists nowhere else", and
+// unpushedProbe is the only form of it that answers correctly. The obvious
+// spelling — `git log @{upstream}..HEAD` — answers zero in exactly the case
+// that matters: a branch created on the box has no upstream at all, so git
+// fails, the failure goes to /dev/null, and `wc -l` reports a reassuring 0.
+// With the project default of onComplete.push being off, that is every run.
+const unpushedProbe = "cd " + remoteProject + " && git rev-list --count --branches --not --remotes"
+
 func unpushedCommits(ctx context.Context, baseDir string, s State) int {
 	r := remote{user: remoteUser, host: s.IP, knownHosts: knownHostsFor(baseDir, s)}
 	probe, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	out, err := r.run(probe, "cd "+remoteProject+" && git log --oneline @{upstream}..HEAD 2>/dev/null | wc -l")
+	out, err := r.run(probe, unpushedProbe)
 	if err != nil {
 		return 0
 	}
