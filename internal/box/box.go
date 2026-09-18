@@ -473,7 +473,10 @@ func sendEnv(ctx context.Context, r remote, local, remotePath string, p Profile)
 
 // runFlags are the chief flags the systemd unit adds to the headless run.
 func runFlags(opts UpOptions) string {
-	var flags []string
+	// Always, and not an option: this run's log lives in the journal of a machine
+	// that exists to be destroyed. Committing it next to the PRD is the only way
+	// anything it said is still readable tomorrow morning.
+	flags := []string{"--log-to-branch"}
 	if opts.Worktree {
 		flags = append(flags, "--worktree")
 	}

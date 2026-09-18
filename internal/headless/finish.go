@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -28,7 +29,7 @@ const summaryTimeout = 10 * time.Minute
 // is the commits on the branch, and those are already made; a push that fails
 // because the machine has no credentials for the remote is a thing to tell
 // someone about, not a reason to call an afternoon of work a failure.
-func finish(ctx context.Context, log *logger, opts Options, manager *loop.Manager, name string, p *prd.PRD, res *Result) {
+func finish(ctx context.Context, log *logger, opts Options, manager *loop.Manager, name string, p *prd.PRD, res *Result, transcript string) {
 	if opts.Config == nil {
 		return
 	}
@@ -52,6 +53,13 @@ func finish(ctx context.Context, log *logger, opts Options, manager *loop.Manage
 
 	if cfg.OnComplete.Summary {
 		res.Actions["summary"] = writeSummary(ctx, log, opts, manager, name, p, res)
+	}
+	// Before the push, because the point of the log is to be in what gets
+	// pushed. What it therefore cannot contain is the push and the pull request
+	// that come after it — and neither is a loss: a push that worked is visible
+	// on the remote, and a push that failed took the whole commit with it.
+	if transcript != "" {
+		res.Actions["log"] = commitRunLog(log, opts, res, transcript)
 	}
 	if cfg.OnComplete.Push {
 		res.Actions["push"] = push(log, res)
@@ -110,6 +118,34 @@ func summaryDir(baseDir, prdPath, workDir string) string {
 		return mapped
 	}
 	return dir
+}
+
+// commitRunLog puts the run's log next to the PRD and commits it, so what the
+// run said survives the machine it said it on.
+//
+// Force-added, the same way the summary is: `.chief/` is gitignored in most
+// projects, and the PRD directory carries its own `*.log` rule on top. Both are
+// right for the log files a run leaves on a developer's machine, and both would
+// otherwise silently drop the one file that is meant to travel.
+func commitRunLog(log *logger, opts Options, res *Result, transcript string) error {
+	dir := summaryDir(opts.BaseDir, opts.PRDPath, res.WorkDir)
+	dest := filepath.Join(dir, "run-"+time.Now().Format("2006-01-02-1504")+".log")
+
+	data, err := os.ReadFile(transcript) //nolint:gosec // the temporary file this run has been writing to
+	if err != nil {
+		log.event("log", "could not be kept: %v", err)
+		return err
+	}
+	if err := os.WriteFile(dest, data, 0o600); err != nil {
+		log.event("log", "could not be kept: %v", err)
+		return err
+	}
+	if err := git.CommitPaths(res.WorkDir, "docs: add run log", dest); err != nil {
+		log.event("log", "written but not committed: %v", err)
+		return err
+	}
+	log.event("log", "committed %s", filepath.Base(dest))
+	return nil
 }
 
 // push sends the run's branch to the remote.

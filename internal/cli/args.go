@@ -32,6 +32,10 @@ type Options struct {
 	// the answer the interactive run gets from its branch dialog. It only applies
 	// to a headless run; the TUI still asks.
 	Worktree bool // --worktree
+	// LogToBranch commits the run's log next to the PRD, so it leaves with the
+	// branch rather than with the machine. It is what a run on a throwaway box
+	// needs, and `chief box` passes it for every run it starts.
+	LogToBranch bool // --log-to-branch
 }
 
 // AgentFlags extracts --agent, --agent-path and --model from args[startIdx:],
@@ -104,6 +108,8 @@ func ParseArgs(args []string) (*Options, error) {
 			opts.Headless = true
 		case arg == "--worktree":
 			opts.Worktree = true
+		case arg == "--log-to-branch":
+			opts.LogToBranch = true
 		case arg == "--agent" || arg == "--agent-path" || arg == "--model":
 			i++ // skip value (already parsed by AgentFlags)
 		case strings.HasPrefix(arg, "--agent=") || strings.HasPrefix(arg, "--agent-path=") || strings.HasPrefix(arg, "--model="):

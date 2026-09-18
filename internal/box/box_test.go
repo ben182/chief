@@ -345,8 +345,10 @@ func TestRunFlagsPassTheRunsOptionsThrough(t *testing.T) {
 			t.Errorf("runFlags = %q, want %q in it", got, want)
 		}
 	}
-	if got := runFlags(UpOptions{}); got != "" {
-		t.Errorf("runFlags with nothing set = %q, want empty", got)
+	// Every box run keeps its log in the branch, whatever else was asked for:
+	// the journal it would otherwise live in dies with the machine.
+	if got := runFlags(UpOptions{}); got != "--log-to-branch" {
+		t.Errorf("runFlags with nothing set = %q, want the log kept", got)
 	}
 	// A zero cap means "let chief size it", not "-n 0", which the loop would
 	// refuse.

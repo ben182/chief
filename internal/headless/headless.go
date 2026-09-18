@@ -52,6 +52,15 @@ type Options struct {
 	// Worktree runs the PRD in its own git worktree, created and set up the way
 	// an interactive run's dialog would. False works in the current checkout.
 	Worktree bool
+	// LogToBranch commits this run's log next to the PRD, so it travels with the
+	// branch instead of living only wherever stdout went.
+	//
+	// It is what a run on a throwaway machine needs. The box writes its log into
+	// the systemd journal, the journal is on the box, and the box is destroyed —
+	// often by the same command that waited for the run, and often while nobody
+	// is awake to have read it. The branch is the only thing that outlives the
+	// machine, so the log goes there.
+	LogToBranch bool
 	// NoRetry disables the loop's automatic retry after an agent crash.
 	NoRetry bool
 	// Verbose adds the agent's own narration and every tool call to the log.
@@ -109,7 +118,13 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		return res, errors.New("headless: no PRD")
 	}
 
-	log := newLogger(opts.Out, opts.Verbose)
+	// The log goes to the caller's writer and, when the run is to leave one
+	// behind, into a file alongside. Writing both from the start rather than
+	// keeping the lines in memory matters for the run this exists for: five
+	// hours of --verbose output is not a thing to hold.
+	out, transcript, closeTranscript := transcribe(opts)
+	defer closeTranscript()
+	log := newLogger(out, opts.Verbose)
 
 	prdPath, err := filepath.Abs(opts.PRDPath)
 	if err != nil {
@@ -222,8 +237,32 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		return res, nil //nolint:nilerr // an interrupted run reports what it got done; it did not fail
 	}
 
-	finish(ctx, log, opts, manager, name, livePRD, &res)
+	finish(ctx, log, opts, manager, name, livePRD, &res, transcript)
 	return res, nil
+}
+
+// transcribe returns the writer the run's log goes to, the file it is also
+// being written to, and a function that closes it.
+//
+// With LogToBranch off, or with a temporary file that cannot be created, this
+// is exactly what the caller asked for and no file at all: a log that could not
+// be kept is not a reason to refuse to run.
+func transcribe(opts Options) (out io.Writer, path string, closeFn func()) {
+	if !opts.LogToBranch {
+		return opts.Out, "", func() {}
+	}
+	f, err := os.CreateTemp("", "chief-run-*.log")
+	if err != nil {
+		return opts.Out, "", func() {}
+	}
+	closeFn = func() {
+		_ = f.Close()
+		_ = os.Remove(f.Name())
+	}
+	if opts.Out == nil {
+		return f, f.Name(), closeFn
+	}
+	return io.MultiWriter(opts.Out, f), f.Name(), closeFn
 }
 
 // verdict turns the loop's final state into the word the log ends on.

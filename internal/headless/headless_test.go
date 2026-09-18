@@ -476,3 +476,78 @@ func TestPRBodyDescribesTheRunsOwnPRDNotTheProjectsStaleCopy(t *testing.T) {
 		t.Error("the project's copy lists the story, so this test can no longer tell the two apart")
 	}
 }
+
+// TestRunLeavesItsLogInTheBranch covers what a box run depends on entirely: the
+// machine the log was written on is destroyed, so unless the log is in the
+// branch, nothing the run said survives the night.
+func TestRunLeavesItsLogInTheBranch(t *testing.T) {
+	dir, prdPath := project(t, "US-001", "Test Story")
+	runGit(t, dir, "checkout", "-b", "work")
+
+	// The two rules that would otherwise swallow the file, both of which chief
+	// itself writes into a normal project.
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".chief/\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".chief", "prds", "demo", ".gitignore"), []byte("*.log\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, log := run(t, Options{
+		PRDPath:     prdPath,
+		BaseDir:     dir,
+		Provider:    &testProvider{script: agentScript(t, dir, "feat: demo/US-001 - Test Story")},
+		Config:      &config.Config{},
+		LogToBranch: true,
+	})
+
+	if err := res.Actions["log"]; err != nil {
+		t.Fatalf("the log was not kept: %v\nrun log:\n%s", err, log)
+	}
+
+	// Committed, not merely written: a file sitting in a gitignored directory on
+	// a machine about to be deleted is the same as no file.
+	tracked := runGit(t, dir, "ls-files", "--", ".chief/prds/demo")
+	var logFile string
+	for _, name := range strings.Split(tracked, "\n") {
+		if strings.HasSuffix(name, ".log") {
+			logFile = name
+		}
+	}
+	if logFile == "" {
+		t.Fatalf("no run log is tracked in the branch, only:\n%s\nrun log:\n%s", tracked, log)
+	}
+
+	// And it has to be the run's actual log, not an empty file with the right name.
+	kept := runGit(t, dir, "show", "HEAD:"+logFile)
+	for _, want := range []string{"US-001", "complete"} {
+		if !strings.Contains(kept, want) {
+			t.Errorf("the committed log does not mention %q:\n%s", want, kept)
+		}
+	}
+
+	// The log is committed before the push on purpose, so it cannot contain the
+	// push. Everything up to that point must be there.
+	if !strings.Contains(kept, "story") {
+		t.Errorf("the committed log stops too early:\n%s", kept)
+	}
+}
+
+func TestRunKeepsNoLogUnlessAsked(t *testing.T) {
+	dir, prdPath := project(t, "US-001", "Test Story")
+	runGit(t, dir, "checkout", "-b", "work")
+
+	res, _ := run(t, Options{
+		PRDPath:  prdPath,
+		BaseDir:  dir,
+		Provider: &testProvider{script: agentScript(t, dir, "feat: demo/US-001 - Test Story")},
+		Config:   &config.Config{},
+	})
+
+	if _, asked := res.Actions["log"]; asked {
+		t.Errorf("a run that was not asked to keep its log kept one: %v", res.Actions)
+	}
+	if tracked := runGit(t, dir, "ls-files", "--", ".chief"); strings.Contains(tracked, ".log") {
+		t.Errorf("a log file turned up in the branch unasked:\n%s", tracked)
+	}
+}
