@@ -132,12 +132,17 @@ func (a *App) hasWorktreeInfo() bool {
 	return branch != ""
 }
 
-// effectiveHeaderHeight returns the header height accounting for worktree info line.
+// effectiveHeaderHeight returns the header height accounting for the optional
+// lines below the tab bar: the worktree's branch, and the box that is billing.
 func (a *App) effectiveHeaderHeight() int {
+	extra := 0
 	if a.hasWorktreeInfo() {
-		return headerHeight + 1
+		extra++
 	}
-	return headerHeight
+	if a.hasBoxInfo() {
+		extra++
+	}
+	return headerHeight + extra
 }
 
 // renderWorktreeInfoLine renders the branch and directory info line for the header.
@@ -226,13 +231,25 @@ func (a *App) renderHeader() string {
 	// Worktree info line (only shown when branch is set)
 	worktreeInfoLine := a.renderWorktreeInfoLine()
 
+	// The box this project is paying for, if it has one.
+	boxInfoLine := a.renderBoxInfoLine()
+
 	// Add a border below
 	border := a.fullWidthDivider()
 
-	if worktreeInfoLine != "" {
-		return lipgloss.JoinVertical(lipgloss.Left, headerLine, tabBarLine, worktreeInfoLine, border)
+	return joinHeader(headerLine, tabBarLine, worktreeInfoLine, boxInfoLine, border)
+}
+
+// joinHeader stacks the header's lines, leaving out the optional ones that have
+// nothing to say.
+func joinHeader(headerLine, tabBarLine, worktreeInfoLine, boxInfoLine, border string) string {
+	lines := []string{headerLine, tabBarLine}
+	for _, optional := range []string{worktreeInfoLine, boxInfoLine} {
+		if optional != "" {
+			lines = append(lines, optional)
+		}
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, headerLine, tabBarLine, border)
+	return lipgloss.JoinVertical(lipgloss.Left, append(lines, border)...)
 }
 
 // rateLimitChip is the header's usage chip for the current PRD's limit report,
@@ -288,13 +305,13 @@ func (a *App) renderNarrowHeader() string {
 	// Worktree info line (only shown when branch is set)
 	worktreeInfoLine := a.renderWorktreeInfoLine()
 
+	// The box this project is paying for, if it has one.
+	boxInfoLine := a.renderBoxInfoLine()
+
 	// Add a border below
 	border := a.fullWidthDivider()
 
-	if worktreeInfoLine != "" {
-		return lipgloss.JoinVertical(lipgloss.Left, headerLine, tabBarLine, worktreeInfoLine, border)
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, headerLine, tabBarLine, border)
+	return joinHeader(headerLine, tabBarLine, worktreeInfoLine, boxInfoLine, border)
 }
 
 // renderFooter renders the footer with keyboard shortcuts, PRD name, and activity line.

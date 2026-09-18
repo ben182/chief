@@ -396,6 +396,9 @@ done; at current Hetzner prices a five-hour run costs under thirty cents of
 computer — under five if it is happy on two cores — which is two orders of
 magnitude less than the tokens it spends.
 
+For the whole picture — why a box, what it is built with, what leaves it, and how
+it switches itself off — see [Running on a Box](/concepts/the-box).
+
 ```bash
 chief box config        # pick the location and the machine size, once
 chief box up <prd>      # create the box, put the project on it, start the run
@@ -412,7 +415,9 @@ chief box down          # destroy it — this is what stops the billing
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--down-when-done` | Wait for the run to end, then destroy the box (`run` only) | `false` |
+| `--keep` | Leave the box standing when the run ends, instead of letting it destroy itself | `box.keep`, else `false` |
+| `--max-hours <n>` | The box's outside limit: it stops the run and destroys itself this long after booting | `box.maxHours`, else `12` |
+| `--down-when-done` | Wait for the run to end, then destroy the box at once, rather than after its own grace period (`run` only) | `false` |
 | `--worktree` | Run in the PRD's own worktree on the box | On when the project configures `worktree.setup` |
 | `--verbose` | Put the agent's narration in the box's log | `false` |
 | `--max-iterations <n>`, `-n` | Cap the run's iterations | Dynamic |
@@ -432,10 +437,38 @@ chief box down          # destroy it — this is what stops the billing
 | `--all` | Destroy every box in your Hetzner project, not just this project's |
 | `--name <name>` | Destroy one box by name, whichever checkout created it |
 
+#### The box switches itself off
+
+A box destroys itself once its work is somewhere else. When the run finishes
+successfully a timer starts, and twenty minutes later a script on the box pushes
+anything still only there, checks that nothing is, and deletes the machine
+through the Hetzner API. Whatever else happens, `--max-hours` after boot (twelve
+by default) the run is stopped and the same script runs — the backstop for a run
+that hangs rather than ends.
+
+Two things it will not do. It never destroys a machine still holding commits
+that exist nowhere else: it says so in the journal and tries again in an hour. And
+a run that ended with stories unresolved does not start the first timer at all,
+because that is the box you want to `chief box ssh` into or `chief box retry` —
+it lives until the deadline instead.
+
+`--keep` builds the old behaviour, where `chief box down` is the only thing that
+stops the bill. The Hetzner token has to be on the box for any of this, root-only
+and never in the cloud-config; keep chief's boxes in a Hetzner project of their
+own, and see [Running on a Box](/concepts/the-box#the-box-switches-itself-off)
+for what that does and does not protect.
+
+A box that destroyed itself leaves its record behind in the checkout. `up`,
+`logs` and `status` notice the machine is gone, say so, and clear it.
+
 #### What the run leaves behind
 
 A box run commits its log next to the PRD (`run-<date>-<time>.log`) and pushes it
-with the branch, alongside the run summary. This is not a preference: the box
+with the branch, alongside the run summary. **It pushes whatever the project
+configured**: `onComplete.push` is a setting about a laptop, where the commits
+are still there in the morning either way, and on a machine created to be
+destroyed that default is simply wrong. The log says when it went against your
+config. This is not a preference: the box
 writes its log into its own systemd journal, and the journal dies with the
 machine — often overnight, destroyed by the same `--down-when-done` that waited
 for the run. The branch is the only thing that outlives the box, so that is where
@@ -495,7 +528,9 @@ pushed.
 
 `chief box run` follows the log until the run actually ends, then says how it
 went and — with `onComplete.notify` on — sends a desktop notification on *this*
-machine. That is a different thing from the notification chief already had: that
+machine. Both `run` and `logs` reconnect when the connection drops and resume
+exactly where they left off, so a laptop that slept for a minute does not end the
+log where it would otherwise simply stop moving. That is a different thing from the notification chief already had: that
 one fires wherever the run happens, which for a box is a server with no display,
 where it reaches nobody.
 

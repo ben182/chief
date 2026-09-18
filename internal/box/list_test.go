@@ -130,15 +130,15 @@ func TestFormatAgeReadsLikeABill(t *testing.T) {
 		// moment somebody realises how long it has been.
 		{51 * time.Hour, "2d 3h"},
 	} {
-		if got := formatAge(tc.d); got != tc.want {
-			t.Errorf("formatAge(%s) = %q, want %q", tc.d, got, tc.want)
+		if got := FormatAge(tc.d); got != tc.want {
+			t.Errorf("FormatAge(%s) = %q, want %q", tc.d, got, tc.want)
 		}
 	}
 }
 
 func TestFormatEURDoesNotShowAnUnknownPriceAsFree(t *testing.T) {
-	if got := formatEUR(-1); got == "€0.00" || strings.Contains(got, "0") {
-		t.Errorf("formatEUR(unknown) = %q, which reads as free", got)
+	if got := FormatEUR(-1); got == "€0.00" || strings.Contains(got, "0") {
+		t.Errorf("FormatEUR(unknown) = %q, which reads as free", got)
 	}
 }
 

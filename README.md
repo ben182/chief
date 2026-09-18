@@ -45,6 +45,21 @@ Chief runs Claude in a [Ralph Wiggum loop](https://ghuntley.com/ralph/): each it
 
 See the [documentation](https://ben182.github.io/chief/concepts/how-it-works) for details.
 
+## Run it on a box
+
+A run takes hours, and for those hours it owns your laptop. `chief box` puts it
+on a cloud instance built for your project instead:
+
+```bash
+chief box token          # once, ever: the credentials a box needs
+chief box up auth        # create the box, put the project on it, start the run
+```
+
+The run survives the terminal, the closed lid and the night. What it builds is
+pushed to origin, the box destroys itself once the work is there, and a five-hour
+run costs under thirty cents of computer. See
+[Running on a Box](https://ben182.github.io/chief/concepts/the-box).
+
 ## Requirements
 
 - **[Claude Code CLI](https://code.claude.com/docs/en/setup)**, **[Codex CLI](https://developers.openai.com/codex/cli/reference)**, **[OpenCode CLI](https://opencode.ai)**, or **[Gemini CLI](https://github.com/google-gemini/gemini-cli)** installed and authenticated

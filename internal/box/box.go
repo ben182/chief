@@ -372,6 +372,10 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 		Location: location,
 		HostKey:  host.Public,
 		Created:  time.Now(),
+		// Best-effort, and asked once: what this machine costs per hour does not
+		// change while it exists, and recording it here is what lets anything
+		// afterwards say what the box has run up without a token or a network.
+		HourlyEUR: hourlyPrice(ctx, api, location, instanceType),
 	}
 	// Record it before anything else can fail: an instance that exists but was
 	// never written down is one the user pays for and cannot find again.
@@ -618,6 +622,18 @@ func boxMaxHours(opts UpOptions) int {
 		return opts.MaxHours
 	}
 	return DefaultMaxHours
+}
+
+// hourlyPrice is what a machine of this type costs per hour in this location,
+// or zero when the price list did not answer. A box worth creating is not worth
+// refusing over a price lookup.
+func hourlyPrice(ctx context.Context, api *hetzner, location, instanceType string) float64 {
+	catalog, err := api.catalog(ctx)
+	if err != nil {
+		return 0
+	}
+	price, _ := priceOf(catalog, location, instanceType)
+	return price
 }
 
 // prNote says whether a pull request follows the push, so the last line of `up`

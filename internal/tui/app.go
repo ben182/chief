@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ben182/chief/internal/awake"
+	"github.com/ben182/chief/internal/box"
 	"github.com/ben182/chief/internal/config"
 	"github.com/ben182/chief/internal/git"
 	"github.com/ben182/chief/internal/loop"
@@ -80,6 +81,12 @@ type App struct {
 	// one only has whatever its branch happens to hold.
 	pendingWorktreeReused bool
 	pendingSyncBranch     string // Branch awaiting reconciliation with origin, for DialogBranchBehindRemote
+
+	// The box this project is paying for, as the dashboard's header line reads
+	// it, and when that record was last looked at. Nil means no box; see
+	// box_notice.go for why the answer is cached rather than read every frame.
+	box          *box.State
+	boxCheckedAt time.Time
 
 	// Pre-run sleep warning dialog
 	sleepWarning *SleepWarning

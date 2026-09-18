@@ -32,6 +32,12 @@ type State struct {
 	Location string `json:"location,omitempty"`
 	// Created is when the box started billing.
 	Created time.Time `json:"created"`
+	// HourlyEUR is what this machine costs per hour where it is running,
+	// recorded when it was created. It is written down rather than looked up so
+	// that anything showing what a box has cost — chief's own status bar, an
+	// hour into a run — can do it without a network call and without a token.
+	// Zero means the price could not be established.
+	HourlyEUR float64 `json:"hourlyEUR,omitempty"`
 }
 
 // Age is how long the box has existed, which is what it has cost so far.

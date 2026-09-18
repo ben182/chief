@@ -100,7 +100,7 @@ func listWith(ctx context.Context, baseDir string, out io.Writer, api *hetzner) 
 		// is the one thing this command must never imply.
 		rep.step("%s, cost unknown", plural(len(boxes), "box", "boxes"))
 	} else {
-		rep.step("%s, %s so far", plural(len(boxes), "box", "boxes"), formatEUR(total))
+		rep.step("%s, %s so far", plural(len(boxes), "box", "boxes"), FormatEUR(total))
 	}
 	for _, b := range boxes {
 		marker := ""
@@ -108,7 +108,7 @@ func listWith(ctx context.Context, baseDir string, out io.Writer, api *hetzner) 
 			marker = "  ← this project"
 		}
 		rep.detail("%-34s %-6s %-6s %8s  %8s%s",
-			b.Name, b.Type, b.Location, formatAge(b.Age), formatEUR(b.CostEUR), marker)
+			b.Name, b.Type, b.Location, FormatAge(b.Age), FormatEUR(b.CostEUR), marker)
 	}
 
 	// Only worth saying when there is something here the current checkout cannot
@@ -131,10 +131,10 @@ func priceOf(c Catalog, location, typeName string) (float64, bool) {
 	return 0, false
 }
 
-// formatEUR renders money the way the list needs it: cents while it is cents,
+// FormatEUR renders money the way the list needs it: cents while it is cents,
 // because a column of "€0.00" tells nobody anything, and an unknown price as a
 // dash rather than a zero.
-func formatEUR(eur float64) string {
+func FormatEUR(eur float64) string {
 	switch {
 	case eur < 0:
 		return "—"
@@ -145,10 +145,10 @@ func formatEUR(eur float64) string {
 	}
 }
 
-// formatAge renders a duration the way somebody reads a bill: days once there
+// FormatAge renders a duration the way somebody reads a bill: days once there
 // are days, because "51h" is a number you have to stop and convert, and the
 // conversion is the moment you realise how long it has been.
-func formatAge(d time.Duration) string {
+func FormatAge(d time.Duration) string {
 	switch {
 	case d < time.Hour:
 		return fmt.Sprintf("%dm", int(d.Minutes()))
