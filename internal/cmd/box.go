@@ -11,6 +11,7 @@ import (
 	"github.com/ben182/chief/internal/box"
 	"github.com/ben182/chief/internal/cli"
 	"github.com/ben182/chief/internal/config"
+	"github.com/ben182/chief/internal/notify"
 	"github.com/ben182/chief/internal/tui"
 )
 
@@ -25,7 +26,7 @@ Commands:
   token         Set up the credentials a box needs (asks only for what is missing)
   config        Pick the location and the machine size, once, for this project
   up <prd>      Create a box, put the project on it, and start the run
-  run <prd>     The same, then follow the log until you stop watching
+  run <prd>     The same, then follow the log and say when the run ends
   retry         Put the project on the box that is already there, and start it
   logs          Follow the running box's log
   status        What the box is doing, and how long it has been billing
@@ -372,23 +373,37 @@ func runBoxRetry(ctx context.Context, baseDir string, opts BoxOptions) error {
 
 // followRun watches a run that was just started, and destroys the box
 // afterwards when that was asked for.
+//
+// Both forms wait for the run rather than for the reader. Following the log
+// until the reader stops looking was the older behaviour of the plain `run`,
+// and it has the flaw that a finished run looks exactly like a quiet one:
+// journalctl keeps following a unit that has ended, so the screen simply stops
+// moving. Waiting for the end means there is a moment to report — and something
+// to report it with.
 func followRun(ctx context.Context, baseDir string, opts BoxOptions) error {
-	if !opts.DownWhenDone {
-		fmt.Fprintf(os.Stderr, "\n==> Following the log. Ctrl-C stops watching; the run keeps going.\n\n")
-		_ = box.Logs(ctx, baseDir, os.Stdout)
-		fmt.Fprintln(os.Stderr)
-		return box.Status(context.WithoutCancel(ctx), baseDir, os.Stderr)
+	if opts.DownWhenDone {
+		fmt.Fprintf(os.Stderr, "\n==> Following the log. The box is destroyed when the run ends.\n")
+		fmt.Fprintf(os.Stderr, "    Ctrl-C stops watching — and then the box stays up, billing.\n\n")
+	} else {
+		fmt.Fprintf(os.Stderr, "\n==> Following the log until the run ends. Ctrl-C stops watching;\n")
+		fmt.Fprintf(os.Stderr, "    the run keeps going, and so does the billing.\n\n")
 	}
 
-	fmt.Fprintf(os.Stderr, "\n==> Following the log. The box is destroyed when the run ends.\n")
-	fmt.Fprintf(os.Stderr, "    Ctrl-C stops watching — and then the box stays up, billing.\n\n")
-	if err := box.Watch(ctx, baseDir, os.Stdout); err != nil {
+	outcome, err := box.Watch(ctx, baseDir, os.Stdout)
+	if err != nil {
 		// Interrupted rather than finished. The box is still there on purpose:
 		// nobody asked for a machine to be destroyed because a terminal was
 		// closed, and the run on it is still going. Ctrl-C is how somebody says
 		// "I have seen enough", which is not a failure to report as one.
 		fmt.Fprintf(os.Stderr, "\n==> Stopped watching. The box is still up — 'chief box down' ends it.\n")
 		return nil //nolint:nilerr // an interrupted watch is a choice, not an error
+	}
+
+	notifyRunEnded(baseDir, outcome)
+
+	if !opts.DownWhenDone {
+		fmt.Fprintln(os.Stderr)
+		return box.Status(context.WithoutCancel(ctx), baseDir, os.Stderr)
 	}
 
 	fmt.Fprintln(os.Stderr)
@@ -400,6 +415,33 @@ func followRun(ctx context.Context, baseDir string, opts BoxOptions) error {
 		Confirm: confirm,
 		Out:     os.Stderr,
 	})
+}
+
+// notifyRunEnded pings this machine when a box run it was watching has ended.
+//
+// The notification chief already sends fires on the machine the run happens on
+// — which, for a box, is the box: a server with no display, where notify-send
+// reaches nobody. This is the same ping, sent from the side that has a screen.
+// It only works while this command is still watching, which is the point: a
+// laptop that is awake and watching is exactly the case a banner is for, and a
+// laptop that is asleep is the case the pull request in the morning is for.
+//
+// Governed by onComplete.notify, the same switch as every other run's, because
+// somebody who turned notifications off meant all of them.
+func notifyRunEnded(baseDir string, outcome box.Outcome) {
+	cfg, err := config.Load(baseDir)
+	if err != nil || !cfg.OnComplete.Notify {
+		return
+	}
+	name := ""
+	if s, ok := box.LoadState(baseDir); ok {
+		name = s.PRD
+	}
+	title := "chief box"
+	if name != "" {
+		title += ": " + name
+	}
+	notify.Send(title, outcome.Describe())
 }
 
 // runBoxConfig asks where this project's boxes should run and on what, and

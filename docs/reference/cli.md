@@ -399,7 +399,7 @@ magnitude less than the tokens it spends.
 ```bash
 chief box config        # pick the location and the machine size, once
 chief box up <prd>      # create the box, put the project on it, start the run
-chief box run <prd>     # the same, then follow the log until you stop watching
+chief box run <prd>     # the same, then follow the log and say when it ends
 chief box retry         # put the project on the box that is already there
 chief box logs          # follow the running box's log
 chief box status        # what it is doing, and how long it has been billing
@@ -490,6 +490,19 @@ checkout.
 `chief box down --all` is what does something about the list; `--name` picks one
 out of it. Both ask once, up front, naming the boxes that hold commits nobody
 pushed.
+
+#### Being told the run ended
+
+`chief box run` follows the log until the run actually ends, then says how it
+went and — with `onComplete.notify` on — sends a desktop notification on *this*
+machine. That is a different thing from the notification chief already had: that
+one fires wherever the run happens, which for a box is a server with no display,
+where it reaches nobody.
+
+So the ping arrives when your machine is awake and still watching, which is the
+only case a banner is any use in. A laptop that was asleep is what the assigned
+pull request is for the next morning. And a run that is still going when you hit
+Ctrl-C leaves the box up, untouched, with no notification to give.
 
 `chief box run --down-when-done` closes the same gap from the other end: it
 follows the log, waits for the run to actually finish, and then destroys the

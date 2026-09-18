@@ -1218,16 +1218,56 @@ const pollInterval = 20 * time.Second
 // is up, so an immediate "inactive" means "not yet", not "finished".
 const startGrace = 2 * time.Minute
 
-// Watch follows the run's log and returns when the run itself has ended.
+// Outcome is how the run ended, as the box's own service manager saw it.
+//
+// It is read rather than inferred because the alternative — deciding from the
+// log — means parsing prose that exists to be read by a person. systemd has the
+// answer already: what it made of the process, and what the process itself
+// said on the way out. chief's headless mode exits non-zero when it ends with
+// stories unresolved, so those two together are the whole verdict.
+type Outcome struct {
+	// Result is systemd's own word for it: "success", "exit-code", "signal",
+	// "timeout", and a few more. Empty when the box could not be asked.
+	Result string
+	// Status is the exit status of the run itself: 0 when every story was
+	// resolved, 1 when the run ended with work left.
+	Status int
+}
+
+// Completed reports whether the run finished with everything resolved.
+func (o Outcome) Completed() bool { return o.Result == "success" && o.Status == 0 }
+
+// Describe is the outcome in the few words a notification has room for.
+func (o Outcome) Describe() string {
+	switch {
+	case o.Result == "":
+		// The run ended and the box did not say how — most likely it stopped
+		// answering. Saying "finished" here would be a guess presented as a fact.
+		return "ended — the box did not say how"
+	case o.Completed():
+		return "done — every story resolved"
+	case o.Result == "exit-code":
+		return "ended with work left"
+	case o.Result == "signal" || o.Result == "core-dump":
+		return "killed"
+	case o.Result == "timeout":
+		return "timed out"
+	default:
+		return "ended (" + o.Result + ")"
+	}
+}
+
+// Watch follows the run's log and returns when the run itself has ended,
+// reporting how it went.
 //
 // It is the difference between `box run`, which shows the log until you stop
 // looking, and a command that can do something afterwards. Nothing about the
 // box changes here: the run is on the machine, and interrupting this leaves it
 // exactly as it was.
-func Watch(ctx context.Context, baseDir string, out io.Writer) error {
+func Watch(ctx context.Context, baseDir string, out io.Writer) (Outcome, error) {
 	s, ok := LoadState(baseDir)
 	if !ok {
-		return errNoBox
+		return Outcome{}, errNoBox
 	}
 	r := remote{user: remoteUser, host: s.IP, knownHosts: knownHostsFor(baseDir, s)}
 	unit := shellQuote("chief-run@" + s.PRD)
@@ -1244,7 +1284,7 @@ func Watch(ctx context.Context, baseDir string, out io.Writer) error {
 	var everRan bool
 	for {
 		if !sleep(ctx, pollInterval) {
-			return ctx.Err()
+			return Outcome{}, ctx.Err()
 		}
 		state, err := r.run(ctx, "systemctl is-active "+unit)
 		if err != nil && state == "" {
@@ -1257,8 +1297,28 @@ func Watch(ctx context.Context, baseDir string, out io.Writer) error {
 			everRan = true
 		default:
 			if everRan || time.Since(started) > startGrace {
-				return nil
+				return unitOutcome(ctx, r, unit), nil
 			}
 		}
 	}
+}
+
+// unitOutcome asks the box how the run ended. A box that will not answer gives
+// a zero Outcome, which says exactly that rather than claiming success.
+func unitOutcome(ctx context.Context, r remote, unit string) Outcome {
+	out, err := r.ask(ctx, "systemctl show "+unit+" -p Result -p ExecMainStatus --value", 20*time.Second)
+	if err != nil {
+		return Outcome{}
+	}
+	var o Outcome
+	fields := strings.Fields(out)
+	if len(fields) > 0 {
+		o.Result = fields[0]
+	}
+	if len(fields) > 1 {
+		if _, err := fmt.Sscanf(fields[1], "%d", &o.Status); err != nil {
+			o.Status = 0
+		}
+	}
+	return o
 }

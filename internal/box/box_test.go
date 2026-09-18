@@ -1075,3 +1075,40 @@ func TestProvisionTimeoutGrowsWithWhatIsInstalled(t *testing.T) {
 		t.Errorf("the fullest profile gets %s, want it capped at %s", everything, maxProvision)
 	}
 }
+
+func TestOutcomeSaysHowTheRunEnded(t *testing.T) {
+	cases := []struct {
+		name    string
+		outcome Outcome
+		done    bool
+		says    string
+	}{
+		{"finished with everything resolved", Outcome{Result: "success"}, true, "done"},
+		// chief's headless mode exits 1 when it ends with stories unresolved, and
+		// systemd reports that as exit-code. Calling it "done" would be a lie told
+		// to somebody who is about to stop looking.
+		{"stories left over", Outcome{Result: "exit-code", Status: 1}, false, "work left"},
+		{"killed", Outcome{Result: "signal"}, false, "killed"},
+		{"timed out", Outcome{Result: "timeout"}, false, "timed out"},
+		{"something else", Outcome{Result: "start-limit-hit"}, false, "start-limit-hit"},
+		// A box that stopped answering has not told us anything, and the one thing
+		// the notification must never do is claim success on its behalf.
+		{"the box did not answer", Outcome{}, false, "did not say"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := c.outcome.Completed(); got != c.done {
+				t.Errorf("Completed() = %v, want %v", got, c.done)
+			}
+			if got := c.outcome.Describe(); !strings.Contains(got, c.says) {
+				t.Errorf("Describe() = %q, want it to say %q", got, c.says)
+			}
+		})
+	}
+
+	// A success that somehow carries a non-zero status is not a success.
+	odd := Outcome{Result: "success", Status: 2}
+	if odd.Completed() {
+		t.Error("an exit status of 2 was reported as a completed run")
+	}
+}
