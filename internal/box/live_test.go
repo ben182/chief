@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -243,4 +244,238 @@ func TestLiveListAndDown(t *testing.T) {
 // rather than trusting connect to return.
 func portAnswers(ip string, port int) bool {
 	return exec.Command("nc", "-z", "-G", "6", "-w", "6", ip, fmt.Sprint(port)).Run() == nil
+}
+
+// TestLiveBoxIsBuiltToTheProject creates a box from what discovery reads out
+// of a real project on this machine and checks, on the box, that everything the
+// profile promised is actually there: the PHP series and its extensions, the
+// package manager, the database with its account and database, Redis, the
+// browser libraries. It is the only way to know the PPA has the packages, the
+// installers still work unattended, and the SQL runs.
+//
+//	CHIEF_LIVE_BOX_TEST=1 CHIEF_LIVE_PROJECT=~/Herd/agency-os go test ./internal/box/ -run TestLiveBoxIsBuiltToTheProject -v -timeout 25m
+func TestLiveBoxIsBuiltToTheProject(t *testing.T) {
+	requireLiveBox(t)
+	dir := os.Getenv("CHIEF_LIVE_PROJECT")
+	if dir == "" {
+		t.Skip("set CHIEF_LIVE_PROJECT to the project the box should be built for")
+	}
+	ctx := context.Background()
+
+	profile := Discover(dir, DiscoverOptions{})
+	for _, line := range profile.Summary() {
+		t.Log(line)
+	}
+
+	// CHIEF_LIVE_BREAK=1 sabotages one provisioning step, to prove that a
+	// failure stops the script and reaches chief as the failed marker rather
+	// than as a ready box with a tool missing — which is what happened before.
+	if os.Getenv("CHIEF_LIVE_BREAK") == "1" {
+		profile.PackageManager, profile.PackageManagerVersion = "pnpm", "0.0.0-no-such-version"
+		if profile.Node == "" {
+			profile.Node = nodeMajor
+		}
+		t.Log("sabotaged: pnpm pinned to a version that does not exist")
+	}
+
+	// The project's name in the box's, so two of these started in the same
+	// second for different projects do not collide on Hetzner's unique names.
+	purpose := serverName(dir, "probe")
+	purpose = strings.TrimPrefix(purpose[:len(purpose)-7], "chief-") // liveBoxFor adds its own time
+	_, srv, host, project := liveBoxFor(t, purpose, profile)
+	state, _ := LoadState(project)
+	root := remote{user: "root", host: srv.IP(), knownHosts: knownHostsFor(project, state)}
+	if err := root.waitReachable(ctx, 4*time.Minute); err != nil {
+		t.Fatalf("never reachable: %v", err)
+	}
+	started := time.Now()
+	err := root.waitProvisioned(ctx, readyMarker, failedMarker, provisionTimeout)
+	if os.Getenv("CHIEF_LIVE_BREAK") == "1" {
+		if err == nil || !strings.Contains(err.Error(), "failed") {
+			t.Fatalf("the sabotaged box was reported as %v after %s, want the failed marker", err, time.Since(started).Round(time.Second))
+		}
+		if out, runErr := root.run(ctx, "test -f "+readyMarker+" && echo ready-exists; ls "+failedMarker); runErr == nil {
+			t.Logf("markers: %s", strings.ReplaceAll(out, "\n", " "))
+		}
+		t.Logf("the failure reached chief after %s: %v", time.Since(started).Round(time.Second), err)
+		return
+	}
+	if err != nil {
+		if log, logErr := root.run(ctx, "tail -40 /var/log/cloud-init-output.log"); logErr == nil {
+			t.Logf("last lines of the provisioning log:\n%s", log)
+		}
+		t.Fatalf("provisioning did not finish: %v", err)
+	}
+	t.Logf("provisioned in %s", time.Since(started).Round(time.Second))
+	_ = host
+
+	// Everything below runs as the user the run will run as, because that is
+	// who has to be able to reach all of it.
+	user := remote{user: remoteUser, host: srv.IP(), knownHosts: knownHostsFor(project, state)}
+	check := func(name, script, want string) {
+		t.Helper()
+		out, err := user.run(ctx, script)
+		if err != nil {
+			t.Errorf("%s: %v\n%s", name, err, out)
+			return
+		}
+		if want != "" && !strings.Contains(strings.ToLower(out), strings.ToLower(want)) {
+			t.Errorf("%s: want %q in:\n%s", name, want, out)
+			return
+		}
+		t.Logf("%s: %s", name, firstLines(out, 2))
+	}
+
+	check("claude", "claude --version", "")
+	check("gh", "gh --version", "gh version")
+
+	if profile.PHP != "" {
+		check("php", "php -v", "PHP "+profile.PHP)
+		check("composer", "composer --version", "Composer")
+		// php -m names modules rather than packages; the two differ where one
+		// package carries several modules.
+		modules := map[string]string{"xml": "dom", "mysql": "mysqli", "sqlite3": "sqlite3", "gd": "gd"}
+		for _, ext := range profile.Extensions {
+			module := ext
+			if m, ok := modules[ext]; ok {
+				module = m
+			}
+			check("extension "+ext, "php -m | grep -ix "+shellQuote(module), module)
+		}
+	}
+	if profile.Node != "" {
+		check("node", "node -v", "v"+profile.Node+".")
+	}
+	switch profile.PackageManager {
+	case "bun":
+		check("bun", "bun --version", "")
+	case "pnpm", "yarn":
+		check(profile.PackageManager, profile.PackageManager+" --version", "")
+	}
+
+	// The database, reached the way the rewritten .env would reach it: over
+	// TCP, as the box's account, into the project's database.
+	switch profile.Database {
+	case "pgsql":
+		check("postgres", "PGPASSWORD=chief psql -h 127.0.0.1 -U chief -d "+shellQuote(profile.DatabaseName)+" -tAc 'select current_database()'", profile.DatabaseName)
+		check("postgres superuser", "PGPASSWORD=chief psql -h 127.0.0.1 -U chief -d postgres -tAc 'create database chief_probe' && echo created", "created")
+	case "mysql":
+		check("mariadb", "mariadb -h 127.0.0.1 -u chief -pchief "+shellQuote(profile.DatabaseName)+" -Nse 'select database()'", profile.DatabaseName)
+		check("mariadb grants", "mariadb -h 127.0.0.1 -u chief -pchief -Nse 'create database chief_probe' && echo created", "created")
+	}
+	if profile.Redis {
+		check("redis", "redis-cli -h 127.0.0.1 ping", "PONG")
+	}
+	if profile.Meilisearch {
+		check("meilisearch", "curl -fsS http://127.0.0.1:7700/health", "available")
+	}
+	if profile.Browser {
+		// One of the libraries Chromium cannot start without, and that nothing
+		// but install-deps brings.
+		check("browser libraries", "dpkg -s libnss3 | grep -i '^Status'", "installed")
+	}
+	if profile.Chrome {
+		check("chrome", "google-chrome --version", "Google Chrome")
+	}
+	if profile.Go != "" {
+		check("go", "go version", "go"+profile.Go)
+	}
+
+	// And the .env translation, end to end: a file shaped like the project's
+	// goes over with the same rewrite Up applies, and the values in it have to
+	// open a connection from the box.
+	if profile.Database == "pgsql" || profile.Database == "mysql" {
+		local := filepath.Join(project, ".env")
+		if err := os.WriteFile(local, []byte("APP_NAME=probe\nDB_CONNECTION="+profile.Database+"\nDB_HOST=db.laptop.local\nDB_PORT=54329\nDB_DATABASE="+profile.DatabaseName+"\nDB_USERNAME=ben\nDB_PASSWORD=secret\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		changed, err := sendEnv(ctx, user, local, "/home/chief/probe.env", profile)
+		if err != nil {
+			t.Fatalf("sendEnv: %v", err)
+		}
+		t.Logf(".env keys rewritten: %s", strings.Join(changed, ", "))
+		connect := "PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -p $DB_PORT -U $DB_USERNAME -d $DB_DATABASE -tAc 'select 1'"
+		if profile.Database == "mysql" {
+			connect = "mariadb -h $DB_HOST -P $DB_PORT -u $DB_USERNAME -p$DB_PASSWORD $DB_DATABASE -Nse 'select 1'"
+		}
+		check(".env opens the database", "set -a; . /home/chief/probe.env; set +a; "+connect, "1")
+	}
+}
+
+// liveBoxFor is liveBox with a profile, so the box is built the way a project
+// would have it rather than to the base.
+func liveBoxFor(t *testing.T, purpose string, profile Profile) (*hetzner, server, hostKey, string) {
+	t.Helper()
+	ctx := context.Background()
+
+	token, err := resolveHetznerToken()
+	if err != nil {
+		t.Skipf("no Hetzner token: %v", err)
+	}
+	api := newHetzner(token)
+
+	host, err := generateHostKey(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := ensureSSHKey(ctx, api, reporter{out: os.Stderr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fw, _, err := api.ensureFirewall(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine := cheapestType(t, api)
+	name := fmt.Sprintf("chief-%s-%s", purpose, time.Now().Format("150405"))
+	srv, err := api.createServer(ctx, createServerOpts{
+		Name: name, Type: machine, Image: DefaultImage, Location: DefaultLocation,
+		SSHKeyID: key.ID, FirewallID: fw.ID,
+		UserData: cloudInit(cloudInitOptions{Hostname: name, HostKey: host, Profile: profile}),
+		Labels:   map[string]string{"managed-by": "chief"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("created %s (%s, %s) at %s", srv.Name, machine, DefaultImage, srv.IP())
+
+	project := t.TempDir()
+	state := State{
+		ServerID: srv.ID, Name: srv.Name, IP: srv.IP(), PRD: "probe",
+		Type: machine, Location: DefaultLocation,
+		HostKey: host.Public, Created: time.Now(),
+	}
+	if err := SaveState(project, state); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeKnownHosts(project, srv.IP(), host.Public); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := api.deleteServer(context.Background(), srv.ID); err != nil {
+			t.Errorf("SERVER %d (%s) NOT DELETED: %v", srv.ID, srv.Name, err)
+		} else {
+			t.Logf("destroyed %s", srv.Name)
+		}
+	})
+	return api, srv, host, project
+}
+
+// cheapestType is the least machine Hetzner will sell in the default location
+// right now. A test proves that provisioning works, not that it is fast, and
+// Hetzner bills every started hour — so the default's four cores would cost
+// twice as much for the same answer.
+func cheapestType(t *testing.T, api *hetzner) string {
+	t.Helper()
+	c, err := api.catalog(context.Background())
+	if err != nil {
+		t.Logf("could not read the catalogue (%v); using %s", err, DefaultType)
+		return DefaultType
+	}
+	for _, st := range c.TypesIn(DefaultLocation) {
+		if !st.Deprecated {
+			return st.Name
+		}
+	}
+	return DefaultType
 }

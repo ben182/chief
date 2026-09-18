@@ -103,7 +103,7 @@ func TestCloudInitInstallsWhatTheProfileAsksFor(t *testing.T) {
 	if !strings.Contains(runcmd, "setup_24.x") {
 		t.Error("Node 24 is not installed")
 	}
-	if !strings.Contains(runcmd, "bun.sh/install") || !strings.Contains(runcmd, "test -x /usr/local/bin/bun") {
+	if !strings.Contains(runcmd, "/usr/local/bin/bun") || !strings.Contains(runcmd, "test -x /usr/local/bin/bun") {
 		t.Error("Bun is not installed, or not checked")
 	}
 	if !strings.Contains(runcmd, "playwright install-deps") {
@@ -197,6 +197,41 @@ func TestCloudInitInstallsClaudeCodeFromItsRepository(t *testing.T) {
 	// provisioning rather than be a line in a log nobody reads.
 	if !strings.Contains(runcmd, "31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE") {
 		t.Error("the Claude Code signing key's fingerprint is never checked")
+	}
+}
+
+func TestCloudInitStopsAtTheFirstFailure(t *testing.T) {
+	_, runcmd, _ := parseCloudInit(t, cloudInitOptions{Hostname: "h", Profile: laravelProfile()})
+	lines := strings.Split(runcmd, "\n")
+
+	// cloud-init runs runcmd as one shell script and carries on past a failing
+	// line. The first real box proved it: Bun's download got a 504, the check
+	// after it failed too, and the ready marker was written regardless.
+	setE := -1
+	for i, l := range lines {
+		if strings.TrimSpace(l) == "set -e" {
+			setE = i
+			break
+		}
+	}
+	if setE < 0 {
+		t.Fatal("runcmd never turns on set -e; a failed step would not stop provisioning")
+	}
+	if setE > 1 {
+		t.Errorf("set -e is line %d of runcmd; everything before it can fail unnoticed", setE)
+	}
+	// And a failure has to be visible to chief, which is waiting on the other
+	// side of the network for a file: a second marker, written on the way out
+	// when the first was never reached.
+	if !strings.Contains(runcmd, "trap 'test -f "+readyMarker+" || touch "+failedMarker+"' EXIT") {
+		t.Error("no trap leaves the failed marker; chief would wait for the timeout")
+	}
+	// Downloads of binaries retry, because a CDN's 504 is not a final answer.
+	if !strings.Contains(runcmd, "bun-linux-x64.zip") || !strings.Contains(runcmd, "--retry-all-errors") {
+		t.Error("Bun is not fetched from its release zip with retries")
+	}
+	if strings.Contains(runcmd, "bun.sh/install") {
+		t.Error("Bun is still installed through the install script, which does not retry")
 	}
 }
 

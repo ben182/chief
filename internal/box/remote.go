@@ -188,6 +188,37 @@ func (r remote) waitFile(ctx context.Context, path string, timeout time.Duration
 	}
 }
 
+// waitProvisioned returns once the ready marker exists, and returns an error
+// the moment the failed marker does instead. A provisioning step that fails
+// leaves the second and never the first, and waiting twenty minutes to find
+// that out is the difference between a box that reports and one that stalls.
+func (r remote) waitProvisioned(ctx context.Context, ready, failed string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	script := "if test -f " + shellQuote(ready) + "; then echo ready; elif test -f " + shellQuote(failed) + "; then echo failed; fi"
+	for {
+		probe, cancel := context.WithTimeout(ctx, 20*time.Second)
+		out, err := r.run(probe, script)
+		cancel()
+		if err == nil {
+			switch strings.TrimSpace(out) {
+			case "ready":
+				return nil
+			case "failed":
+				return fmt.Errorf("a provisioning step failed on the box")
+			}
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("provisioning did not finish within %s", timeout)
+		}
+		if !sleep(ctx, 5*time.Second) {
+			return ctx.Err()
+		}
+	}
+}
+
 // sleep waits for d, reporting false when the context ended first.
 func sleep(ctx context.Context, d time.Duration) bool {
 	timer := time.NewTimer(d)

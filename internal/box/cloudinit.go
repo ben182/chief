@@ -218,6 +218,14 @@ runcmd:
   # being wrong here is a box that provisions perfectly and then cannot be worked
   # in.
   - chown chief:chief /home/chief
+  # cloud-init runs these as one shell script and, by default, carries on past
+  # a failing line. That was found out the hard way: a Bun download answered
+  # 504, the "test -x" meant to catch it failed as well, and the ready marker
+  # was written anyway — a box reported as provisioned with a tool missing.
+  # From here on the first failure stops the script, and the trap leaves the
+  # failed marker so chief stops waiting at once instead of at the timeout.
+  - set -e
+  - trap 'test -f /var/lib/cloud/chief-ready || touch /var/lib/cloud/chief-failed' EXIT
   # Give the chief user the key the instance was created with, so nothing has to
   # run as root to get work done.
   - mkdir -p /home/chief/.ssh
@@ -260,6 +268,11 @@ final_message: "chief box ready after $UPTIME seconds"
 		toolSteps(p),
 	)
 }
+
+// curlRetry is what every download of a binary gets. Release CDNs answer with
+// the occasional 504, and without --retry-all-errors curl treats that as a
+// final answer rather than a transient one.
+const curlRetry = "--retry 5 --retry-all-errors --retry-delay 3"
 
 // repositorySteps adds the package sources the profile needs before the one
 // apt-get install below can find them.
@@ -305,27 +318,31 @@ func toolSteps(p Profile) string {
 	var b strings.Builder
 
 	if p.PHP != "" {
-		b.WriteString(`
+		fmt.Fprintf(&b, `
   # Composer. HOME is set explicitly: runcmd runs without one, and the installer
   # refuses to do anything without it ("The HOME or COMPOSER_HOME environment
   # variable must be set"), which it reports on stdout while still exiting 0 —
   # so the failure is silent and composer is simply absent later.
-  - curl -fsSL https://getcomposer.org/installer -o /tmp/composer-setup.php
+  - curl -fsSL %[1]s https://getcomposer.org/installer -o /tmp/composer-setup.php
   - HOME=/root php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
   - rm -f /tmp/composer-setup.php
   # And a check, so a silent failure cannot reach the ready marker.
   - test -x /usr/local/bin/composer
-`)
+`, curlRetry)
 	}
 
 	switch p.PackageManager {
 	case "bun":
-		b.WriteString(`
-  # Bun, because that is what the lockfile was written by. Into /usr/local so
-  # it is on PATH for the run's user as well as for root.
-  - curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash
+		fmt.Fprintf(&b, `
+  # Bun, because that is what the lockfile was written by — the release zip
+  # rather than the install script, which downloads the same file without
+  # retrying and once met a 504 from GitHub. Into /usr/local so it is on PATH
+  # for the run's user as well as for root.
+  - curl -fsSL %[1]s https://github.com/oven-sh/bun/releases/latest/download/bun-linux-x64.zip -o /tmp/bun.zip
+  - unzip -oq /tmp/bun.zip -d /tmp/bun && install -m 0755 /tmp/bun/bun-linux-x64/bun /usr/local/bin/bun
+  - rm -rf /tmp/bun /tmp/bun.zip
   - test -x /usr/local/bin/bun
-`)
+`, curlRetry)
 	case "pnpm", "yarn":
 		if p.PackageManagerVersion != "" {
 			fmt.Fprintf(&b, `
@@ -351,31 +368,31 @@ func toolSteps(p Profile) string {
 `)
 	}
 	if p.Chrome {
-		b.WriteString(`
+		fmt.Fprintf(&b, `
   # Dusk drives Google Chrome itself rather than a bundled Chromium.
-  - curl -fsSL https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -o /tmp/chrome.deb
+  - curl -fsSL %[1]s https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -o /tmp/chrome.deb
   - apt-get install -y /tmp/chrome.deb
   - rm -f /tmp/chrome.deb
-`)
+`, curlRetry)
 	}
 
 	if p.Go != "" {
 		fmt.Fprintf(&b, `
   # Go %[1]s, the toolchain go.mod asks for, from the official tarball.
-  - curl -fsSL https://go.dev/dl/go%[1]s.linux-amd64.tar.gz -o /tmp/go.tgz
+  - curl -fsSL %[2]s https://go.dev/dl/go%[1]s.linux-amd64.tar.gz -o /tmp/go.tgz
   - rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tgz && rm -f /tmp/go.tgz
   - ln -sf /usr/local/go/bin/go /usr/local/bin/go
   - ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
-`, p.Go)
+`, p.Go, curlRetry)
 	}
 
 	if p.Meilisearch {
-		b.WriteString(`
+		fmt.Fprintf(&b, `
   # Meilisearch, for Scout. The installer drops the binary where it runs.
-  - cd /tmp && curl -fsSL https://install.meilisearch.com | sh
+  - cd /tmp && curl -fsSL %[1]s https://install.meilisearch.com | sh
   - install -m 0755 /tmp/meilisearch /usr/local/bin/meilisearch
   - systemctl enable --now meilisearch
-`)
+`, curlRetry)
 	}
 
 	switch p.Database {

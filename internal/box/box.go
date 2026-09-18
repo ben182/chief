@@ -54,6 +54,9 @@ const (
 	remoteUser    = "chief"
 	remoteProject = "/home/chief/project"
 	readyMarker   = "/var/lib/cloud/chief-ready"
+	// failedMarker is what the cloud-config leaves behind when a provisioning
+	// step fails, so the wait below can stop at once rather than at its timeout.
+	failedMarker = "/var/lib/cloud/chief-failed"
 )
 
 // How long each phase is given. Provisioning is apt working through a few
@@ -292,7 +295,7 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 	}
 
 	rep.step("Waiting for provisioning (%s)", opts.Profile.provisions())
-	if err := root.waitFile(ctx, readyMarker, provisionTimeout); err != nil {
+	if err := root.waitProvisioned(ctx, readyMarker, failedMarker, provisionTimeout); err != nil {
 		if log, logErr := root.run(ctx, "tail -30 /var/log/cloud-init-output.log"); logErr == nil {
 			rep.detail("last lines of the provisioning log:")
 			for _, line := range strings.Split(log, "\n") {
