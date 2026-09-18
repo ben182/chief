@@ -108,7 +108,7 @@ func ParseMarkdownPRDFromString(content string) (*PRD, error) {
 			flushStory()
 
 			heading := strings.TrimSpace(strings.TrimLeft(trimmed, "#"))
-			if strings.EqualFold(heading, "Introduction") || strings.EqualFold(heading, "Overview") {
+			if isIntroHeading(heading) {
 				introStarted = true
 				introDone = false
 			} else {
@@ -204,6 +204,20 @@ func ParseMarkdownPRDFromString(content string) (*PRD, error) {
 	p.Description = strings.Join(introLines, " ")
 
 	return p, nil
+}
+
+// introHeadingRegex matches the heading of a PRD's introduction, in the forms
+// PRDs actually carry it: "Introduction", "Overview", "1. Introduction/Overview"
+// (which is what chief's own template writes), a German "Einführung / Überblick"
+// or "Einleitung". Anything with one of those words in it, numbered or not.
+//
+// An exact match on "Introduction" was the rule before, and it meant the
+// pull request's Summary was empty for every PRD chief itself had produced.
+var introHeadingRegex = regexp.MustCompile(`(?i)\b(introduction|overview|einführung|einleitung|überblick)\b`)
+
+// isIntroHeading reports whether a section heading opens the introduction.
+func isIntroHeading(heading string) bool {
+	return introHeadingRegex.MatchString(heading)
 }
 
 // parseBlockedBy parses the value of a "**Blocked by:**" line into a list of

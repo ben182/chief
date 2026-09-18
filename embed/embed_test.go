@@ -48,6 +48,24 @@ func TestGetPrompt(t *testing.T) {
 	}
 }
 
+// TestGetPrompt_AlreadyCoveredStoryStillCommits pins the instruction for the
+// story whose work an earlier story already did. On the first full box run the
+// agent wrote the health endpoint's test alongside the endpoint (HE-001), then
+// found nothing left for the test story (HE-002), signalled done with no commit
+// five times, and the story was parked as needing review — while being done.
+func TestGetPrompt_AlreadyCoveredStoryStillCommits(t *testing.T) {
+	prompt := GetPrompt("/path/progress.md", `{"id":"HE-002"}`, "health", "HE-002", "Feature test", true)
+	if !strings.Contains(prompt, "--allow-empty") {
+		t.Error("the prompt never tells the agent how to close a story an earlier one already covered")
+	}
+	if !strings.Contains(prompt, `git commit --allow-empty -m "feat: health/HE-002 - Feature test"`) {
+		t.Errorf("the empty commit does not carry the story's own message:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "without any commit is treated as failed") {
+		t.Error("the prompt does not say why the commit matters")
+	}
+}
+
 func TestGetPrompt_NoFileReadInstruction(t *testing.T) {
 	prompt := GetPrompt("/path/progress.md", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
 

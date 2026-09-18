@@ -200,6 +200,42 @@ This is the introduction paragraph.
 	}
 }
 
+func TestParseMarkdownPRDFromString_IntroductionHeadingAsChiefWritesIt(t *testing.T) {
+	// chief's own template numbers the sections and joins the two words, and a
+	// PRD written in German uses neither word. The exact match on
+	// "Introduction" that used to be here left the pull request's Summary
+	// empty for all of them — the first thing a reviewer sees, saying nothing.
+	for name, heading := range map[string]string{
+		"chief's template": "### 1. Introduction/Overview",
+		"numbered":         "## 1. Introduction / Overview",
+		"german":           "## 1. Einführung / Überblick",
+		"einleitung":       "## Einleitung",
+	} {
+		t.Run(name, func(t *testing.T) {
+			md := "# PRD: Test\n\n" + heading + "\n\nWhat this is about,\nwrapped over two lines.\n\nMore context nobody needs in a summary.\n\n## Stories\n\n### US-001: First\n- [ ] Done\n"
+			p, err := ParseMarkdownPRDFromString(md)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p.Description != "What this is about, wrapped over two lines." {
+				t.Errorf("Description = %q for heading %q", p.Description, heading)
+			}
+		})
+	}
+
+	// A section that merely mentions the word in passing is not the intro.
+	if isIntroHeading("Goals of the overview page") {
+		// "overview" is in there; accepting it is the cost of not being exact.
+		// It is documented here so a future change knows it was a choice.
+		t.Log("a heading about an overview page counts as the intro — accepted")
+	}
+	for _, h := range []string{"Goals", "User Stories", "3. Technical Notes", "Intro"} {
+		if isIntroHeading(h) {
+			t.Errorf("%q was taken for the introduction", h)
+		}
+	}
+}
+
 func TestParseMarkdownPRDFromString_FreeSections(t *testing.T) {
 	md := `# Test Project
 
