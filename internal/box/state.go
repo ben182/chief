@@ -26,6 +26,10 @@ type State struct {
 	// that was known before the machine existed. Empty on a box created before
 	// chief pinned host keys.
 	HostKey string `json:"hostKey,omitempty"`
+	// Type and Location are the machine that was created, recorded so `status`
+	// can say what is billing without asking Hetzner again.
+	Type     string `json:"type,omitempty"`
+	Location string `json:"location,omitempty"`
 	// FirewallID is the firewall created alongside the box, which has to be
 	// destroyed with it — an orphaned firewall costs nothing but accumulates in
 	// the console until nobody can tell which are in use.

@@ -261,3 +261,35 @@ func resolveClaudeToken(ctx context.Context, interactive bool, out *os.File, err
 	_ = out
 	return token, nil
 }
+
+// gitHubTokenNote warns when the token going onto the box reaches further than
+// the project the box was created for, and returns "" when it does not.
+//
+// This is the widest thing a box holds, and the easiest to overlook. `gh auth
+// token` hands back the token behind `gh auth login`, which is an account-wide
+// credential: every repository the person can read, and every one they can push
+// to. It then sits in a file on a machine where an agent runs for hours with
+// permissions skipped, working on code and dependencies nobody read first.
+//
+// Nothing here refuses to proceed. The token is what makes the box work at all,
+// most projects are private repositories belonging to the person running this,
+// and a warning that blocks is a warning people route around. It names the
+// exposure once, and names the narrower thing.
+func gitHubTokenNote(token string) string {
+	token = strings.TrimSpace(token)
+	switch {
+	case strings.HasPrefix(token, "github_pat_"):
+		// Fine-grained: already scoped to chosen repositories.
+		return ""
+	case strings.HasPrefix(token, "ghs_"):
+		// A GitHub App installation token: scoped, and it expires within the hour.
+		return ""
+	case strings.HasPrefix(token, "gho_"), strings.HasPrefix(token, "ghp_"), strings.HasPrefix(token, "ghu_"):
+		return "the GitHub token reaches every repository your account does.\n" +
+			"      To narrow it to this one, put a fine-grained token in CHIEF_BOX_GH_TOKEN"
+	default:
+		// An unrecognised prefix. Saying nothing beats guessing wrong about
+		// somebody's enterprise setup.
+		return ""
+	}
+}

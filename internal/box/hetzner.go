@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -51,6 +52,19 @@ type server struct {
 			IP string `json:"ip"`
 		} `json:"ipv4"`
 	} `json:"public_net"`
+	// Created is when Hetzner started billing for it, which is the only
+	// trustworthy answer to how long a box has been running: the local record of
+	// it may have been deleted, or made on a different machine.
+	Created time.Time `json:"created"`
+	Type    struct {
+		Name string `json:"name"`
+	} `json:"server_type"`
+	Datacenter struct {
+		Location struct {
+			Name string `json:"name"`
+		} `json:"location"`
+	} `json:"datacenter"`
+	Labels map[string]string `json:"labels"`
 }
 
 // IP returns the server's public IPv4 address.
@@ -243,6 +257,26 @@ func (h *hetzner) deleteServer(ctx context.Context, id int64) error {
 		return nil
 	}
 	return err
+}
+
+// listServers returns every server matching a label selector.
+//
+// The selector is how a forgotten box is found at all. Local state says what
+// this checkout started; it says nothing about the box another checkout, or
+// another laptop, or a run three weeks ago left behind. The label chief puts on
+// every box it creates is the only thing that spans those.
+func (h *hetzner) listServers(ctx context.Context, labelSelector string) ([]server, error) {
+	var out struct {
+		Servers []server `json:"servers"`
+	}
+	path := "/servers?per_page=50"
+	if labelSelector != "" {
+		path += "&label_selector=" + url.QueryEscape(labelSelector)
+	}
+	if err := h.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Servers, nil
 }
 
 // availableTypes lists the server types that can actually be created in a

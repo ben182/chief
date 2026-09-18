@@ -28,10 +28,12 @@ Commands:
   run <prd>     The same, then follow the log until you stop watching
   logs          Follow the running box's log
   status        What the box is doing, and how long it has been billing
+  list          Every box in your Hetzner project, and what each has cost
   ssh [cmd]     A shell on the box, or run one command there
   down          Destroy the box — this is what stops the billing
 
 Options for up/run:
+  --down-when-done      Destroy the box once the run ends (run only)
   --worktree            Run in the PRD's own worktree on the box
   --verbose             Put the agent's narration in the box's log
   -n, --max-iterations  Cap the run's iterations
@@ -60,6 +62,7 @@ type BoxOptions struct {
 	Worktree      bool
 	Verbose       bool
 	Force         bool
+	DownWhenDone  bool
 	MaxIterations int
 
 	Type, Location, Image string
@@ -98,6 +101,8 @@ func ParseBoxArgs(args []string) (BoxOptions, error) {
 			o.Worktree = true
 		case arg == "--verbose":
 			o.Verbose = true
+		case arg == "--down-when-done":
+			o.DownWhenDone = true
 		case arg == "--force", arg == "-f":
 			o.Force = true
 		case arg == "--type":
@@ -181,6 +186,8 @@ func RunBox(ctx context.Context, opts BoxOptions) error {
 		return box.Logs(ctx, baseDir, os.Stdout)
 	case "status":
 		return box.Status(ctx, baseDir, os.Stdout)
+	case "list", "ls":
+		return box.List(ctx, baseDir, os.Stdout)
 	case "ssh":
 		return box.SSH(ctx, baseDir, opts.Command2, os.Stdout)
 	case "down":
@@ -277,13 +284,42 @@ func runBoxUp(ctx context.Context, baseDir string, opts BoxOptions) error {
 	}
 
 	if opts.Command == "run" {
+		return followRun(ctx, baseDir, opts)
+	}
+	_ = state
+	return nil
+}
+
+// followRun watches a run that was just started, and destroys the box
+// afterwards when that was asked for.
+func followRun(ctx context.Context, baseDir string, opts BoxOptions) error {
+	if !opts.DownWhenDone {
 		fmt.Fprintf(os.Stderr, "\n==> Following the log. Ctrl-C stops watching; the run keeps going.\n\n")
 		_ = box.Logs(ctx, baseDir, os.Stdout)
 		fmt.Fprintln(os.Stderr)
 		return box.Status(context.WithoutCancel(ctx), baseDir, os.Stderr)
 	}
-	_ = state
-	return nil
+
+	fmt.Fprintf(os.Stderr, "\n==> Following the log. The box is destroyed when the run ends.\n")
+	fmt.Fprintf(os.Stderr, "    Ctrl-C stops watching — and then the box stays up, billing.\n\n")
+	if err := box.Watch(ctx, baseDir, os.Stdout); err != nil {
+		// Interrupted rather than finished. The box is still there on purpose:
+		// nobody asked for a machine to be destroyed because a terminal was
+		// closed, and the run on it is still going. Ctrl-C is how somebody says
+		// "I have seen enough", which is not a failure to report as one.
+		fmt.Fprintf(os.Stderr, "\n==> Stopped watching. The box is still up — 'chief box down' ends it.\n")
+		return nil //nolint:nilerr // an interrupted watch is a choice, not an error
+	}
+
+	fmt.Fprintln(os.Stderr)
+	// Not forced: a run can end having committed work that was never pushed, and
+	// that work exists nowhere else. Down asks about it, and the answer at a
+	// terminal is a person's.
+	return box.Down(context.WithoutCancel(ctx), box.DownOptions{
+		BaseDir: baseDir,
+		Confirm: confirm,
+		Out:     os.Stderr,
+	})
 }
 
 // runBoxConfig asks where this project's boxes should run and on what, and

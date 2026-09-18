@@ -247,6 +247,8 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 		Name:       srv.Name,
 		IP:         srv.IP(),
 		PRD:        opts.PRD,
+		Type:       instanceType,
+		Location:   location,
 		HostKey:    host.Public,
 		FirewallID: fw.ID,
 		Created:    time.Now(),
@@ -292,6 +294,9 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 	rep.detail("provisioned")
 
 	rep.step("Installing chief and the credentials")
+	if note := gitHubTokenNote(opts.Secrets.GitHubToken); note != "" {
+		rep.detail("note: %s", note)
+	}
 	if err := root.copyFile(ctx, binary, "/usr/local/bin/chief"); err != nil {
 		return fail(err)
 	}
@@ -351,6 +356,7 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 	rep.detail("chief box logs     follow along")
 	rep.detail("chief box status   is it still running")
 	rep.detail("chief box down     destroy the box; this is what stops the billing")
+	rep.detail("chief box list     every box you have, and what it has cost")
 	return state, nil
 }
 
@@ -693,7 +699,11 @@ func Status(ctx context.Context, baseDir string, out io.Writer) error {
 		return errNoBox
 	}
 	rep := reporter{out: out}
-	rep.step("%s at %s — PRD %s, %s old", s.Name, s.IP, s.PRD, s.Age())
+	machine := ""
+	if s.Type != "" {
+		machine = fmt.Sprintf(" — %s in %s", s.Type, s.Location)
+	}
+	rep.step("%s at %s%s — PRD %s, %s old", s.Name, s.IP, machine, s.PRD, s.Age())
 
 	r := remote{user: remoteUser, host: s.IP, knownHosts: knownHostsFor(baseDir, s)}
 	unit := shellQuote("chief-run@" + s.PRD)
@@ -816,3 +826,57 @@ func unpushedCommits(ctx context.Context, baseDir string, s State) int {
 
 // errNoBox is what every command but `up` says when the project has none.
 var errNoBox = fmt.Errorf("no box for this project — start one with 'chief box up <prd>'")
+
+// pollInterval is how often Watch asks whether the run is still going. A run
+// takes hours; asking more often than this costs a connection and buys nothing.
+const pollInterval = 20 * time.Second
+
+// startGrace is how long a unit is allowed to not be running yet before Watch
+// concludes it never will. `systemctl start --no-block` returns before the unit
+// is up, so an immediate "inactive" means "not yet", not "finished".
+const startGrace = 2 * time.Minute
+
+// Watch follows the run's log and returns when the run itself has ended.
+//
+// It is the difference between `box run`, which shows the log until you stop
+// looking, and a command that can do something afterwards. Nothing about the
+// box changes here: the run is on the machine, and interrupting this leaves it
+// exactly as it was.
+func Watch(ctx context.Context, baseDir string, out io.Writer) error {
+	s, ok := LoadState(baseDir)
+	if !ok {
+		return errNoBox
+	}
+	r := remote{user: remoteUser, host: s.IP, knownHosts: knownHostsFor(baseDir, s)}
+	unit := shellQuote("chief-run@" + s.PRD)
+
+	// The log stream is its own context, so that finding the run has ended can
+	// stop the stream without also cancelling the caller's context.
+	streaming, stopStreaming := context.WithCancel(ctx)
+	defer stopStreaming()
+	go func() {
+		_ = r.stream(streaming, "journalctl -u "+unit+" -f --no-hostname -o cat", out)
+	}()
+
+	started := time.Now()
+	var everRan bool
+	for {
+		if !sleep(ctx, pollInterval) {
+			return ctx.Err()
+		}
+		state, err := r.run(ctx, "systemctl is-active "+unit)
+		if err != nil && state == "" {
+			// A box that stops answering mid-run is not a finished run, and
+			// destroying it on that basis would throw away work. Keep watching.
+			continue
+		}
+		switch strings.TrimSpace(state) {
+		case "active", "activating", "reloading":
+			everRan = true
+		default:
+			if everRan || time.Since(started) > startGrace {
+				return nil
+			}
+		}
+	}
+}
