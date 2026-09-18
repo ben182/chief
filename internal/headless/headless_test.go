@@ -240,6 +240,12 @@ func TestRunAbortsWhenWorktreeSetupFails(t *testing.T) {
 	if !strings.Contains(err.Error(), "setup failed") {
 		t.Errorf("error = %v, want it to name the setup failure", err)
 	}
+	// What the setup said is in the run's own log, not only in a file: a box
+	// destroyed when the run ends takes the file with it, and "exit status 3"
+	// alone explains nothing.
+	if !strings.Contains(log.String(), "nope") {
+		t.Errorf("the setup's output is not in the run log:\n%s", log.String())
+	}
 }
 
 func TestRunPushesAndSummarisesOnlyWhenConfigured(t *testing.T) {

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -409,6 +410,13 @@ func runSetup(ctx context.Context, log *logger, cfg config.WorktreeConfig, reuse
 		OnLine:  func(line string) { log.detail("setup", "%s", line) },
 	})
 	if err != nil {
+		// The output went to the log file, and line by line only into a verbose
+		// run. A failed setup is the one time the plain run needs to see it too:
+		// on a box that is destroyed when the run ends, the file named in the
+		// error is gone by the time anybody reads the error.
+		for _, line := range tailOf(res.LogPath, 20) {
+			log.event("setup", "%s", line)
+		}
 		if res.TimedOut {
 			return fmt.Errorf("headless: worktree setup timed out after %s (log: %s)", timeout, res.LogPath)
 		}
@@ -417,4 +425,23 @@ func runSetup(ctx context.Context, log *logger, cfg config.WorktreeConfig, reuse
 	log.event("setup", "done in %s", round(time.Since(started)))
 	_ = ctx
 	return nil
+}
+
+// tailOf returns the last n non-empty lines of a file, or nothing when it
+// cannot be read — a missing log is not a second error worth reporting.
+func tailOf(path string, n int) []string {
+	data, err := os.ReadFile(path) //nolint:gosec // a log file this run wrote
+	if err != nil {
+		return nil
+	}
+	var lines []string
+	for _, line := range strings.Split(strings.TrimRight(string(data), "\n"), "\n") {
+		if strings.TrimSpace(line) != "" {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return lines
 }
