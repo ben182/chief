@@ -391,8 +391,9 @@ chief list
 
 Runs a PRD on a throwaway cloud instance, so a run that takes hours does not take
 your machine with it. The box is created for the run and destroyed when you are
-done; at current Hetzner prices a five-hour run costs about five cents of
-computer, which is two orders of magnitude less than the tokens it spends.
+done; at current Hetzner prices a five-hour run costs under thirty cents of
+computer — under five if it is happy on two cores — which is two orders of
+magnitude less than the tokens it spends.
 
 ```bash
 chief box config        # pick the location and the machine size, once
@@ -413,7 +414,7 @@ chief box down          # destroy it — this is what stops the billing
 | `--worktree` | Run in the PRD's own worktree on the box | On when the project configures `worktree.setup` |
 | `--verbose` | Put the agent's narration in the box's log | `false` |
 | `--max-iterations <n>`, `-n` | Cap the run's iterations | Dynamic |
-| `--type <name>` | Hetzner server type | `box.type`, else `cx33` (4 vCPU, 8 GB, ~1 ct/h) |
+| `--type <name>` | Hetzner server type | `box.type`, else `cpx32` (4 vCPU, 8 GB, ~6 ct/h) |
 | `--location <name>` | Hetzner location | `box.location`, else `fsn1` |
 | `--image <name>` | Hetzner image | `box.image`, else `ubuntu-26.04` |
 | `--file <path>` | An untracked file the run needs; repeatable | `.env` |

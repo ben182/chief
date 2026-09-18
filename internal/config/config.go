@@ -41,7 +41,7 @@ type Config struct {
 // that never runs `chief box config` behaves exactly as it did before this
 // existed.
 type BoxConfig struct {
-	// Type is the Hetzner server type, e.g. "cx33".
+	// Type is the Hetzner server type, e.g. "cpx32".
 	Type string `yaml:"type,omitempty"`
 	// Location is the Hetzner location, e.g. "fsn1" for Falkenstein.
 	Location string `yaml:"location,omitempty"`

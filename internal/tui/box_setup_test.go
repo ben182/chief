@@ -18,7 +18,10 @@ func testCatalog() box.Catalog {
 		Types: map[string][]box.ServerType{
 			"fsn1": {
 				{Name: "cx22", Cores: 2, Memory: 4, Disk: 40, HourlyEUR: 0.0060},
-				{Name: "cx33", Cores: 4, Memory: 8, Disk: 80, HourlyEUR: 0.0119},
+				// Named after the real default, so the "opens on what you already
+				// use" behaviour is tested rather than coincidentally satisfied by
+				// whichever machine happens to sit at index zero.
+				{Name: box.DefaultType, Cores: 4, Memory: 8, Disk: 80, HourlyEUR: 0.0119},
 				{Name: "cx43", Cores: 8, Memory: 16, Disk: 160, HourlyEUR: 0.0304, Deprecated: true},
 			},
 			"ash": {
@@ -60,7 +63,7 @@ func TestBoxSetupReturnsBothChoices(t *testing.T) {
 	if m.location != "fsn1" {
 		t.Errorf("location = %q, want fsn1", m.location)
 	}
-	// Opened on cx33 (the default type), one down is cx43.
+	// Opened on the default type, one down is cx43.
 	if m.typeName != "cx43" {
 		t.Errorf("type = %q, want cx43", m.typeName)
 	}
@@ -98,8 +101,8 @@ func TestSizeScreenShowsWhatARunCosts(t *testing.T) {
 	m.width, m.height = 100, 40
 	view := m.View()
 
-	// 5 × 0.0119 is about six cents. A machine with no price beside it is a
-	// machine chosen blind.
+	// 5 × 0.0119 is about six cents for the default machine. One with no price
+	// beside it is a machine chosen blind.
 	if !strings.Contains(view, "6.0 cents") {
 		t.Errorf("no five-hour estimate for cx33 in the view:\n%s", view)
 	}

@@ -3,8 +3,9 @@
 // A chief run takes hours, and for those hours it owns the machine it runs on:
 // the CPU, the rate limit window, and the laptop that has to stay open. This
 // package moves the run onto a machine created for it and destroyed afterwards.
-// At current Hetzner prices a five-hour run costs about five cents of computer,
-// which is two orders of magnitude less than the tokens it spends.
+// At current Hetzner prices a five-hour run costs under thirty cents of
+// computer, which is two orders of magnitude less than the tokens it spends —
+// and less than five if the run is happy on two cores.
 //
 // The sequence is: create the instance from a generated cloud-config, upload the
 // chief binary this process is running, clone the project, copy over the files
@@ -30,15 +31,18 @@ import (
 // that suit a chief run rather than a server — a German region, and enough
 // cores that a test suite is not the slow part.
 const (
-	// DefaultType is 4 vCPU and 8 GB for about a cent an hour — enough that a
-	// test suite is not the slow part, on the cheaper of the two CPU lines.
+	// DefaultType is 4 vCPU and 8 GB for about six cents an hour — enough that a
+	// test suite is not the slow part. A five-hour run is under thirty cents,
+	// which is still two orders of magnitude below what it spends on tokens.
 	//
 	// Server types are generational: a line that is current today stops being
 	// bookable in a location when its successor arrives, while still appearing
-	// in the price list. If creating a box starts failing with "unsupported
-	// location", this is the constant to raise — the error says which types the
-	// location actually offers.
-	DefaultType = "cx33"
+	// in the price list. This constant was cx33 until the cx line shrank to a
+	// single 2-core machine in every European location, at which point every
+	// `chief box up` that had not been given a `--type` failed with "unsupported
+	// location". If that happens again, `chief box config` lists what is
+	// actually creatable today, and so does the error itself.
+	DefaultType = "cpx32"
 	// DefaultLocation is Falkenstein.
 	DefaultLocation = "fsn1"
 )
