@@ -416,9 +416,11 @@ chief box down          # destroy it — this is what stops the billing
 | `--max-iterations <n>`, `-n` | Cap the run's iterations | Dynamic |
 | `--type <name>` | Hetzner server type | `box.type`, else `cpx32` (4 vCPU, 8 GB, ~6 ct/h) |
 | `--location <name>` | Hetzner location | `box.location`, else `fsn1` |
-| `--image <name>` | Hetzner image | `box.image`, else `ubuntu-26.04` |
+| `--image <name>` | Hetzner image | `box.image`, else `ubuntu-24.04` |
+| `--php <series>` | PHP to install, e.g. `8.3` | `box.php`, else what this machine runs |
+| `--node <major>` | Node to install, e.g. `22` | `box.node`, else what this machine runs |
 | `--file <path>` | An untracked file the run needs; repeatable | `.env` |
-| `--package <name>` | An apt package to install on the box; repeatable | — |
+| `--package <name>` | An apt package to install on top of what was read from the project; repeatable | — |
 
 `down` takes `--force` to skip the question about commits the box never pushed.
 
@@ -469,20 +471,56 @@ location actually offers — pick one with `--type`.
 
 #### What happens on `up`
 
-1. **Builds chief for the box** from the checkout you are running, so the box
+1. **Reads the project** and prints what it found, before anything exists to
+   pay for. See [what the box is built with](#what-the-box-is-built-with).
+2. **Builds chief for the box** from the checkout you are running, so the box
    runs the chief you have rather than the last one that was released.
-2. **Creates the instance** and provisions it: PHP, PostgreSQL, Redis, Node,
-   Composer, the GitHub CLI, and Claude Code from its signed apt repository.
-3. **Clones the project** from `origin`, on the branch you are standing on.
-4. **Copies what git does not carry** — the PRD (`.chief` is gitignored in most
-   projects), `.chief/config.yaml`, and the files named by `--file`.
-5. **Starts the run** as a systemd unit, so it survives every dropped connection
+3. **Creates the instance** and provisions it with what step 1 read, plus the
+   GitHub CLI and Claude Code from its signed apt repository.
+4. **Clones the project** from `origin`, on the branch you are standing on.
+5. **Copies what git does not carry** — the PRD (`.chief` is gitignored in most
+   projects), `.chief/config.yaml`, and the files named by `--file`. The `.env`
+   is translated on the way, see below.
+6. **Starts the run** as a systemd unit, so it survives every dropped connection
    after that.
 
-Only the base is installed on the box. Everything specific to a project — its
-dependencies, its schema, its `.env` — belongs in that project's
+Only the machine is provisioned. Everything specific to a checkout — its
+dependencies, its schema, its build — belongs in that project's
 [`worktree.setup`](/reference/configuration#worktree-setup), which runs inside
 the checkout before the agent starts.
+
+#### What the box is built with
+
+There is no fixed list. Before creating anything, `up` reads the project and
+decides from that:
+
+| Read from | Decides |
+|-----------|---------|
+| `composer.json` | That there is PHP, and whether it is a Laravel app. Every `ext-*` it requires becomes a `php<series>-*` package. |
+| `composer.lock` | The `ext-*` every dependency requires, transitively — the ones `composer install` would otherwise fail on. |
+| Herd, then `php` on your PATH | **The PHP series**, so the box runs what you run. A site Herd has isolated to a version gets that version; otherwise the `php` in the project directory answers. Without either, `composer.json`'s platform pin, then the lowest version its constraint accepts. |
+| `.env` (or `.env.example`) | **The database server** — PostgreSQL, MariaDB or nothing for SQLite — from `DB_CONNECTION`, and the database to create from `DB_DATABASE`. Redis when any store is set to it (or Horizon is installed). Meilisearch when `SCOUT_DRIVER` says so. |
+| `phpunit.xml` | The driver the tests use, which is often not the one the app does; both get installed. |
+| `node` on your PATH, then `.nvmrc`, then `engines` | **The Node major**, the same way as PHP. |
+| The lockfile | **The package manager**: `bun.lock`, `pnpm-lock.yaml`, `yarn.lock`, else npm. A `packageManager` field in `package.json` pins the version. |
+| Dependencies | **Browser tests**: Pest's browser plugin, Playwright, Puppeteer or Browsershot bring Chromium's system libraries; Dusk brings Google Chrome. |
+| `go.mod` | The Go toolchain, and none of the above. |
+
+PHP comes from Ondřej Surý's PPA, which is why the image is Ubuntu 24.04 rather
+than the newest LTS: it is the one release every series from 8.0 to 8.5 is
+packaged for under the same names. `--php` and `--node` (or `box.php` and
+`box.node`) pin a version when the detection is wrong for a project, and
+`--package` adds what no manifest declares.
+
+**The `.env` is pointed at the box.** It is copied because a Laravel app cannot
+run without it, but it was written for your machine — Herd's or DBngin's
+database, on your host, as your user. On the box the same database exists,
+created from what was read out of that file, under the box's own account
+(`chief`, password `chief`). So `DB_HOST`, `DB_PORT`, `DB_USERNAME` and
+`DB_PASSWORD` are rewritten to the box's; `REDIS_HOST` and `MEILISEARCH_HOST`
+likewise when those are in use; an absolute SQLite path becomes the project's
+`database/database.sqlite`. Nothing else in the file is touched, and `up` lists
+the keys it changed.
 
 #### Credentials
 

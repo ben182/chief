@@ -3,6 +3,8 @@ package cmd
 import (
 	"strings"
 	"testing"
+
+	"github.com/ben182/chief/internal/box"
 )
 
 func TestParseBoxArgsReadsTheCommandAndPRD(t *testing.T) {
@@ -112,7 +114,7 @@ func TestBoxUsageNamesEveryCommandAndTheCostWarning(t *testing.T) {
 		t.Error("the usage never mentions that a box bills until it is destroyed")
 	}
 	// The defaults shown have to be the real ones, or they are worse than absent.
-	if !strings.Contains(BoxUsage, "ubuntu-26.04") {
+	if !strings.Contains(BoxUsage, box.DefaultImage) {
 		t.Error("the usage does not show the real default image")
 	}
 }

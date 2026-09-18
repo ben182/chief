@@ -141,6 +141,8 @@ func (s *SettingsOverlay) LoadFromConfig(cfg *config.Config) {
 		{Section: "Box", Label: "Location", Key: "box.location", Type: SettingsItemString, StringVal: cfg.Box.Location, Placeholder: box.DefaultLocation + " (default)"},
 		{Section: "Box", Label: "Server type", Key: "box.type", Type: SettingsItemString, StringVal: cfg.Box.Type, Placeholder: box.DefaultType + " (default)"},
 		{Section: "Box", Label: "Image", Key: "box.image", Type: SettingsItemString, StringVal: cfg.Box.Image, Placeholder: box.DefaultImage + " (default)"},
+		{Section: "Box", Label: "PHP version", Key: "box.php", Type: SettingsItemString, StringVal: cfg.Box.PHP, Placeholder: "(detected from the project)"},
+		{Section: "Box", Label: "Node version", Key: "box.node", Type: SettingsItemString, StringVal: cfg.Box.Node, Placeholder: "(detected from the project)"},
 		{Section: "Box", Label: "Extra packages", Key: "box.packages", Type: SettingsItemString, StringVal: joinList(cfg.Box.Packages), Placeholder: "(none), comma separated"},
 		{Section: "Box", Label: "Untracked files", Key: "box.files", Type: SettingsItemString, StringVal: joinList(cfg.Box.Files), Placeholder: ".env, comma separated"},
 	}
@@ -220,6 +222,10 @@ func (s *SettingsOverlay) ApplyToConfig(cfg *config.Config) {
 			cfg.Box.Type = item.StringVal
 		case "box.image":
 			cfg.Box.Image = item.StringVal
+		case "box.php":
+			cfg.Box.PHP = item.StringVal
+		case "box.node":
+			cfg.Box.Node = item.StringVal
 		case "box.packages":
 			cfg.Box.Packages = splitList(item.StringVal)
 		case "box.files":

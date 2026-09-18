@@ -49,8 +49,16 @@ type BoxConfig struct {
 	// the default is the current Ubuntu LTS, and the cloud-config that provisions
 	// the box assumes the package names that LTS ships.
 	Image string `yaml:"image,omitempty"`
-	// Packages are apt packages this project needs on top of the base, for the
-	// dependency that is not PHP, Node, Postgres or Redis.
+	// PHP pins the PHP series the box installs, e.g. "8.3". Empty lets chief
+	// work it out: the version Herd isolates this site to, else the php on this
+	// machine, else the lowest composer.json accepts.
+	PHP string `yaml:"php,omitempty"`
+	// Node pins the Node major the box installs, e.g. "22". Empty lets chief
+	// work it out the same way: this machine's node, else the project's .nvmrc,
+	// else the lowest package.json accepts.
+	Node string `yaml:"node,omitempty"`
+	// Packages are apt packages this project needs on top of what chief worked
+	// out from the project, for the dependency no manifest declares.
 	Packages []string `yaml:"packages,omitempty"`
 	// Files are paths, relative to the project, that git does not carry but the
 	// run needs. Empty means ".env" alone, which is the case for most projects.

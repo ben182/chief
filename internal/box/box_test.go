@@ -38,27 +38,148 @@ func TestCloudInitIsValidCloudConfig(t *testing.T) {
 	}
 }
 
-func TestCloudInitInstallsCurrentRuntimes(t *testing.T) {
-	out := cloudInit(cloudInitOptions{Hostname: "h"})
+// laravelProfile is what discovery reads out of a Laravel app like the one the
+// first real box was built for: pinned PHP, an extension no base list carries,
+// Postgres, Redis, Bun, and a browser-driven test suite.
+func laravelProfile() Profile {
+	return Profile{
+		Stack: StackLaravel, Framework: "Laravel 13",
+		PHP: "8.3", PHPFrom: "Herd, isolated for demo.test",
+		Extensions: []string{"curl", "imagick", "pgsql", "redis"},
+		Database:   "pgsql", DatabaseName: "agency_os", Redis: true,
+		Node: "24", NodeFrom: "the node on this machine", PackageManager: "bun",
+		Browser: true,
+	}
+}
+
+// parseCloudInit renders a cloud-config and returns its packages and runcmd
+// joined into searchable strings, failing the test if it is not valid YAML.
+func parseCloudInit(t *testing.T, opts cloudInitOptions) (packages, runcmd, files string) {
+	t.Helper()
+	out := cloudInit(opts)
 	var parsed struct {
-		Packages []string `yaml:"packages"`
-		Runcmd   []string `yaml:"runcmd"`
+		Packages   []string `yaml:"packages"`
+		Runcmd     []string `yaml:"runcmd"`
+		WriteFiles []struct {
+			Path    string `yaml:"path"`
+			Content string `yaml:"content"`
+		} `yaml:"write_files"`
 	}
 	if err := yaml.Unmarshal([]byte(out), &parsed); err != nil {
-		t.Fatal(err)
+		t.Fatalf("not valid YAML: %v\n%s", err, out)
 	}
-	packages := strings.Join(parsed.Packages, " ")
-	runcmd := strings.Join(parsed.Runcmd, "\n")
+	var f strings.Builder
+	for _, w := range parsed.WriteFiles {
+		f.WriteString(w.Path + "\n" + w.Content + "\n")
+	}
+	return strings.Join(parsed.Packages, " "), strings.Join(parsed.Runcmd, "\n"), f.String()
+}
 
-	if !strings.Contains(packages, "php"+phpSeries+"-cli") {
-		t.Errorf("PHP %s is not installed:\n%s", phpSeries, packages)
+func TestCloudInitInstallsWhatTheProfileAsksFor(t *testing.T) {
+	packages, runcmd, _ := parseCloudInit(t, cloudInitOptions{Hostname: "h", Profile: laravelProfile()})
+
+	// PHP is the project's series, from the PPA that has every series, and the
+	// extensions are the ones discovery found rather than a fixed list.
+	if !strings.Contains(runcmd, "ppa:ondrej/php") {
+		t.Error("the PHP PPA is never added")
+	}
+	for _, want := range []string{"php8.3-cli", "php8.3-imagick", "php8.3-pgsql", "php8.3-redis"} {
+		if !strings.Contains(runcmd, want) {
+			t.Errorf("%s is not installed:\n%s", want, runcmd)
+		}
+	}
+	if strings.Contains(runcmd, "php"+phpSeries+"-") && phpSeries != "8.3" {
+		t.Errorf("the default PHP series is installed next to the project's:\n%s", runcmd)
 	}
 	if !strings.Contains(packages, "postgresql") {
 		t.Error("PostgreSQL is not installed")
 	}
-	if !strings.Contains(runcmd, "setup_"+nodeMajor+".x") {
-		t.Errorf("Node %s is not installed", nodeMajor)
+	if !strings.Contains(runcmd, "createdb -O chief agency_os") {
+		t.Error("the project's database is not created")
 	}
+	if !strings.Contains(packages, "redis-server") {
+		t.Error("Redis is not installed")
+	}
+	if !strings.Contains(runcmd, "setup_24.x") {
+		t.Error("Node 24 is not installed")
+	}
+	if !strings.Contains(runcmd, "bun.sh/install") || !strings.Contains(runcmd, "test -x /usr/local/bin/bun") {
+		t.Error("Bun is not installed, or not checked")
+	}
+	if !strings.Contains(runcmd, "playwright install-deps") {
+		t.Error("the browser's system libraries are not installed")
+	}
+	// Not asked for, not installed.
+	for _, unwanted := range []string{"mariadb", "google-chrome", "go.dev/dl", "meilisearch"} {
+		if strings.Contains(packages+runcmd, unwanted) {
+			t.Errorf("%s is installed though the profile never asked for it", unwanted)
+		}
+	}
+}
+
+func TestCloudInitBuildsAMySQLBox(t *testing.T) {
+	p := Profile{Stack: StackLaravel, PHP: "8.2", Extensions: []string{"mysql"}, Database: "mysql", DatabaseName: "shop"}
+	packages, runcmd, files := parseCloudInit(t, cloudInitOptions{Hostname: "h", Profile: p})
+
+	if !strings.Contains(packages, "mariadb-server") {
+		t.Error("MariaDB is not installed")
+	}
+	if strings.Contains(packages, "postgresql") {
+		t.Error("PostgreSQL is installed for a MySQL project")
+	}
+	if !strings.Contains(runcmd, "php8.2-mysql") {
+		t.Error("the MySQL driver is not installed")
+	}
+	// The account and the database come from a file, because a line of SQL
+	// with quotes and backticks in it is not a thing to hand to a YAML list.
+	if !strings.Contains(runcmd, "mariadb < /etc/chief/mysql-setup.sql") {
+		t.Error("the MySQL setup is never run")
+	}
+	if !strings.Contains(files, "CREATE DATABASE IF NOT EXISTS `shop`") || !strings.Contains(files, "'chief'@'127.0.0.1'") {
+		t.Errorf("the SQL does not create the database and the account:\n%s", files)
+	}
+}
+
+func TestCloudInitLeavesOutWhatTheProjectDoesNotUse(t *testing.T) {
+	// A Go module gets its toolchain and nothing PHP.
+	p := Profile{Stack: StackGo, Go: "1.27.1"}
+	packages, runcmd, _ := parseCloudInit(t, cloudInitOptions{Hostname: "h", Profile: p})
+	if !strings.Contains(runcmd, "go.dev/dl/go1.27.1.linux-amd64.tar.gz") {
+		t.Error("Go is not installed")
+	}
+	for _, unwanted := range []string{"php", "composer", "postgresql", "redis", "nodesource"} {
+		if strings.Contains(packages+runcmd, unwanted) {
+			t.Errorf("%s is installed for a Go project", unwanted)
+		}
+	}
+	// Even with nothing recognised, the agent and the tooling around it arrive.
+	_, runcmd, _ = parseCloudInit(t, cloudInitOptions{Hostname: "h"})
+	if !strings.Contains(runcmd, "apt-get install -y claude-code gh") {
+		t.Error("the base is not installed on a project chief does not recognise")
+	}
+}
+
+func TestCloudInitInstallsBrowsersAndSearch(t *testing.T) {
+	p := Profile{Stack: StackLaravel, PHP: "8.4", Node: "22", PackageManager: "pnpm", PackageManagerVersion: "9.1.0",
+		Browser: true, Chrome: true, Meilisearch: true}
+	_, runcmd, files := parseCloudInit(t, cloudInitOptions{Hostname: "h", Profile: p})
+
+	if !strings.Contains(runcmd, "google-chrome-stable_current_amd64.deb") {
+		t.Error("Dusk's Chrome is not installed")
+	}
+	if !strings.Contains(runcmd, "corepack prepare pnpm@9.1.0 --activate") {
+		t.Error("the pinned pnpm is not installed")
+	}
+	if !strings.Contains(runcmd, "install.meilisearch.com") || !strings.Contains(runcmd, "systemctl enable --now meilisearch") {
+		t.Error("Meilisearch is not installed and started")
+	}
+	if !strings.Contains(files, "/etc/systemd/system/meilisearch.service") || !strings.Contains(files, "--http-addr 127.0.0.1:7700") {
+		t.Error("Meilisearch has no unit bound to the box itself")
+	}
+}
+
+func TestCloudInitInstallsClaudeCodeFromItsRepository(t *testing.T) {
+	_, runcmd, _ := parseCloudInit(t, cloudInitOptions{Hostname: "h", Profile: laravelProfile()})
 
 	// Claude Code comes from the signed apt repository. npm and the curl
 	// installer both work, but unattended provisioning should not pipe a
@@ -69,7 +190,7 @@ func TestCloudInitInstallsCurrentRuntimes(t *testing.T) {
 	if !strings.Contains(runcmd, "downloads.claude.ai/claude-code/apt") {
 		t.Error("Claude Code is not installed from the apt repository")
 	}
-	if !strings.Contains(packages+runcmd, "claude-code") {
+	if !strings.Contains(runcmd, "claude-code") {
 		t.Error("the claude-code package is never installed")
 	}
 	// The key is verified before it is trusted, and a mismatch has to stop the
@@ -698,7 +819,7 @@ func TestCloudInitGivesTheUserTheirOwnHome(t *testing.T) {
 }
 
 func TestCloudInitInstallsComposerWithAHome(t *testing.T) {
-	out := cloudInit(cloudInitOptions{Hostname: "h"})
+	out := cloudInit(cloudInitOptions{Hostname: "h", Profile: laravelProfile()})
 	var parsed struct {
 		Runcmd []string `yaml:"runcmd"`
 	}

@@ -44,8 +44,11 @@ type ServerType struct {
 	// in does not need.
 	Deprecated bool
 	// HourlyEUR is what the machine costs per hour, including VAT, in the
-	// location it was listed for. The address is billed separately and is not in
-	// this number; it is about half a cent a day.
+	// location it was listed for. The IPv4 address is billed separately and is
+	// not in this number: 0.08 cents an hour, about two cents a day, under half
+	// a cent for a five-hour run. Going without it is not an option — GitHub has
+	// no IPv6 at all, and a box that cannot reach GitHub cannot clone, push, or
+	// open a pull request.
 	HourlyEUR float64
 }
 

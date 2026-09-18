@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -81,7 +82,11 @@ type UpOptions struct {
 	// ExtraFiles are paths, relative to the project, that git does not carry but
 	// the run needs. Empty takes ".env".
 	ExtraFiles []string
-	// ExtraPackages are apt packages the project needs on top of the base.
+	// Profile is what Discover read out of the project: which runtimes, at
+	// which versions, with which servers the box is built. A zero profile
+	// builds the base alone.
+	Profile Profile
+	// ExtraPackages are apt packages the project needs on top of the profile.
 	ExtraPackages []string
 	// Secrets are the tokens, already resolved.
 	Secrets Secrets
@@ -228,6 +233,7 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 		SSHKeyID: key.ID,
 		UserData: cloudInit(cloudInitOptions{
 			Hostname:      name,
+			Profile:       opts.Profile,
 			ExtraPackages: opts.ExtraPackages,
 			HostKey:       host,
 		}),
@@ -285,7 +291,7 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 		return fail(err)
 	}
 
-	rep.step("Waiting for provisioning (PHP, Node, Postgres, Claude Code)")
+	rep.step("Waiting for provisioning (%s)", opts.Profile.provisions())
 	if err := root.waitFile(ctx, readyMarker, provisionTimeout); err != nil {
 		if log, logErr := root.run(ctx, "tail -30 /var/log/cloud-init-output.log"); logErr == nil {
 			rep.detail("last lines of the provisioning log:")
@@ -345,6 +351,20 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 		if _, err := os.Stat(local); err != nil {
 			continue
 		}
+		// The .env is the one file that describes the machine it came from, so
+		// it is the one file that is translated on the way rather than copied.
+		if filepath.Base(f) == ".env" {
+			changed, err := sendEnv(ctx, r, local, remoteProject+"/"+f, opts.Profile)
+			if err != nil {
+				return fail(err)
+			}
+			if len(changed) > 0 {
+				rep.detail("%s (pointed at the box: %s)", f, strings.Join(changed, ", "))
+			} else {
+				rep.detail("%s", f)
+			}
+			continue
+		}
 		if err := r.sync(ctx, local, remoteProject+"/"+f); err != nil {
 			return fail(err)
 		}
@@ -362,6 +382,30 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 	rep.detail("chief box down     destroy the box; this is what stops the billing")
 	rep.detail("chief box list     every box you have, and what it has cost")
 	return state, nil
+}
+
+// sendEnv puts a project's .env on the box with the keys that named this
+// machine's database, Redis and search server rewritten to name the box's. It
+// returns the keys it changed, so the report can say what was touched.
+//
+// Over stdin rather than rsync: the file holds credentials, and this way the
+// rewritten copy never exists on disk here.
+func sendEnv(ctx context.Context, r remote, local, remotePath string, p Profile) ([]string, error) {
+	data, err := os.ReadFile(local) //nolint:gosec // the project's own .env, named by its config
+	if err != nil {
+		return nil, err
+	}
+	overrides := envOverrides(p, readEnv(local))
+	content := applyEnv(string(data), overrides)
+	if err := r.runWith(ctx, "cat > "+shellQuote(remotePath)+" && chmod 600 "+shellQuote(remotePath), content); err != nil {
+		return nil, err
+	}
+	changed := make([]string, 0, len(overrides))
+	for key := range overrides {
+		changed = append(changed, key)
+	}
+	sort.Strings(changed)
+	return changed, nil
 }
 
 // runFlags are the chief flags the systemd unit adds to the headless run.

@@ -41,8 +41,15 @@ Options for up/run:
   --location <name>     Hetzner location (default ` + box.DefaultLocation + `)
   --image <name>        Hetzner image (default ` + box.DefaultImage + `)
                         All three default to what 'chief box config' stored
+  --php <series>        PHP to install, e.g. 8.3 (default: what this machine runs)
+  --node <major>        Node to install, e.g. 22 (default: what this machine runs)
   --file <path>         An untracked file the run needs, repeatable (default .env)
   --package <name>      An apt package to install on the box, repeatable
+
+What the box is built with is read from the project: PHP and its extensions from
+composer.json and composer.lock, the database from .env, the JavaScript package
+manager from the lockfile, browser libraries when the tests drive one. 'up'
+prints what it found before creating anything.
 
 Options for down:
   --force               Destroy without asking about unpushed commits
@@ -66,6 +73,7 @@ type BoxOptions struct {
 	MaxIterations int
 
 	Type, Location, Image string
+	PHP, Node             string
 	Files                 []string
 	Packages              []string
 }
@@ -111,6 +119,10 @@ func ParseBoxArgs(args []string) (BoxOptions, error) {
 			o.Location, err = value(&i, arg)
 		case arg == "--image":
 			o.Image, err = value(&i, arg)
+		case arg == "--php":
+			o.PHP, err = value(&i, arg)
+		case arg == "--node":
+			o.Node, err = value(&i, arg)
 		case arg == "--file":
 			var v string
 			if v, err = value(&i, arg); err == nil {
@@ -139,6 +151,10 @@ func ParseBoxArgs(args []string) (BoxOptions, error) {
 				o.Location = v
 			case "--image":
 				o.Image = v
+			case "--php":
+				o.PHP = v
+			case "--node":
+				o.Node = v
 			case "--file":
 				o.Files = append(o.Files, v)
 			case "--package":
@@ -247,6 +263,18 @@ func runBoxUp(ctx context.Context, baseDir string, opts BoxOptions) error {
 	// is for the run that wants one anyway.
 	worktree := opts.Worktree || cfg.Worktree.Setup != ""
 
+	// What the box is built with comes from the project, read here where the
+	// project is. It is printed before anything is created, because a wrong
+	// guess is cheapest to catch while it is still only a line on the screen.
+	profile := box.Discover(baseDir, box.DiscoverOptions{
+		PHP:  firstNonEmpty(opts.PHP, cfg.Box.PHP),
+		Node: firstNonEmpty(opts.Node, cfg.Box.Node),
+	})
+	fmt.Fprintln(os.Stderr, "==> Read from the project")
+	for _, line := range profile.Summary() {
+		fmt.Fprintf(os.Stderr, "    %s\n", line)
+	}
+
 	up := box.UpOptions{
 		PRD:           prdName,
 		BaseDir:       baseDir,
@@ -257,6 +285,7 @@ func runBoxUp(ctx context.Context, baseDir string, opts BoxOptions) error {
 		MaxIterations: opts.MaxIterations,
 		Verbose:       opts.Verbose,
 		ExtraFiles:    firstNonEmptyList(opts.Files, cfg.Box.Files),
+		Profile:       profile,
 		ExtraPackages: append(append([]string{}, cfg.Box.Packages...), opts.Packages...),
 		Out:           os.Stderr,
 	}
