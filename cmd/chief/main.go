@@ -14,7 +14,6 @@ import (
 	"github.com/ben182/chief/internal/cli"
 	"github.com/ben182/chief/internal/cmd"
 	"github.com/ben182/chief/internal/config"
-	"github.com/ben182/chief/internal/git"
 	"github.com/ben182/chief/internal/headless"
 	"github.com/ben182/chief/internal/loop"
 	"github.com/ben182/chief/internal/prd"
@@ -382,9 +381,8 @@ func fileExists(path string) bool {
 // PRD's path, or ok=false when the user cancelled setup.
 func runFirstTimeSetup(provider loop.Provider) (string, bool) {
 	cwd, _ := os.Getwd()
-	showGitignore := git.IsGitRepo(cwd) && !git.IsChiefIgnored(cwd)
 
-	result, err := tui.RunFirstTimeSetup(cwd, showGitignore)
+	result, err := tui.RunFirstTimeSetup(cwd)
 	if err != nil {
 		fatal(err)
 	}

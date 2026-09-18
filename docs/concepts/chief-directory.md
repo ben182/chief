@@ -292,11 +292,20 @@ Each PRD tracks its own stories, progress, and logs independently. When running 
 
 ## Git Considerations
 
-You have two options depending on whether you want to share Chief state with your team.
+By default Chief ignores nothing here: a new project keeps `.chief/` in version
+control, and setup no longer asks. What is scoped and automatic stays that way —
+the `*.log` rule inside each PRD directory, the worktree location, and the box's
+own record — so the files worth keeping (`prd.md`, `progress.md`, the run
+summaries) are committable and the noise is not.
+
+That is also what makes [`chief box`](/reference/cli#chief-box) work: a run on a
+throwaway machine leaves its summary and its log in the branch, which is the only
+thing that outlives the box.
 
 ### Option 1: Keep It Private
 
-If Chief is just for your personal workflow, ignore the entire directory:
+If Chief is just for your personal workflow, ignore the entire directory
+yourself:
 
 ```gitignore
 # In your repo's .gitignore
@@ -316,7 +325,7 @@ git config --global core.excludesFile ~/.gitignore
 echo ".chief/" >> "$(git config --global core.excludesFile)"
 ```
 
-### Option 2: Share With Your Team
+### Option 2: Share With Your Team (the default)
 
 If you want collaborators to see progress and continue where you left off, commit everything except the log files. You don't have to configure this yourself: Chief automatically drops a scoped `.gitignore` containing `*.log` into each PRD directory, so the per-run log files stay out of version control while `prd.md` and `progress.md` remain committable.
 

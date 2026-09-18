@@ -49,6 +49,7 @@ chief [name]
 | `--verbose` | Show raw agent output in log | `false` |
 | `--headless` | Run without the TUI, logging to stdout — see [below](#headless-runs) | `false` |
 | `--worktree` | With `--headless`, run in the PRD's own worktree | `false` |
+| `--log-to-branch` | Commit the run's log next to the PRD, so it travels with the branch instead of with the machine. [`chief box`](#chief-box) sets it for every run it starts | `false` |
 
 **Examples:**
 
@@ -399,6 +400,7 @@ magnitude less than the tokens it spends.
 chief box config        # pick the location and the machine size, once
 chief box up <prd>      # create the box, put the project on it, start the run
 chief box run <prd>     # the same, then follow the log until you stop watching
+chief box retry         # put the project on the box that is already there
 chief box logs          # follow the running box's log
 chief box status        # what it is doing, and how long it has been billing
 chief box list          # every box you have, and what each has cost
@@ -422,7 +424,36 @@ chief box down          # destroy it — this is what stops the billing
 | `--file <path>` | An untracked file the run needs; repeatable | `.env` |
 | `--package <name>` | An apt package to install on top of what was read from the project; repeatable | — |
 
-`down` takes `--force` to skip the question about commits the box never pushed.
+**Flags for `down`:**
+
+| Flag | Description |
+|------|-------------|
+| `--force` | Destroy without asking about commits the box never pushed |
+| `--all` | Destroy every box in your Hetzner project, not just this project's |
+| `--name <name>` | Destroy one box by name, whichever checkout created it |
+
+#### What the run leaves behind
+
+A box run commits its log next to the PRD (`run-<date>-<time>.log`) and pushes it
+with the branch, alongside the run summary. This is not a preference: the box
+writes its log into its own systemd journal, and the journal dies with the
+machine — often overnight, destroyed by the same `--down-when-done` that waited
+for the run. The branch is the only thing that outlives the box, so that is where
+the log goes. It is force-added, so it lands even in a project that ignores
+`.chief/`.
+
+The log is committed *before* the push, and therefore stops just short of it: a
+push that worked is visible on the remote, and a push that failed did not carry
+the commit anywhere anyway.
+
+#### When a step fails
+
+`up` stops at the first failed provisioning step rather than reporting a
+half-built box, and the box stays up so it can be looked at. If what failed came
+after provisioning — a clone refused by an expired token, a file that was not
+where it was said to be — `chief box retry` puts the project on that same box and
+starts the run, instead of paying to build an identical machine. Every step it
+repeats is written to be repeated. A run that is already going is left alone.
 
 #### Choosing where the box runs
 
@@ -456,6 +487,10 @@ three weeks ago from a directory nobody has opened since. The machine bills
 regardless, and `list` is the only command that asks Hetzner instead of the
 checkout.
 
+`chief box down --all` is what does something about the list; `--name` picks one
+out of it. Both ask once, up front, naming the boxes that hold commits nobody
+pushed.
+
 `chief box run --down-when-done` closes the same gap from the other end: it
 follows the log, waits for the run to actually finish, and then destroys the
 box. It is not forced — a run can commit without pushing, and `down` still asks
@@ -478,11 +513,17 @@ location actually offers — pick one with `--type`.
 3. **Creates the instance** and provisions it with what step 1 read, plus the
    GitHub CLI and Claude Code from its signed apt repository.
 4. **Clones the project** from `origin`, on the branch you are standing on.
-5. **Copies what git does not carry** — the PRD (`.chief` is gitignored in most
-   projects), `.chief/config.yaml`, and the files named by `--file`. The `.env`
-   is translated on the way, see below.
+5. **Copies what git does not carry** — the PRD, `.chief/config.yaml`, and the
+   files named by `--file`. The `.env` is translated on the way, see below.
 6. **Starts the run** as a systemd unit, so it survives every dropped connection
    after that.
+
+Because step 4 is a clone rather than a copy of your working tree, `up` asks
+`origin` about your branch before it creates anything, and refuses a run whose
+starting point the box would never see: a branch that was never pushed (the
+clone would quietly land on the default branch instead) or one that is ahead of
+`origin` (the run would start without your last commits). Both say `git push`
+and cost nothing to fix.
 
 Only the machine is provisioned. Everything specific to a checkout — its
 dependencies, its schema, its build — belongs in that project's

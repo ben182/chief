@@ -1,20 +1,12 @@
 package git
 
 import (
-	"bufio"
-	"fmt"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
 )
-
-// IsChiefIgnored checks if .chief is gitignored either locally or globally.
-// Returns true if .chief is already ignored, false otherwise.
-func IsChiefIgnored(dir string) bool {
-	return isPathIgnored(dir, ".chief")
-}
 
 // isPathIgnored asks git whether relPath — given relative to dir — is covered
 // by an ignore rule. It goes through `git check-ignore` rather than reading
@@ -81,13 +73,6 @@ func ensureLineInFile(path, line, header string, aliases ...string) (err error) 
 	return err
 }
 
-// AddChiefToGitignore adds .chief to the local .gitignore file.
-// Creates the file if it doesn't exist. A pre-existing bare ".chief" entry
-// (without trailing slash) counts as already present.
-func AddChiefToGitignore(dir string) error {
-	return ensureLineInFile(filepath.Join(dir, ".gitignore"), ".chief/", "", ".chief")
-}
-
 // IgnoreLogsIn ensures dir's .gitignore carries the `*.log` pattern so chief's
 // per-run log files (claude-<timestamp>.log) stay out of version control. It is
 // scoped to the PRD directory the logs live in, so it works regardless of
@@ -144,22 +129,4 @@ func repoRelativePath(repoDir, target string) (string, bool) {
 		return "", false
 	}
 	return filepath.ToSlash(rel), true
-}
-
-// PromptAddChiefToGitignore asks the user if they want to add .chief to .gitignore.
-// Returns true if the user wants to add it, false otherwise.
-func PromptAddChiefToGitignore() bool {
-	fmt.Println("Would you like to add .chief to .gitignore?")
-	fmt.Println("This keeps your PRD plans local and out of version control.")
-	fmt.Println("(Not required, but recommended if you prefer local-only plans)")
-	fmt.Print("\nAdd .chief to .gitignore? [y/N]: ")
-
-	reader := bufio.NewReader(os.Stdin)
-	response, err := reader.ReadString('\n')
-	if err != nil {
-		return false
-	}
-
-	response = strings.TrimSpace(strings.ToLower(response))
-	return response == "y" || response == "yes"
 }

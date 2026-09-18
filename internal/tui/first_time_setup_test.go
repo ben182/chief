@@ -2,135 +2,14 @@ package tui
 
 import (
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func TestNewFirstTimeSetupStartsAtGitignoreWhenShown(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), true)
-
-	if f.step != StepGitignore {
-		t.Errorf("expected StepGitignore, got %v", f.step)
-	}
-	// "Yes" is the default for both: the common case is a repo that should ignore
-	// .chief, and a name the user can accept as-is.
-	if f.gitignoreSelected != 0 {
-		t.Errorf("expected 'Yes' preselected, got %d", f.gitignoreSelected)
-	}
-	if f.prdName != "default" {
-		t.Errorf("expected the default PRD name 'default', got %q", f.prdName)
-	}
-}
-
-func TestNewFirstTimeSetupSkipsGitignoreStep(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
-
-	// A repo that already ignores .chief must not be asked again.
-	if f.step != StepPRDName {
-		t.Errorf("expected StepPRDName when the gitignore step is skipped, got %v", f.step)
-	}
-}
-
-func TestGitignoreStepYesWritesGitignoreAndAdvances(t *testing.T) {
-	dir := t.TempDir()
-	// AddChiefToGitignore appends to an existing file.
-	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("node_modules/\n"), 0o644); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	f := NewFirstTimeSetup(dir, true)
-
-	model, _ := f.handleGitignoreKeys(key("y"))
-
-	got := model.(FirstTimeSetup)
-	if got.step != StepPRDName {
-		t.Errorf("expected an advance to StepPRDName, got %v", got.step)
-	}
-	if !got.result.AddedGitignore {
-		t.Error("expected AddedGitignore recorded in the result")
-	}
-	content, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
-	if err != nil {
-		t.Fatalf("reading .gitignore: %v", err)
-	}
-	if !strings.Contains(string(content), ".chief") {
-		t.Errorf("expected .chief added to .gitignore, got:\n%s", content)
-	}
-}
-
-func TestGitignoreStepNoAdvancesWithoutWriting(t *testing.T) {
-	dir := t.TempDir()
-	f := NewFirstTimeSetup(dir, true)
-
-	model, _ := f.handleGitignoreKeys(key("n"))
-
-	got := model.(FirstTimeSetup)
-	if got.step != StepPRDName {
-		t.Errorf("expected an advance to StepPRDName, got %v", got.step)
-	}
-	if got.result.AddedGitignore {
-		t.Error("expected no gitignore change when the user declined")
-	}
-	if _, err := os.Stat(filepath.Join(dir, ".gitignore")); !os.IsNotExist(err) {
-		t.Error("expected no .gitignore to be created when the user declined")
-	}
-}
-
-func TestGitignoreStepFailedWriteWarnsAndContinues(t *testing.T) {
-	// A directory with no .gitignore and a path that cannot be written: setup must
-	// not dead-end, since ignoring .chief is optional.
-	dir := filepath.Join(t.TempDir(), "missing")
-	f := NewFirstTimeSetup(dir, true)
-
-	model, _ := f.handleGitignoreKeys(key("enter"))
-
-	got := model.(FirstTimeSetup)
-	if got.step != StepPRDName {
-		t.Errorf("expected setup to continue past a failed gitignore write, got step %v", got.step)
-	}
-	if got.result.AddedGitignore {
-		t.Error("expected AddedGitignore to stay false after a failed write")
-	}
-}
-
-func TestGitignoreStepNavigationClamps(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), true)
-
-	model, _ := f.handleGitignoreKeys(key("up"))
-	if got := model.(FirstTimeSetup).gitignoreSelected; got != 0 {
-		t.Errorf("expected the selection clamped at 0, got %d", got)
-	}
-
-	model, _ = model.(FirstTimeSetup).handleGitignoreKeys(key("down"))
-	if got := model.(FirstTimeSetup).gitignoreSelected; got != 1 {
-		t.Errorf("expected the selection at 1, got %d", got)
-	}
-
-	model, _ = model.(FirstTimeSetup).handleGitignoreKeys(key("down"))
-	if got := model.(FirstTimeSetup).gitignoreSelected; got != 1 {
-		t.Errorf("expected the selection clamped at 1, got %d", got)
-	}
-}
-
-func TestGitignoreStepCancels(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), true)
-
-	model, cmd := f.handleGitignoreKeys(key("q"))
-
-	got := model.(FirstTimeSetup)
-	if !got.result.Cancelled {
-		t.Error("expected 'q' to cancel setup")
-	}
-	if !isQuitCmd(cmd) {
-		t.Error("expected setup to exit on cancel")
-	}
-}
-
 func TestPRDNameStepAcceptsValidName(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.prdName = "billing-v2"
 
 	model, _ := f.handlePRDNameKeys(key("enter"))
@@ -145,7 +24,7 @@ func TestPRDNameStepAcceptsValidName(t *testing.T) {
 }
 
 func TestPRDNameStepTrimsWhitespace(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.prdName = "  auth  "
 
 	model, _ := f.handlePRDNameKeys(key("enter"))
@@ -158,7 +37,7 @@ func TestPRDNameStepTrimsWhitespace(t *testing.T) {
 }
 
 func TestPRDNameStepRejectsEmptyName(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.prdName = ""
 
 	model, _ := f.handlePRDNameKeys(key("enter"))
@@ -173,7 +52,7 @@ func TestPRDNameStepRejectsEmptyName(t *testing.T) {
 }
 
 func TestPRDNameStepRejectsInvalidCharacters(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	// Set directly rather than typed: the keystroke filter would have blocked it.
 	f.prdName = "my prd/../etc"
 
@@ -192,7 +71,7 @@ func TestPRDNameStepRejectsInvalidCharacters(t *testing.T) {
 }
 
 func TestPRDNameStepTypingFiltersInvalidCharacters(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.prdName = ""
 
 	model := tea.Model(*f)
@@ -207,7 +86,7 @@ func TestPRDNameStepTypingFiltersInvalidCharacters(t *testing.T) {
 }
 
 func TestPRDNameStepBackspaceClearsError(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.prdName = "abc"
 	f.prdNameError = "Name cannot be empty"
 
@@ -224,7 +103,7 @@ func TestPRDNameStepBackspaceClearsError(t *testing.T) {
 }
 
 func TestPRDNameStepBackspaceOnEmptyIsSafe(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.prdName = ""
 
 	model, _ := f.handlePRDNameKeys(key("backspace"))
@@ -234,27 +113,24 @@ func TestPRDNameStepBackspaceOnEmptyIsSafe(t *testing.T) {
 	}
 }
 
-func TestPRDNameStepEscGoesBackWhenGitignoreStepExists(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), true)
+func TestPRDNameStepEscCancels(t *testing.T) {
+	// The PRD name is the first step now, so there is nothing behind it to step
+	// back to: esc ends setup rather than moving.
+	f := NewFirstTimeSetup(t.TempDir())
 	f.step = StepPRDName
-	f.prdNameError = "some error"
 
 	model, cmd := f.handlePRDNameKeys(key("esc"))
 
 	got := model.(FirstTimeSetup)
-	if got.step != StepGitignore {
-		t.Errorf("expected a step back to StepGitignore, got %v", got.step)
+	if !got.result.Cancelled {
+		t.Error("expected esc on the first step to cancel setup")
 	}
-	if got.prdNameError != "" {
-		t.Errorf("expected the error cleared when stepping back, got %q", got.prdNameError)
-	}
-	if isQuitCmd(cmd) {
-		t.Error("esc must step back rather than exit when there is a previous step")
+	if !isQuitCmd(cmd) {
+		t.Error("expected setup to exit on cancel")
 	}
 }
-
 func TestPRDNameStepEscCancelsWhenItIsTheFirstStep(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 
 	model, cmd := f.handlePRDNameKeys(key("esc"))
 
@@ -286,7 +162,7 @@ func TestIsValidPRDName(t *testing.T) {
 }
 
 func TestPostCompletionStepDefaultsToBothYes(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.step = StepPostCompletion
 
 	if f.pushSelected != 0 || f.createPRSelected != 0 {
@@ -295,7 +171,7 @@ func TestPostCompletionStepDefaultsToBothYes(t *testing.T) {
 }
 
 func TestPostCompletionFieldNavigationClamps(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.step = StepPostCompletion
 
 	model, _ := f.handlePostCompletionKeys(key("up"))
@@ -315,7 +191,7 @@ func TestPostCompletionFieldNavigationClamps(t *testing.T) {
 }
 
 func TestPostCompletionSpaceTogglesTheFocusedFieldOnly(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.step = StepPostCompletion
 
 	model, _ := f.handlePostCompletionKeys(key(" "))
@@ -340,7 +216,7 @@ func TestPostCompletionSpaceTogglesTheFocusedFieldOnly(t *testing.T) {
 }
 
 func TestPostCompletionYesNoKeysSetTheFocusedField(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.step = StepPostCompletion
 
 	model, _ := f.handlePostCompletionKeys(key("n"))
@@ -355,7 +231,7 @@ func TestPostCompletionYesNoKeysSetTheFocusedField(t *testing.T) {
 }
 
 func TestPostCompletionArrowKeysSetTheFocusedField(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.step = StepPostCompletion
 	f.postCompField = 1 // PR field
 
@@ -371,7 +247,7 @@ func TestPostCompletionArrowKeysSetTheFocusedField(t *testing.T) {
 }
 
 func TestPostCompletionWithoutPRFinishesImmediately(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.step = StepPostCompletion
 	f.pushSelected = 0
 	f.createPRSelected = 1 // no PR, so no gh check needed
@@ -391,7 +267,7 @@ func TestPostCompletionWithoutPRFinishesImmediately(t *testing.T) {
 }
 
 func TestPostCompletionWithPRRunsTheGHCheck(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.step = StepPostCompletion
 	f.createPRSelected = 0 // PR requested
 
@@ -412,7 +288,7 @@ func TestPostCompletionWithPRRunsTheGHCheck(t *testing.T) {
 }
 
 func TestPostCompletionEscGoesBackToNameStep(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.step = StepPostCompletion
 
 	model, cmd := f.handlePostCompletionKeys(key("esc"))
@@ -426,7 +302,7 @@ func TestPostCompletionEscGoesBackToNameStep(t *testing.T) {
 }
 
 func TestGHCheckSuccessFinishesSetup(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.step = StepPostCompletion
 
 	model, cmd := f.handleGHCheckResult(ghCheckResultMsg{installed: true, authenticated: true})
@@ -440,7 +316,7 @@ func TestGHCheckSuccessFinishesSetup(t *testing.T) {
 }
 
 func TestGHCheckNotInstalledShowsErrorStep(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 
 	model, _ := f.handleGHCheckResult(ghCheckResultMsg{installed: false})
 
@@ -454,7 +330,7 @@ func TestGHCheckNotInstalledShowsErrorStep(t *testing.T) {
 }
 
 func TestGHCheckNotAuthenticatedShowsErrorStep(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 
 	model, _ := f.handleGHCheckResult(ghCheckResultMsg{installed: true, authenticated: false})
 
@@ -468,7 +344,7 @@ func TestGHCheckNotAuthenticatedShowsErrorStep(t *testing.T) {
 }
 
 func TestGHCheckErrorShowsErrorStep(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 
 	model, _ := f.handleGHCheckResult(ghCheckResultMsg{err: errors.New("exec failed")})
 
@@ -482,7 +358,7 @@ func TestGHCheckErrorShowsErrorStep(t *testing.T) {
 }
 
 func TestGHErrorContinueWithoutPRDisablesPR(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.step = StepGHError
 	f.result.CreatePROnComplete = true
 	f.ghErrorSelected = 0 // "Continue without PR"
@@ -500,7 +376,7 @@ func TestGHErrorContinueWithoutPRDisablesPR(t *testing.T) {
 }
 
 func TestGHErrorTryAgainRunsTheCheckAgain(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.step = StepGHError
 	f.result.CreatePROnComplete = true
 	f.ghErrorSelected = 1 // "Try again"
@@ -521,7 +397,7 @@ func TestGHErrorTryAgainRunsTheCheckAgain(t *testing.T) {
 }
 
 func TestGHErrorNavigationClamps(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.step = StepGHError
 
 	model, _ := f.handleGHErrorKeys(key("up"))
@@ -537,7 +413,7 @@ func TestGHErrorNavigationClamps(t *testing.T) {
 }
 
 func TestGHErrorEscGoesBack(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.step = StepGHError
 
 	model, _ := f.handleGHErrorKeys(key("esc"))
@@ -552,20 +428,14 @@ func TestFirstTimeSetupUpdateRoutesByStep(t *testing.T) {
 
 	// The same key means different things per step, so routing has to follow the
 	// current step rather than a global key map.
-	gitignore := NewFirstTimeSetup(dir, true)
-	model, _ := gitignore.Update(key("down"))
-	if got := model.(FirstTimeSetup).gitignoreSelected; got != 1 {
-		t.Errorf("expected the gitignore step to handle 'down', got %d", got)
-	}
-
-	name := NewFirstTimeSetup(dir, false)
+	name := NewFirstTimeSetup(dir)
 	name.prdName = ""
-	model, _ = name.Update(key("x"))
+	model, _ := name.Update(key("x"))
 	if got := model.(FirstTimeSetup).prdName; got != "x" {
 		t.Errorf("expected the name step to type 'x', got %q", got)
 	}
 
-	post := NewFirstTimeSetup(dir, false)
+	post := NewFirstTimeSetup(dir)
 	post.step = StepPostCompletion
 	model, _ = post.Update(key("down"))
 	if got := model.(FirstTimeSetup).postCompField; got != 1 {
@@ -574,7 +444,7 @@ func TestFirstTimeSetupUpdateRoutesByStep(t *testing.T) {
 }
 
 func TestFirstTimeSetupUpdateTracksWindowSize(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), true)
+	f := NewFirstTimeSetup(t.TempDir())
 
 	model, _ := f.Update(tea.WindowSizeMsg{Width: 110, Height: 44})
 
@@ -585,27 +455,25 @@ func TestFirstTimeSetupUpdateTracksWindowSize(t *testing.T) {
 }
 
 func TestFirstTimeSetupGetResult(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.result = FirstTimeSetupResult{
 		PRDName:            "auth",
-		AddedGitignore:     true,
 		PushOnComplete:     true,
 		CreatePROnComplete: false,
 	}
 
 	got := f.GetResult()
-	if got.PRDName != "auth" || !got.AddedGitignore || !got.PushOnComplete || got.CreatePROnComplete {
+	if got.PRDName != "auth" || !got.PushOnComplete || got.CreatePROnComplete {
 		t.Errorf("expected the result passed through unchanged, got %+v", got)
 	}
 }
 
 func TestFirstTimeSetupViewRendersEveryStep(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), true)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.width, f.height = 100, 30
 	f.ghErrorMsg = "GitHub CLI (gh) is not installed."
 
 	for _, step := range []FirstTimeSetupStep{
-		StepGitignore,
 		StepPRDName,
 		StepPostCompletion,
 		StepGHError,
@@ -618,7 +486,7 @@ func TestFirstTimeSetupViewRendersEveryStep(t *testing.T) {
 }
 
 func TestFirstTimeSetupPRDNameViewShowsValidationError(t *testing.T) {
-	f := NewFirstTimeSetup(t.TempDir(), false)
+	f := NewFirstTimeSetup(t.TempDir())
 	f.width, f.height = 100, 30
 	f.prdNameError = "Name cannot be empty"
 

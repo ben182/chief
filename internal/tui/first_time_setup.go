@@ -20,7 +20,6 @@ type ghCheckResultMsg struct {
 // FirstTimeSetupResult contains the result of the first-time setup flow.
 type FirstTimeSetupResult struct {
 	PRDName            string
-	AddedGitignore     bool
 	Cancelled          bool
 	PushOnComplete     bool
 	CreatePROnComplete bool
@@ -30,8 +29,7 @@ type FirstTimeSetupResult struct {
 type FirstTimeSetupStep int
 
 const (
-	StepGitignore FirstTimeSetupStep = iota
-	StepPRDName
+	StepPRDName FirstTimeSetupStep = iota
 	StepPostCompletion
 	StepGHError
 )
@@ -41,11 +39,7 @@ type FirstTimeSetup struct {
 	width  int
 	height int
 
-	step          FirstTimeSetupStep
-	showGitignore bool // Whether to show the gitignore step
-
-	// Gitignore step
-	gitignoreSelected int // 0 = Yes, 1 = No
+	step FirstTimeSetupStep
 
 	// PRD name step
 	prdName      string
@@ -67,19 +61,13 @@ type FirstTimeSetup struct {
 }
 
 // NewFirstTimeSetup creates a new first-time setup TUI.
-func NewFirstTimeSetup(baseDir string, showGitignore bool) *FirstTimeSetup {
-	step := StepPRDName
-	if showGitignore {
-		step = StepGitignore
-	}
+func NewFirstTimeSetup(baseDir string) *FirstTimeSetup {
 	return &FirstTimeSetup{
-		baseDir:           baseDir,
-		showGitignore:     showGitignore,
-		step:              step,
-		gitignoreSelected: 0, // Default to "Yes"
-		prdName:           "default",
-		pushSelected:      0, // Default to "Yes"
-		createPRSelected:  0, // Default to "Yes"
+		baseDir:          baseDir,
+		step:             StepPRDName,
+		prdName:          "default",
+		pushSelected:     0, // Default to "Yes"
+		createPRSelected: 0, // Default to "Yes"
 	}
 }
 
@@ -101,8 +89,6 @@ func (f FirstTimeSetup) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch f.step {
-		case StepGitignore:
-			return f.handleGitignoreKeys(msg)
 		case StepPRDName:
 			return f.handlePRDNameKeys(msg)
 		case StepPostCompletion:
@@ -114,52 +100,6 @@ func (f FirstTimeSetup) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return f, nil
 }
 
-func (f FirstTimeSetup) handleGitignoreKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "q", "ctrl+c", "esc":
-		f.result.Cancelled = true
-		return f, tea.Quit
-
-	case "up", "k", "left", "h":
-		if f.gitignoreSelected > 0 {
-			f.gitignoreSelected--
-		}
-		return f, nil
-
-	case "down", "j", "right", "l":
-		if f.gitignoreSelected < 1 {
-			f.gitignoreSelected++
-		}
-		return f, nil
-
-	case "y", "Y":
-		f.gitignoreSelected = 0
-		return f.confirmGitignore()
-
-	case "n", "N":
-		f.gitignoreSelected = 1
-		return f.confirmGitignore()
-
-	case "enter":
-		return f.confirmGitignore()
-	}
-	return f, nil
-}
-
-func (f FirstTimeSetup) confirmGitignore() (tea.Model, tea.Cmd) {
-	if f.gitignoreSelected == 0 {
-		// User wants to add .chief to gitignore
-		if err := git.AddChiefToGitignore(f.baseDir); err != nil {
-			// Show error but continue
-			f.prdNameError = "Warning: failed to add .chief to .gitignore"
-		} else {
-			f.result.AddedGitignore = true
-		}
-	}
-	f.step = StepPRDName
-	return f, nil
-}
-
 func (f FirstTimeSetup) handlePRDNameKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
@@ -167,12 +107,6 @@ func (f FirstTimeSetup) handlePRDNameKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return f, tea.Quit
 
 	case "esc":
-		if f.showGitignore {
-			// Go back to gitignore step
-			f.step = StepGitignore
-			f.prdNameError = ""
-			return f, nil
-		}
 		f.result.Cancelled = true
 		return f, tea.Quit
 
@@ -376,8 +310,6 @@ func (f FirstTimeSetup) handleGHErrorKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // View renders the TUI.
 func (f FirstTimeSetup) View() string {
 	switch f.step {
-	case StepGitignore:
-		return f.renderGitignoreStep()
 	case StepPRDName:
 		return f.renderPRDNameStep()
 	case StepPostCompletion:
@@ -387,81 +319,6 @@ func (f FirstTimeSetup) View() string {
 	default:
 		return ""
 	}
-}
-
-func (f FirstTimeSetup) renderGitignoreStep() string {
-	modalWidth := min(65, f.width-10)
-	if modalWidth < 45 {
-		modalWidth = 45
-	}
-
-	var content strings.Builder
-
-	// Title
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(PrimaryColor)
-	content.WriteString(titleStyle.Render("Welcome to Chief!"))
-	content.WriteString("\n")
-	content.WriteString(dividerLine(modalWidth))
-	content.WriteString("\n\n")
-
-	// Message
-	messageStyle := lipgloss.NewStyle().Foreground(TextColor)
-	content.WriteString(messageStyle.Render("Would you like to add .chief to .gitignore?"))
-	content.WriteString("\n\n")
-
-	descStyle := lipgloss.NewStyle().Foreground(MutedColor)
-	content.WriteString(descStyle.Render("This keeps your PRD plans local and out of version control."))
-	content.WriteString("\n")
-	content.WriteString(descStyle.Render("Not required, but recommended if you prefer local-only plans."))
-	content.WriteString("\n\n")
-
-	// Options
-	optionStyle := lipgloss.NewStyle().Foreground(TextColor)
-	selectedStyle := lipgloss.NewStyle().
-		Foreground(PrimaryColor).
-		Bold(true)
-
-	options := []struct {
-		label string
-		desc  string
-	}{
-		{"Yes, add .chief to .gitignore", "(Recommended)"},
-		{"No, keep .chief in version control", ""},
-	}
-
-	for i, opt := range options {
-		var line string
-		if i == f.gitignoreSelected {
-			line = selectedStyle.Render(fmt.Sprintf("▶ %s", opt.label))
-			if opt.desc != "" {
-				line += " " + lipgloss.NewStyle().Foreground(SuccessColor).Render(opt.desc)
-			}
-		} else {
-			line = optionStyle.Render(fmt.Sprintf("  %s", opt.label))
-			if opt.desc != "" {
-				line += " " + lipgloss.NewStyle().Foreground(MutedColor).Render(opt.desc)
-			}
-		}
-		content.WriteString(line)
-		content.WriteString("\n")
-	}
-
-	// Footer
-	content.WriteString("\n")
-	content.WriteString(dividerLine(modalWidth))
-	content.WriteString("\n")
-
-	footerStyle := lipgloss.NewStyle().Foreground(MutedColor)
-	content.WriteString(footerStyle.Render("↑/↓: Navigate  Enter: Select  y/n: Quick select  Esc: Cancel"))
-
-	// Modal box
-	modalStyle := modalBoxStyle(PrimaryColor).Width(modalWidth)
-
-	modal := modalStyle.Render(content.String())
-
-	return centerModal(modal, f.width, f.height)
 }
 
 func (f FirstTimeSetup) renderPRDNameStep() string {
@@ -476,11 +333,6 @@ func (f FirstTimeSetup) renderPRDNameStep() string {
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(PrimaryColor)
-
-	if f.showGitignore && f.result.AddedGitignore {
-		content.WriteString(lipgloss.NewStyle().Foreground(SuccessColor).Render("✓ Added .chief to .gitignore"))
-		content.WriteString("\n\n")
-	}
 
 	content.WriteString(titleStyle.Render("Create Your First PRD"))
 	content.WriteString("\n")
@@ -524,11 +376,7 @@ func (f FirstTimeSetup) renderPRDNameStep() string {
 	content.WriteString("\n")
 
 	footerStyle := lipgloss.NewStyle().Foreground(MutedColor)
-	if f.showGitignore {
-		content.WriteString(footerStyle.Render("Enter: Create PRD  Esc: Back  Ctrl+C: Cancel"))
-	} else {
-		content.WriteString(footerStyle.Render("Enter: Create PRD  Esc/Ctrl+C: Cancel"))
-	}
+	content.WriteString(footerStyle.Render("Enter: Create PRD  Esc/Ctrl+C: Cancel"))
 
 	// Modal box
 	modalStyle := modalBoxStyle(PrimaryColor).Width(modalWidth)
@@ -548,10 +396,6 @@ func (f FirstTimeSetup) renderPostCompletionStep() string {
 
 	// Success indicators for previous steps
 	successStyle := lipgloss.NewStyle().Foreground(SuccessColor)
-	if f.result.AddedGitignore {
-		content.WriteString(successStyle.Render("✓ Added .chief to .gitignore"))
-		content.WriteString("\n")
-	}
 	content.WriteString(successStyle.Render(fmt.Sprintf("✓ PRD: %s", f.result.PRDName)))
 	content.WriteString("\n\n")
 
@@ -707,8 +551,8 @@ func (f FirstTimeSetup) GetResult() FirstTimeSetupResult {
 }
 
 // RunFirstTimeSetup runs the first-time setup TUI and returns the result.
-func RunFirstTimeSetup(baseDir string, showGitignore bool) (FirstTimeSetupResult, error) {
-	setup := NewFirstTimeSetup(baseDir, showGitignore)
+func RunFirstTimeSetup(baseDir string) (FirstTimeSetupResult, error) {
+	setup := NewFirstTimeSetup(baseDir)
 	p := tea.NewProgram(setup, tea.WithAltScreen())
 
 	model, err := p.Run()
