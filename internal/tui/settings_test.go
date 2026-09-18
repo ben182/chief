@@ -773,12 +773,16 @@ func TestSettingsOverlay_ScrollsSelectionIntoView(t *testing.T) {
 		s.MoveDown()
 	}
 
+	// Read the tail off the list rather than naming it: this test is about
+	// scrolling, and it should not have to be edited every time a section is
+	// added to the end of the overlay.
+	tail := s.items[last]
 	rendered := s.Render()
-	if !strings.Contains(rendered, "Consolidate") {
-		t.Error("expected the last section to be visible after scrolling to the end")
+	if !strings.Contains(rendered, tail.Section) {
+		t.Errorf("expected the last section (%s) to be visible after scrolling to the end", tail.Section)
 	}
-	if !strings.Contains(rendered, "Instructions") {
-		t.Error("expected the last item to be visible after scrolling to the end")
+	if !strings.Contains(rendered, tail.Label) {
+		t.Errorf("expected the last item (%s) to be visible after scrolling to the end", tail.Label)
 	}
 	if strings.Contains(rendered, "Worktree") {
 		t.Error("expected the first section to have scrolled out of view")

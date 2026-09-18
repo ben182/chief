@@ -20,12 +20,41 @@ type Config struct {
 	// back to the file.
 	baseDir string
 
+	Box         BoxConfig         `yaml:"box,omitempty"`
 	Worktree    WorktreeConfig    `yaml:"worktree"`
 	OnComplete  OnCompleteConfig  `yaml:"onComplete"`
 	Agent       AgentConfig       `yaml:"agent"`
 	Loop        LoopConfig        `yaml:"loop"`
 	Review      ReviewConfig      `yaml:"review"`
 	Consolidate ConsolidateConfig `yaml:"consolidate"`
+}
+
+// BoxConfig holds where and on what a `chief box` run happens.
+//
+// It is answered once per project, by `chief box config`, rather than passed as
+// flags on every run. Two of these settings are decisions rather than
+// preferences: the location decides which country the project's source and its
+// .env spend the run in, and the type decides what the run costs. A flag that
+// has to be remembered for both is a flag that will be forgotten.
+//
+// Every field is optional, and an empty one takes chief's default. A project
+// that never runs `chief box config` behaves exactly as it did before this
+// existed.
+type BoxConfig struct {
+	// Type is the Hetzner server type, e.g. "cx33".
+	Type string `yaml:"type,omitempty"`
+	// Location is the Hetzner location, e.g. "fsn1" for Falkenstein.
+	Location string `yaml:"location,omitempty"`
+	// Image is the Hetzner image the box is built from. Rarely worth setting:
+	// the default is the current Ubuntu LTS, and the cloud-config that provisions
+	// the box assumes the package names that LTS ships.
+	Image string `yaml:"image,omitempty"`
+	// Packages are apt packages this project needs on top of the base, for the
+	// dependency that is not PHP, Node, Postgres or Redis.
+	Packages []string `yaml:"packages,omitempty"`
+	// Files are paths, relative to the project, that git does not carry but the
+	// run needs. Empty means ".env" alone, which is the case for most projects.
+	Files []string `yaml:"files,omitempty"`
 }
 
 // ConsolidateConfig holds the consolidation pass that runs once at the end of a

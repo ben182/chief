@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ben182/chief/internal/box"
 	"github.com/ben182/chief/internal/config"
 	"github.com/ben182/chief/internal/git"
 	"github.com/ben182/chief/internal/loop"
@@ -137,6 +138,11 @@ func (s *SettingsOverlay) LoadFromConfig(cfg *config.Config) {
 		{Section: "Consolidate", Label: "Model", Key: "consolidate.model", Type: SettingsItemString, StringVal: cfg.Consolidate.Model, Placeholder: "sonnet (default)"},
 		{Section: "Consolidate", Label: "Skill", Key: "consolidate.skill", Type: SettingsItemString, StringVal: cfg.Consolidate.Skill},
 		{Section: "Consolidate", Label: "Instructions", Key: "consolidate.instructions", Type: SettingsItemString, StringVal: cfg.Consolidate.Instructions},
+		{Section: "Box", Label: "Location", Key: "box.location", Type: SettingsItemString, StringVal: cfg.Box.Location, Placeholder: box.DefaultLocation + " (default)"},
+		{Section: "Box", Label: "Server type", Key: "box.type", Type: SettingsItemString, StringVal: cfg.Box.Type, Placeholder: box.DefaultType + " (default)"},
+		{Section: "Box", Label: "Image", Key: "box.image", Type: SettingsItemString, StringVal: cfg.Box.Image, Placeholder: box.DefaultImage + " (default)"},
+		{Section: "Box", Label: "Extra packages", Key: "box.packages", Type: SettingsItemString, StringVal: joinList(cfg.Box.Packages), Placeholder: "(none), comma separated"},
+		{Section: "Box", Label: "Untracked files", Key: "box.files", Type: SettingsItemString, StringVal: joinList(cfg.Box.Files), Placeholder: ".env, comma separated"},
 	}
 	s.selectedIndex = 0
 	s.scrollOffset = 0
@@ -208,6 +214,16 @@ func (s *SettingsOverlay) ApplyToConfig(cfg *config.Config) {
 			cfg.Consolidate.Skill = item.StringVal
 		case "consolidate.instructions":
 			cfg.Consolidate.Instructions = item.StringVal
+		case "box.location":
+			cfg.Box.Location = item.StringVal
+		case "box.type":
+			cfg.Box.Type = item.StringVal
+		case "box.image":
+			cfg.Box.Image = item.StringVal
+		case "box.packages":
+			cfg.Box.Packages = splitList(item.StringVal)
+		case "box.files":
+			cfg.Box.Files = splitList(item.StringVal)
 		}
 	}
 }
@@ -777,4 +793,19 @@ func (s *SettingsOverlay) renderGHError() string {
 	result.WriteString(hintStyle.Render("PR creation has been disabled."))
 
 	return result.String()
+}
+
+// joinList and splitList carry a list setting through a screen that edits one
+// line of text. Two apt packages or two filenames do not need a list editor,
+// and a comma is how somebody would write them down anyway.
+func joinList(values []string) string { return strings.Join(values, ", ") }
+
+func splitList(value string) []string {
+	var out []string
+	for _, part := range strings.Split(value, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/ben182/chief/internal/box"
 	"github.com/ben182/chief/internal/cli"
 	"github.com/ben182/chief/internal/config"
+	"github.com/ben182/chief/internal/tui"
 )
 
 // BoxUsage is what `chief box` prints when it is called without a command, and
@@ -22,6 +23,7 @@ your machine with it.
 
 Commands:
   token         Set up the credentials a box needs (asks only for what is missing)
+  config        Pick the location and the machine size, once, for this project
   up <prd>      Create a box, put the project on it, and start the run
   run <prd>     The same, then follow the log until you stop watching
   logs          Follow the running box's log
@@ -36,6 +38,7 @@ Options for up/run:
   --type <name>         Hetzner server type (default ` + box.DefaultType + `)
   --location <name>     Hetzner location (default ` + box.DefaultLocation + `)
   --image <name>        Hetzner image (default ` + box.DefaultImage + `)
+                        All three default to what 'chief box config' stored
   --file <path>         An untracked file the run needs, repeatable (default .env)
   --package <name>      An apt package to install on the box, repeatable
 
@@ -170,6 +173,8 @@ func RunBox(ctx context.Context, opts BoxOptions) error {
 	switch opts.Command {
 	case "token", "login":
 		return box.Login(ctx, os.Stdin, os.Stderr)
+	case "config":
+		return runBoxConfig(ctx, baseDir)
 	case "up", "run":
 		return runBoxUp(ctx, baseDir, opts)
 	case "logs":
@@ -213,6 +218,24 @@ func runBoxUp(ctx context.Context, baseDir string, opts BoxOptions) error {
 		return fmt.Errorf("failed to load .chief/config.yaml: %w", err)
 	}
 
+	// A project that has never been asked where its boxes should run gets asked
+	// now, if there is somebody to ask. The alternative is a machine created in
+	// a country nobody chose, holding the project's .env — a default worth
+	// interrupting for exactly once.
+	//
+	// Only at a terminal, and only when no flag already answers it: `box up` is
+	// run from scripts and background shells, where a prompt is a hang.
+	if isTerminal(os.Stdin) && cfg.Box.Location == "" && cfg.Box.Type == "" &&
+		opts.Location == "" && opts.Type == "" {
+		if err := runBoxConfig(ctx, baseDir); err != nil {
+			// Not fatal. The catalog needs a Hetzner token, and if there is none
+			// the next step says so with the command that fixes it.
+			fmt.Fprintf(os.Stderr, "==> Skipping the setup screen (%v)\n", err)
+		} else if reloaded, err := config.Load(baseDir); err == nil {
+			cfg = reloaded
+		}
+	}
+
 	// A project whose runs want a worktree says so once in its config; the flag
 	// is for the run that wants one anyway.
 	worktree := opts.Worktree || cfg.Worktree.Setup != ""
@@ -220,14 +243,14 @@ func runBoxUp(ctx context.Context, baseDir string, opts BoxOptions) error {
 	up := box.UpOptions{
 		PRD:           prdName,
 		BaseDir:       baseDir,
-		Type:          opts.Type,
-		Image:         opts.Image,
-		Location:      opts.Location,
+		Type:          firstNonEmpty(opts.Type, cfg.Box.Type),
+		Image:         firstNonEmpty(opts.Image, cfg.Box.Image),
+		Location:      firstNonEmpty(opts.Location, cfg.Box.Location),
 		Worktree:      worktree,
 		MaxIterations: opts.MaxIterations,
 		Verbose:       opts.Verbose,
-		ExtraFiles:    opts.Files,
-		ExtraPackages: opts.Packages,
+		ExtraFiles:    firstNonEmptyList(opts.Files, cfg.Box.Files),
+		ExtraPackages: append(append([]string{}, cfg.Box.Packages...), opts.Packages...),
 		Out:           os.Stderr,
 	}
 
@@ -260,6 +283,64 @@ func runBoxUp(ctx context.Context, baseDir string, opts BoxOptions) error {
 		return box.Status(context.WithoutCancel(ctx), baseDir, os.Stderr)
 	}
 	_ = state
+	return nil
+}
+
+// runBoxConfig asks where this project's boxes should run and on what, and
+// writes the answer into .chief/config.yaml.
+//
+// The list comes from the API rather than from a table in this repository. A
+// hard-coded one is wrong the week Hetzner retires a generation or opens a
+// location, and the failure it causes — "unsupported location" on a machine
+// somebody has been creating for months — reads like a bug in chief.
+func runBoxConfig(ctx context.Context, baseDir string) error {
+	cfg, err := config.Load(baseDir)
+	if err != nil {
+		return fmt.Errorf("failed to load .chief/config.yaml: %w", err)
+	}
+
+	fmt.Fprintln(os.Stderr, "==> Asking Hetzner what it offers right now")
+	catalog, err := box.FetchCatalog(ctx)
+	if err != nil {
+		return err
+	}
+
+	location, serverType, cancelled, err := tui.RunBoxSetup(catalog, cfg.Box.Location, cfg.Box.Type)
+	if err != nil {
+		return err
+	}
+	if cancelled {
+		return fmt.Errorf("nothing chosen")
+	}
+
+	cfg.Box.Location, cfg.Box.Type = location, serverType
+	if err := config.Save(baseDir, cfg); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "==> %s in %s, saved to .chief/config.yaml\n", serverType, location)
+	return nil
+}
+
+// firstNonEmpty returns the first value that was actually set, which is how a
+// flag beats the project's config and the config beats chief's default.
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// firstNonEmptyList is firstNonEmpty for the settings that are lists. They
+// replace rather than merge: a run that names the files it needs means those
+// files, not those plus whatever the config remembers.
+func firstNonEmptyList(values ...[]string) []string {
+	for _, v := range values {
+		if len(v) > 0 {
+			return v
+		}
+	}
 	return nil
 }
 
