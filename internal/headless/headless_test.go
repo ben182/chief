@@ -14,6 +14,7 @@ import (
 	"github.com/ben182/chief/internal/config"
 	"github.com/ben182/chief/internal/git"
 	"github.com/ben182/chief/internal/loop"
+	"github.com/ben182/chief/internal/prd"
 )
 
 // testProvider drives the run from a shell script instead of a real agent CLI,
@@ -416,5 +417,56 @@ func TestRunFindsTheSummaryWhenTheCallerPassedARelativePRDPath(t *testing.T) {
 	}
 	if len(found) != 1 {
 		t.Errorf("found %d summary files in the worktree, want 1\nlog:\n%s", len(found), log)
+	}
+}
+
+func TestPRBodyDescribesTheRunsOwnPRDNotTheProjectsStaleCopy(t *testing.T) {
+	// A worktree run records progress in the worktree's copy of the PRD; the
+	// project's copy still says every story is todo. Building the pull request
+	// body from the project's copy therefore produced a "Changes" section with
+	// nothing under it, on a PR whose whole point was the stories it closed.
+	//
+	// The body is checked through the same function the run hands to `gh`,
+	// against the PRD the run actually wrote to — which is what Run already goes
+	// out of its way to re-read.
+	dir, _ := project(t, "US-001", "Test Story")
+	t.Chdir(dir)
+
+	res, log := run(t, Options{
+		PRDPath:  filepath.Join(".chief", "prds", "demo", "prd.md"),
+		BaseDir:  dir,
+		Provider: &testProvider{script: agentScript(t, dir, "feat: demo/US-001 - Test Story")},
+		Config:   &config.Config{},
+		Worktree: true,
+	})
+
+	if res.Passing != 1 {
+		t.Fatalf("expected the story to pass, got %d\nlog:\n%s", res.Passing, log)
+	}
+
+	// The project's own copy is the stale one the PR used to be built from.
+	stale, err := prd.LoadPRD(filepath.Join(dir, ".chief", "prds", "demo", "prd.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stale.Completed()) != 0 {
+		t.Skip("the project's copy was updated too — this test has nothing to distinguish")
+	}
+
+	live, err := prd.LoadPRD(filepath.Join(res.WorkDir, ".chief", "prds", "demo", "prd.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Both bodies, side by side, because the difference is the whole point: the
+	// one chief used to build listed nothing.
+	staleBody := git.PRBodyFromPRD(stale)
+	liveBody := git.PRBodyFromPRD(live)
+
+	if !strings.Contains(liveBody, "US-001: Test Story") {
+		t.Errorf("the run's own PRD does not list the story it completed:\n%s", liveBody)
+	}
+	if strings.Contains(staleBody, "US-001: Test Story") {
+		t.Error("the project's copy lists the story, so this test can no longer tell the two apart")
 	}
 }

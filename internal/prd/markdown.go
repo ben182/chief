@@ -51,6 +51,12 @@ func ParseMarkdownPRDFromString(content string) (*PRD, error) {
 	var current *storyBuilder
 	introStarted := false
 	introDone := false
+	// The introduction's first paragraph, one entry per source line. Collected
+	// rather than assigned, because a PRD is prose and prose is hard-wrapped:
+	// taking the first line alone yields a sentence that stops in the middle,
+	// which is what ends up at the top of the pull request.
+	var introLines []string
+	introParagraphDone := false
 	autoPriority := float64(0)
 
 	flushStory := func() {
@@ -174,16 +180,28 @@ func ParseMarkdownPRDFromString(content string) (*PRD, error) {
 			continue
 		}
 
-		// Collect introduction paragraph as project description
-		if introStarted && !introDone && p.Description == "" {
-			if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
-				p.Description = trimmed
+		// Collect the introduction's first paragraph as the project description.
+		// It ends at the blank line after it — everything the PRD says after that
+		// is context for the agent, not a summary for a person.
+		if introStarted && !introDone && !introParagraphDone {
+			switch {
+			case trimmed == "":
+				if len(introLines) > 0 {
+					introParagraphDone = true
+				}
+			case !strings.HasPrefix(trimmed, "#"):
+				introLines = append(introLines, trimmed)
 			}
 		}
 	}
 
 	// Flush the last story
 	flushStory()
+
+	// Joined with spaces rather than newlines: the source wrapping is an artifact
+	// of writing markdown in an editor, and whatever renders this description
+	// wraps it again itself.
+	p.Description = strings.Join(introLines, " ")
 
 	return p, nil
 }

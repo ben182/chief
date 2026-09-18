@@ -3,6 +3,7 @@ package prd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -482,5 +483,57 @@ func TestParseMarkdownPRDFromString_FloatPriority(t *testing.T) {
 	}
 	if p.UserStories[2].Priority != 2 {
 		t.Errorf("s3.Priority = %g, want 2", p.UserStories[2].Priority)
+	}
+}
+
+func TestIntroDescriptionKeepsTheWholeParagraph(t *testing.T) {
+	// A PRD is prose, and prose gets hard-wrapped by whatever editor wrote it.
+	// Taking only the first line put a sentence that stops in the middle at the
+	// top of every pull request chief opened.
+	md := "# PRD: Money without rounding errors\n\n" +
+		"## Introduction\n\n" +
+		"This library exists so that an amount never travels through an\n" +
+		"application as a float. It is an integer in the smallest unit of its\n" +
+		"currency, plus the currency itself.\n\n" +
+		"The second paragraph is context for the agent, not a summary, and has\n" +
+		"no business in a pull request description.\n\n" +
+		"## User Stories\n\n" +
+		"### US-001: Something\n\n- [ ] It works\n"
+
+	p, err := ParseMarkdownPRDFromString(md)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := "This library exists so that an amount never travels through an " +
+		"application as a float. It is an integer in the smallest unit of its " +
+		"currency, plus the currency itself."
+	if p.Description != want {
+		t.Errorf("Description =\n  %q\nwant\n  %q", p.Description, want)
+	}
+	if strings.Contains(p.Description, "second paragraph") {
+		t.Error("the description swallowed the paragraph after it")
+	}
+}
+
+func TestIntroDescriptionStopsAtTheNextSection(t *testing.T) {
+	md := "# PRD: Demo\n\n## Introduction\n\nOne line only.\n\n## Goals\n\n- Ship it\n"
+	p, err := ParseMarkdownPRDFromString(md)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Description; got != "One line only." {
+		t.Errorf("Description = %q, want the intro alone", got)
+	}
+}
+
+func TestPRDWithoutAnIntroHasNoDescription(t *testing.T) {
+	md := "# PRD: Demo\n\n### US-001: Something\n\n- [ ] It works\n"
+	p, err := ParseMarkdownPRDFromString(md)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Description; got != "" {
+		t.Errorf("Description = %q, want empty", got)
 	}
 }

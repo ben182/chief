@@ -58,7 +58,7 @@ func finish(ctx context.Context, log *logger, opts Options, manager *loop.Manage
 		// A pull request needs the branch on the remote, so a failed push takes
 		// the PR with it rather than producing a confusing second error.
 		if cfg.OnComplete.CreatePR && res.Actions["push"] == nil {
-			res.Actions["pr"] = createPR(log, opts, name, res)
+			res.Actions["pr"] = createPR(log, opts, name, p, res)
 		}
 	} else if cfg.OnComplete.CreatePR {
 		log.event("pr", "skipped: onComplete.createPR needs onComplete.push")
@@ -125,16 +125,14 @@ func push(log *logger, res *Result) error {
 
 // createPR opens a pull request for the run's branch, or finds the one that is
 // already open for it.
-func createPR(log *logger, opts Options, name string, res *Result) error {
+// p must be the PRD the run wrote its progress into — the worktree's copy for a
+// worktree run. Re-reading the project's copy here, as this used to, produces a
+// pull request whose "Changes" section is empty: the project's copy still says
+// every story is todo, because the run never touched it.
+func createPR(log *logger, opts Options, name string, p *prd.PRD, res *Result) error {
 	if installed, authed, err := git.CheckGHCLI(); err != nil || !installed || !authed {
 		log.event("pr", "skipped: the gh CLI is not installed and authenticated on this machine")
 		return fmt.Errorf("gh CLI unavailable")
-	}
-
-	p, err := prd.LoadPRD(opts.PRDPath)
-	if err != nil {
-		log.event("pr", "failed to read the PRD: %v", err)
-		return err
 	}
 
 	base := ""
