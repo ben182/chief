@@ -255,42 +255,6 @@ func TestAvailableTypesReportsALocationThatIsNotThere(t *testing.T) {
 	}
 }
 
-func TestCreateFirewallOpensSSHAndNothingElse(t *testing.T) {
-	f := newFakeHetzner(t, map[string]any{
-		"POST /firewalls": `{"firewall":{"id":77,"name":"chief-demo"}}`,
-	})
-	fw, err := f.client("t").createFirewall(context.Background(), "chief-demo")
-	if err != nil {
-		t.Fatalf("createFirewall: %v", err)
-	}
-	if fw.ID != 77 {
-		t.Errorf("firewall ID = %d, want 77", fw.ID)
-	}
-
-	rules, ok := f.requests[0].Body["rules"].([]any)
-	if !ok {
-		t.Fatalf("no rules in the request: %v", f.requests[0].Body)
-	}
-
-	// The whole point of the firewall is what is *not* in this list. A run's
-	// setup script starting a dev server or a queue dashboard must not put it on
-	// the public internet, and the only way to guarantee that is for the
-	// allowlist to stay this short.
-	var tcpPorts []string
-	for _, r := range rules {
-		rule := r.(map[string]any)
-		if rule["direction"] != "in" {
-			t.Errorf("an outbound rule turns the allowlist into a blocklist: %v", rule)
-		}
-		if rule["protocol"] == "tcp" {
-			tcpPorts = append(tcpPorts, rule["port"].(string))
-		}
-	}
-	if len(tcpPorts) != 1 || tcpPorts[0] != "22" {
-		t.Errorf("open TCP ports = %v, want only 22", tcpPorts)
-	}
-}
-
 func TestCreateServerAttachesTheFirewall(t *testing.T) {
 	f := newFakeHetzner(t, map[string]any{
 		"POST /servers": `{"server":{"id":5,"name":"chief-demo","public_net":{"ipv4":{"ip":"203.0.113.7"}}}}`,
@@ -328,11 +292,144 @@ func TestCreateServerWithoutAFirewall(t *testing.T) {
 	}
 }
 
-func TestDeleteFirewallToleratesOneThatIsAlreadyGone(t *testing.T) {
-	// Nothing answers for /firewalls/77, so the fake returns 404. Destroying a
-	// box must not fail because its firewall was removed in the console first.
-	f := newFakeHetzner(t, map[string]any{})
-	if err := f.client("t").deleteFirewall(context.Background(), 77); err != nil {
-		t.Errorf("deleteFirewall on a missing firewall: %v", err)
+func TestServerReadsLocationFromWhereItActuallyIs(t *testing.T) {
+	// Hetzner puts a server's location at the top level. It is easy to reach for
+	// datacenter.location instead — that is how the datacenters endpoint nests
+	// it — and the mistake is silent: the field decodes empty, the box lists
+	// with no location, and because the price is keyed by location it lists with
+	// no cost either.
+	f := newFakeHetzner(t, map[string]any{
+		"GET /servers": `{"servers":[{"id":1,"name":"chief-demo","server_type":{"name":"cpx32"},
+			"location":{"id":1,"name":"fsn1","city":"Falkenstein"},
+			"public_net":{"ipv4":{"ip":"203.0.113.1"}}}]}`,
+	})
+	servers, err := f.client("t").listServers(context.Background(), chiefLabel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(servers) != 1 || servers[0].Location.Name != "fsn1" {
+		t.Fatalf("location = %q, want fsn1", servers[0].Location.Name)
+	}
+}
+
+func TestEnsureFirewallCreatesOneSharedFirewall(t *testing.T) {
+	f := newFakeHetzner(t, map[string]any{
+		"GET /firewalls":  `{"firewalls":[]}`,
+		"POST /firewalls": `{"firewall":{"id":77,"name":"chief"}}`,
+	})
+	fw, action, err := f.client("t").ensureFirewall(context.Background())
+	if err != nil {
+		t.Fatalf("ensureFirewall: %v", err)
+	}
+	if fw.ID != 77 || action != firewallCreated {
+		t.Errorf("got firewall %d action %v, want 77 created", fw.ID, action)
+	}
+
+	create := f.requests[1].Body
+	if create["name"] != SharedFirewallName {
+		t.Errorf("firewall named %v, want the shared name", create["name"])
+	}
+	// The label is the only thing that ever gives chief the right to touch a
+	// firewall again. Without it this one is indistinguishable from the firewall
+	// guarding somebody's production machine.
+	labels, ok := create["labels"].(map[string]any)
+	if !ok || labels["managed-by"] != "chief" {
+		t.Errorf("created without chief's label: %v", create)
+	}
+
+	// The whole point is what is not in the list.
+	rules, _ := create["rules"].([]any)
+	var tcpPorts []string
+	for _, r := range rules {
+		rule := r.(map[string]any)
+		if rule["direction"] != "in" {
+			t.Errorf("an outbound rule turns the allowlist into a blocklist: %v", rule)
+		}
+		if rule["protocol"] == "tcp" {
+			tcpPorts = append(tcpPorts, rule["port"].(string))
+		}
+	}
+	if len(tcpPorts) != 1 || tcpPorts[0] != "22" {
+		t.Errorf("open TCP ports = %v, want only 22", tcpPorts)
+	}
+}
+
+func TestEnsureFirewallReusesTheOneThatIsAlreadyThere(t *testing.T) {
+	// The second box, and the two hundredth. Creating a firewall per box is what
+	// created a lifecycle to get wrong; there is nothing to create here.
+	f := newFakeHetzner(t, map[string]any{
+		"GET /firewalls": `{"firewalls":[{"id":77,"name":"chief","rules":[
+			{"direction":"in","protocol":"tcp","port":"22","source_ips":["0.0.0.0/0","::/0"]},
+			{"direction":"in","protocol":"icmp","source_ips":["0.0.0.0/0","::/0"]}
+		]}]}`,
+	})
+	fw, action, err := f.client("t").ensureFirewall(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fw.ID != 77 || action != firewallReused {
+		t.Errorf("got firewall %d action %v, want 77 reused", fw.ID, action)
+	}
+	for _, r := range f.requests {
+		if r.Method != http.MethodGet {
+			t.Errorf("reusing a firewall should change nothing, but it sent %s %s", r.Method, r.Path)
+		}
+	}
+}
+
+func TestEnsureFirewallRepairsRulesThatDrifted(t *testing.T) {
+	// Somebody opened a port in the console. Every box created afterwards would
+	// quietly be missing the protection chief promises, which is worse than the
+	// firewall not existing at all — at least then somebody would notice.
+	f := newFakeHetzner(t, map[string]any{
+		"GET /firewalls": `{"firewalls":[{"id":77,"name":"chief","rules":[
+			{"direction":"in","protocol":"tcp","port":"22","source_ips":["0.0.0.0/0","::/0"]},
+			{"direction":"in","protocol":"tcp","port":"5432","source_ips":["0.0.0.0/0"]}
+		]}]}`,
+		"POST /firewalls/77/actions/set_rules": `{}`,
+	})
+	_, action, err := f.client("t").ensureFirewall(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if action != firewallRulesRestored {
+		t.Errorf("action = %v, want the rules to have been put back", action)
+	}
+	if last := f.requests[len(f.requests)-1]; !strings.HasSuffix(last.Path, "/actions/set_rules") {
+		t.Errorf("never set the rules back: %s %s", last.Method, last.Path)
+	}
+}
+
+func TestEnsureFirewallIgnoresFirewallsThatAreNotChiefs(t *testing.T) {
+	// A Hetzner project holds the firewalls guarding real machines. chief asks
+	// only for its own label, and even then only for its own name.
+	f := newFakeHetzner(t, map[string]any{
+		"GET /firewalls":  `{"firewalls":[{"id":9,"name":"only-tailscale","rules":[]}]}`,
+		"POST /firewalls": `{"firewall":{"id":77,"name":"chief"}}`,
+	})
+	if _, action, err := f.client("t").ensureFirewall(context.Background()); err != nil || action != firewallCreated {
+		t.Errorf("action = %v (err %v), want it to create its own rather than adopt a stranger's", action, err)
+	}
+	if !strings.Contains(f.requests[0].Path, "label_selector=managed-by") {
+		t.Errorf("asked for every firewall, not only chief's: %s", f.requests[0].Path)
+	}
+	for _, r := range f.requests {
+		if strings.Contains(r.Path, "/firewalls/9") {
+			t.Errorf("touched a firewall it did not create: %s %s", r.Method, r.Path)
+		}
+	}
+}
+
+func TestSameRulesIgnoresOrderAndDescription(t *testing.T) {
+	want := boxFirewallRules()
+	shuffled := []firewallRule{
+		{Direction: "in", Protocol: "icmp", SourceIPs: []string{"::/0", "0.0.0.0/0"}},
+		{Direction: "in", Protocol: "tcp", Port: "22", SourceIPs: []string{"::/0", "0.0.0.0/0"}, Description: "whatever"},
+	}
+	if !sameRules(shuffled, want) {
+		t.Error("treated a reordered but identical rule set as drift, which would rewrite it on every box")
+	}
+	if sameRules(shuffled[:1], want) {
+		t.Error("treated a missing rule as no change")
 	}
 }

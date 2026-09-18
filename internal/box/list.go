@@ -76,7 +76,7 @@ func listWith(ctx context.Context, baseDir string, out io.Writer, api *hetzner) 
 			Name:     s.Name,
 			IP:       s.IP(),
 			Type:     s.Type.Name,
-			Location: s.Datacenter.Location.Name,
+			Location: s.Location.Name,
 			Age:      age,
 			CostEUR:  -1,
 			Current:  hasCurrent && s.ID == current.ServerID,
@@ -89,7 +89,19 @@ func listWith(ctx context.Context, baseDir string, out io.Writer, api *hetzner) 
 	}
 	sort.Slice(boxes, func(i, j int) bool { return boxes[i].Age < boxes[j].Age })
 
-	rep.step("%s, %s so far", plural(len(boxes), "box", "boxes"), formatEUR(total))
+	var priced int
+	for _, b := range boxes {
+		if b.CostEUR >= 0 {
+			priced++
+		}
+	}
+	if priced == 0 {
+		// Every price lookup failed. "0 cents so far" would read as free, which
+		// is the one thing this command must never imply.
+		rep.step("%s, cost unknown", plural(len(boxes), "box", "boxes"))
+	} else {
+		rep.step("%s, %s so far", plural(len(boxes), "box", "boxes"), formatEUR(total))
+	}
 	for _, b := range boxes {
 		marker := ""
 		if b.Current {

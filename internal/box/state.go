@@ -30,10 +30,6 @@ type State struct {
 	// can say what is billing without asking Hetzner again.
 	Type     string `json:"type,omitempty"`
 	Location string `json:"location,omitempty"`
-	// FirewallID is the firewall created alongside the box, which has to be
-	// destroyed with it — an orphaned firewall costs nothing but accumulates in
-	// the console until nobody can tell which are in use.
-	FirewallID int64 `json:"firewallId,omitempty"`
 	// Created is when the box started billing.
 	Created time.Time `json:"created"`
 }

@@ -207,12 +207,17 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 		return state, err
 	}
 
-	rep.step("Creating the firewall")
-	fw, err := api.createFirewall(ctx, name)
+	fw, action, err := api.ensureFirewall(ctx)
 	if err != nil {
 		return state, err
 	}
-	rep.detail("inbound: ssh only")
+	switch action {
+	case firewallCreated:
+		rep.step("Created the %s firewall — inbound: ssh only", fw.Name)
+	case firewallRulesRestored:
+		rep.step("Put the %s firewall's rules back — inbound: ssh only", fw.Name)
+	case firewallReused:
+	}
 
 	rep.step("Creating %s (%s in %s)", name, instanceType, location)
 	srv, err := api.createServer(ctx, createServerOpts{
@@ -230,10 +235,6 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 		FirewallID: fw.ID,
 	})
 	if err != nil {
-		// The firewall outlived the server it was for by a few milliseconds.
-		// Nobody is billed for it, but an account that collects one of these per
-		// failed attempt becomes a console nobody can read.
-		_ = api.deleteFirewall(context.WithoutCancel(ctx), fw.ID)
 		// A refused type/location pair is the one failure worth turning into an
 		// answer: the price list still advertises superseded generations, so
 		// "unsupported" reads like a bug in chief rather than a type to change.
@@ -247,15 +248,14 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 	}
 
 	state = State{
-		ServerID:   srv.ID,
-		Name:       srv.Name,
-		IP:         srv.IP(),
-		PRD:        opts.PRD,
-		Type:       instanceType,
-		Location:   location,
-		HostKey:    host.Public,
-		FirewallID: fw.ID,
-		Created:    time.Now(),
+		ServerID: srv.ID,
+		Name:     srv.Name,
+		IP:       srv.IP(),
+		PRD:      opts.PRD,
+		Type:     instanceType,
+		Location: location,
+		HostKey:  host.Public,
+		Created:  time.Now(),
 	}
 	// Record it before anything else can fail: an instance that exists but was
 	// never written down is one the user pays for and cannot find again.
@@ -787,15 +787,9 @@ func Down(ctx context.Context, opts DownOptions) error {
 	if err := api.deleteServer(ctx, s.ServerID); err != nil {
 		return fmt.Errorf("%w\n  The record is kept; destroy it in the Hetzner console if this persists", err)
 	}
-	// The firewall goes after the server, because it cannot be deleted while
-	// something is attached to it. Failing here is reported and not returned:
-	// the machine is gone, which is the thing that was costing money, and a
-	// firewall left behind is tidiness rather than a problem.
-	if s.FirewallID != 0 {
-		if err := api.deleteFirewall(ctx, s.FirewallID); err != nil {
-			rep.detail("the firewall %s is still there (%v) — it is free, but you may want to remove it", s.Name, err)
-		}
-	}
+	// The firewall is not touched. It is shared by every box, it costs nothing
+	// between them, and the next one is created behind it — which is the whole
+	// reason there is one of them rather than one per machine.
 	if err := ForgetState(opts.BaseDir); err != nil {
 		return err
 	}

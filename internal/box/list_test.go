@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+// The fixtures below use the shape the Hetzner API actually returns: a server's
+// location sits at its top level. An earlier version of these tests nested it
+// under a datacenter, matching the struct rather than the API, and so agreed
+// with the bug instead of catching it — the boxes listed with no location and
+// no cost, and only a real box showed it.
 func TestListNamesEveryBoxAndWhatItCost(t *testing.T) {
 	old := time.Now().Add(-50 * time.Hour).UTC().Format(time.RFC3339)
 	recent := time.Now().Add(-90 * time.Minute).UTC().Format(time.RFC3339)
@@ -14,9 +19,9 @@ func TestListNamesEveryBoxAndWhatItCost(t *testing.T) {
 	routes := catalogRoutes()
 	routes["GET /servers"] = `{"servers":[
 		{"id":1,"name":"chief-shop-import-0915","created":"` + old + `","server_type":{"name":"cx33"},
-		 "datacenter":{"location":{"name":"fsn1"}},"public_net":{"ipv4":{"ip":"203.0.113.1"}}},
+		 "location":{"name":"fsn1"},"public_net":{"ipv4":{"ip":"203.0.113.1"}}},
 		{"id":2,"name":"chief-chief-auth-1422","created":"` + recent + `","server_type":{"name":"cx22"},
-		 "datacenter":{"location":{"name":"fsn1"}},"public_net":{"ipv4":{"ip":"203.0.113.2"}}}
+		 "location":{"name":"fsn1"},"public_net":{"ipv4":{"ip":"203.0.113.2"}}}
 	]}`
 	f := newFakeHetzner(t, routes)
 	t.Setenv("CHIEF_BOX_HETZNER_TOKEN", "token")
@@ -80,7 +85,7 @@ func TestListMarksThisProjectsBox(t *testing.T) {
 	routes := catalogRoutes()
 	routes["GET /servers"] = `{"servers":[
 		{"id":2,"name":"chief-chief-auth-1422","created":"` + created + `","server_type":{"name":"cx22"},
-		 "datacenter":{"location":{"name":"fsn1"}},"public_net":{"ipv4":{"ip":"203.0.113.2"}}}
+		 "location":{"name":"fsn1"},"public_net":{"ipv4":{"ip":"203.0.113.2"}}}
 	]}`
 	f := newFakeHetzner(t, routes)
 
@@ -100,7 +105,7 @@ func TestListSurvivesAMissingPriceList(t *testing.T) {
 	f := newFakeHetzner(t, map[string]any{
 		"GET /servers": `{"servers":[
 			{"id":1,"name":"chief-demo","created":"` + created + `","server_type":{"name":"cx22"},
-			 "datacenter":{"location":{"name":"fsn1"}},"public_net":{"ipv4":{"ip":"203.0.113.1"}}}
+			 "location":{"name":"fsn1"},"public_net":{"ipv4":{"ip":"203.0.113.1"}}}
 		]}`,
 	})
 

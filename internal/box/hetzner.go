@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -59,11 +60,15 @@ type server struct {
 	Type    struct {
 		Name string `json:"name"`
 	} `json:"server_type"`
-	Datacenter struct {
-		Location struct {
-			Name string `json:"name"`
-		} `json:"location"`
-	} `json:"datacenter"`
+	// Location sits at the top level of a server, not under a datacenter. The
+	// two are easy to confuse — a server belongs to a datacenter, which belongs
+	// to a location — but only the datacenters endpoint nests them that way, and
+	// reading the wrong one here costs nothing loudly: the field decodes to the
+	// empty string, and a box is simply listed with no location and, because the
+	// price is looked up by location, no cost either.
+	Location struct {
+		Name string `json:"name"`
+	} `json:"location"`
 	Labels map[string]string `json:"labels"`
 }
 
@@ -389,6 +394,16 @@ func fingerprint(publicKey string) (string, error) {
 	return strings.Join(parts, ":"), nil
 }
 
+// SharedFirewallName is the one firewall every box runs behind.
+//
+// One rather than one per box, because the rules are identical for every box
+// there will ever be, and a firewall per machine buys nothing for it. What it
+// costs is a lifecycle: a firewall cannot be deleted while a resource is still
+// attached, and Hetzner detaches asynchronously, so the destroy that follows a
+// server deletion always comes too early and leaves the firewall behind. That
+// is not a race worth winning — it is a race worth not entering.
+const SharedFirewallName = "chief"
+
 // firewall is a Hetzner firewall, which is the cheapest security a box can
 // have: it is free, it is enforced outside the machine, and it does not care
 // what the run does to iptables inside.
@@ -397,57 +412,147 @@ type firewall struct {
 	Name string `json:"name"`
 }
 
-// createFirewall makes the firewall a box runs behind.
+// firewallRule is one line of the allowlist.
+type firewallRule struct {
+	Direction   string   `json:"direction"`
+	Protocol    string   `json:"protocol"`
+	Port        string   `json:"port,omitempty"`
+	SourceIPs   []string `json:"source_ips"`
+	Description string   `json:"description,omitempty"`
+}
+
+// firewallState is a firewall as the API returns it, with the rules it is
+// currently enforcing.
+type firewallState struct {
+	ID    int64          `json:"id"`
+	Name  string         `json:"name"`
+	Rules []firewallRule `json:"rules"`
+}
+
+// boxFirewallRules is what every box is protected by, and the list is
+// deliberately this short.
 //
-// The rules are an allowlist and they are deliberately short: SSH from
-// anywhere, ping from anywhere, nothing else in. SSH stays open to the world
-// rather than pinned to the creator's address, because an address that changes
-// between creating a box and looking at it locks you out of your own machine
-// for no gain — the port is protected by keys, not by obscurity.
+// SSH from anywhere and ping from anywhere. SSH stays open to the world rather
+// than pinned to the creator's address: an address that changes between
+// creating a box and looking at it locks you out of your own machine, and the
+// port is protected by keys rather than by obscurity.
 //
-// What this does close is everything else, and that is the point. A project's
+// What this closes is everything else, and that is the point. A project's
 // `worktree.setup` starts a dev server, a queue dashboard, a database that was
 // configured to listen on all interfaces; without a firewall each of those is
 // on the public internet for the hours the run takes, and nobody involved
 // decided that. Outbound is untouched — no `out` rules means Hetzner allows all
 // of it, which apt, GitHub and the agent's API all need.
-func (h *hetzner) createFirewall(ctx context.Context, name string) (firewall, error) {
+func boxFirewallRules() []firewallRule {
 	anywhere := []string{"0.0.0.0/0", "::/0"}
-	body := map[string]any{
-		"name": name,
-		"rules": []map[string]any{
-			{
-				"direction":   "in",
-				"protocol":    "tcp",
-				"port":        "22",
-				"source_ips":  anywhere,
-				"description": "ssh",
-			},
-			{
-				"direction":   "in",
-				"protocol":    "icmp",
-				"source_ips":  anywhere,
-				"description": "ping",
-			},
-		},
+	return []firewallRule{
+		{Direction: "in", Protocol: "tcp", Port: "22", SourceIPs: anywhere, Description: "ssh"},
+		{Direction: "in", Protocol: "icmp", SourceIPs: anywhere, Description: "ping"},
+	}
+}
+
+// firewallAction says what ensureFirewall had to do, so the caller can report a
+// firewall that was created or repaired and stay quiet about one that was
+// simply there.
+type firewallAction int
+
+const (
+	firewallReused firewallAction = iota
+	firewallCreated
+	firewallRulesRestored
+)
+
+// ensureFirewall returns the firewall every box runs behind, creating it the
+// first time and putting its rules back if they have drifted.
+//
+// Reusing rather than creating per box is what removes the lifecycle problem
+// entirely: nothing has to be deleted afterwards, so nothing can be left
+// behind. The firewall survives every box, costs nothing between them, and is
+// attached to the next one the moment it is created.
+//
+// The rules are checked on reuse because a firewall whose rules were edited
+// still protects every box chief creates — or fails to, silently. It is chief's
+// firewall, named and labelled as such; bringing it back to what chief promises
+// is repair rather than interference, and it is reported when it happens.
+func (h *hetzner) ensureFirewall(ctx context.Context) (firewall, firewallAction, error) {
+	existing, err := h.firewalls(ctx, chiefLabel)
+	if err != nil {
+		return firewall{}, firewallReused, err
+	}
+	for _, f := range existing {
+		if f.Name != SharedFirewallName {
+			continue
+		}
+		if sameRules(f.Rules, boxFirewallRules()) {
+			return firewall{ID: f.ID, Name: f.Name}, firewallReused, nil
+		}
+		if err := h.setFirewallRules(ctx, f.ID, boxFirewallRules()); err != nil {
+			return firewall{}, firewallReused, err
+		}
+		return firewall{ID: f.ID, Name: f.Name}, firewallRulesRestored, nil
 	}
 
 	var out struct {
 		Firewall firewall `json:"firewall"`
 	}
-	if err := h.do(ctx, http.MethodPost, "/firewalls", body, &out); err != nil {
-		return firewall{}, err
+	body := map[string]any{
+		"name":  SharedFirewallName,
+		"rules": boxFirewallRules(),
+		// The label is what lets chief find this again, and the only thing that
+		// ever gives chief the right to touch a firewall: a Hetzner project holds
+		// the firewalls guarding real machines, and chief must never confuse one
+		// of those for its own.
+		"labels": map[string]string{"managed-by": "chief"},
 	}
-	return out.Firewall, nil
+	if err := h.do(ctx, http.MethodPost, "/firewalls", body, &out); err != nil {
+		return firewall{}, firewallReused, err
+	}
+	return out.Firewall, firewallCreated, nil
 }
 
-// deleteFirewall removes a firewall once the box behind it is gone. One that is
-// already deleted is not an error, for the same reason a deleted server is not.
-func (h *hetzner) deleteFirewall(ctx context.Context, id int64) error {
-	err := h.do(ctx, http.MethodDelete, "/firewalls/"+strconv.FormatInt(id, 10), nil, nil)
-	var e apiError
-	if asAPIError(err, &e) && e.Status == http.StatusNotFound {
-		return nil
+// setFirewallRules replaces a firewall's rules with the ones given.
+func (h *hetzner) setFirewallRules(ctx context.Context, id int64, rules []firewallRule) error {
+	body := map[string]any{"rules": rules}
+	return h.do(ctx, http.MethodPost, "/firewalls/"+strconv.FormatInt(id, 10)+"/actions/set_rules", body, nil)
+}
+
+// firewalls lists the firewalls matching a label selector.
+func (h *hetzner) firewalls(ctx context.Context, labelSelector string) ([]firewallState, error) {
+	var out struct {
+		Firewalls []firewallState `json:"firewalls"`
 	}
-	return err
+	path := "/firewalls?per_page=50"
+	if labelSelector != "" {
+		path += "&label_selector=" + url.QueryEscape(labelSelector)
+	}
+	if err := h.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Firewalls, nil
+}
+
+// sameRules reports whether a firewall is already enforcing what chief wants.
+// Order and the order of source addresses are not meaningful, so neither is
+// compared; the description is presentation and is ignored too.
+func sameRules(have, want []firewallRule) bool {
+	if len(have) != len(want) {
+		return false
+	}
+	key := func(r firewallRule) string {
+		ips := append([]string{}, r.SourceIPs...)
+		sort.Strings(ips)
+		return r.Direction + "|" + r.Protocol + "|" + r.Port + "|" + strings.Join(ips, ",")
+	}
+	seen := map[string]int{}
+	for _, r := range have {
+		seen[key(r)]++
+	}
+	for _, r := range want {
+		k := key(r)
+		if seen[k] == 0 {
+			return false
+		}
+		seen[k]--
+	}
+	return true
 }

@@ -512,7 +512,16 @@ locks you out of your own machine for no gain, since the port is protected by
 keys. What the firewall does close is everything else: a `worktree.setup` that
 starts a dev server, a queue dashboard or a database listening on all interfaces
 would otherwise be on the public internet for the hours the run takes. Outbound
-is untouched. The firewall is destroyed with the box.
+is untouched.
+
+There is **one** firewall, named `chief`, shared by every box. It is created the
+first time you need one and reused forever after, so nothing has to be deleted
+when a box is destroyed — which matters, because Hetzner detaches a firewall
+asynchronously and a delete issued straight after the server's always comes too
+early. If its rules have been edited in the console, `chief box up` puts them
+back and says so: the firewall is chief's, and a box silently missing the
+protection chief promises is worse than no firewall at all. A firewall without
+chief's `managed-by=chief` label is never read or touched.
 
 **A host key chief generated before the machine existed.** It is created
 locally, put into the instance through cloud-init, and checked on every
