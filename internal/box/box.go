@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ben182/chief/internal/config"
 	"github.com/ben182/chief/internal/git"
 	"github.com/ben182/chief/internal/prd"
 )
@@ -145,6 +146,13 @@ type UpOptions struct {
 	Profile Profile
 	// ExtraPackages are apt packages the project needs on top of the profile.
 	ExtraPackages []string
+	// Keep leaves the box standing after its run ends. By default the box
+	// destroys itself, which is the only thing that stops the bill on a night
+	// nobody is watching.
+	Keep bool
+	// MaxHours is the box's outside limit, whatever the run is doing. Zero takes
+	// chief's default.
+	MaxHours int
 	// Secrets are the tokens, already resolved.
 	Secrets Secrets
 	// Out is where progress is reported.
@@ -176,15 +184,50 @@ func (r reporter) detail(format string, args ...any) {
 // tell them afterwards that their project has no origin remote is a bad way to
 // spend their attention. Everything here fails in seconds — the one check that
 // leaves this machine asks origin for a list of branch names.
-func Preflight(opts UpOptions) error {
+func Preflight(ctx context.Context, opts UpOptions) error {
 	if existing, ok := LoadState(opts.BaseDir); ok {
-		return fmt.Errorf(
-			"this project already has a box (%s at %s, %s old).\n"+
-				"  Put the project on it again with 'chief box retry', destroy it with\n"+
-				"  'chief box down', or watch it with 'chief box logs'",
-			existing.Name, existing.IP, existing.Age())
+		// A box that destroyed itself leaves this record behind — nothing on this
+		// machine was running when it went. Finding that out costs one API call
+		// and saves the user a "you already have a box" about a machine that has
+		// not existed since three in the morning.
+		if vanishedCheck(ctx, existing) {
+			if err := ForgetState(opts.BaseDir); err != nil {
+				return err
+			}
+		} else {
+			return fmt.Errorf(
+				"this project already has a box (%s at %s, %s old).\n"+
+					"  Put the project on it again with 'chief box retry', destroy it with\n"+
+					"  'chief box down', or watch it with 'chief box logs'",
+				existing.Name, existing.IP, existing.Age())
+		}
 	}
 	return preflightProject(opts)
+}
+
+// vanishedCheck is how Preflight asks whether a recorded box still exists. It
+// is a variable so a test can answer without a Hetzner project.
+var vanishedCheck = Vanished
+
+// Vanished reports whether the box a record describes no longer exists.
+//
+// It answers false whenever it cannot know — no token, no network, an API that
+// said something else. Being wrong in that direction means a command says "this
+// project already has a box" about a machine that is gone, which is a sentence;
+// being wrong in the other means chief creates a second machine while the first
+// one bills.
+func Vanished(ctx context.Context, s State) bool {
+	token, err := resolveHetznerToken()
+	if err != nil || s.Name == "" {
+		return false
+	}
+	probe, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	found, ok, err := newHetzner(token).findServer(probe, s.Name)
+	if err != nil {
+		return false
+	}
+	return !ok || (s.ServerID != 0 && found.ID != s.ServerID)
 }
 
 // preflightProject is the half of Preflight that is about the project rather
@@ -230,7 +273,7 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 	rep := reporter{out: opts.Out}
 	var state State
 
-	if err := Preflight(opts); err != nil {
+	if err := Preflight(ctx, opts); err != nil {
 		return state, err
 	}
 
@@ -301,6 +344,8 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 			Profile:       opts.Profile,
 			ExtraPackages: opts.ExtraPackages,
 			HostKey:       host,
+			SelfDestruct:  !opts.Keep,
+			MaxHours:      opts.MaxHours,
 		}),
 		Labels:     map[string]string{"managed-by": "chief"},
 		FirewallID: fw.ID,
@@ -420,6 +465,23 @@ func settle(ctx context.Context, opts UpOptions, rep reporter, state State, know
 		return fail(err)
 	}
 
+	// Before provisioning rather than after: the deadline covers a box that
+	// never finishes installing itself just as much as one whose run hangs, and
+	// that is precisely the box nobody is watching by the time it matters.
+	if opts.Keep {
+		// A retry can be what changes a box's mind about dying: the credentials an
+		// earlier attempt left are what the reaper reads, so --keep has to take
+		// them away rather than merely not write them.
+		if _, err := root.run(ctx, "rm -f /etc/chief/reap.env"); err != nil {
+			return fail(err)
+		}
+	} else {
+		if err := armReaper(ctx, root, state, opts); err != nil {
+			return fail(err)
+		}
+		rep.step("Armed the box's own shutoff (%dh at the outside)", boxMaxHours(opts))
+	}
+
 	budget := provisionTimeout(opts.Profile)
 	rep.step("Waiting for provisioning (%s)", opts.Profile.provisions())
 	rep.detail("up to %s", budget)
@@ -508,11 +570,66 @@ func settle(ctx context.Context, opts UpOptions, rep reporter, state State, know
 	}
 
 	rep.step("The run is going — it survives this terminal")
+	rep.detail("what it builds is pushed to origin when it ends%s", prNote(opts.BaseDir))
+	if opts.Keep {
+		rep.detail("this box keeps billing until 'chief box down' — it was asked to stay")
+	} else {
+		rep.detail("the box destroys itself %s after a finished run, and %dh from boot whatever happens",
+			reapGrace, boxMaxHours(opts))
+	}
 	rep.detail("chief box logs     follow along")
 	rep.detail("chief box status   is it still running")
 	rep.detail("chief box down     destroy the box; this is what stops the billing")
 	rep.detail("chief box list     every box you have, and what it has cost")
 	return state, nil
+}
+
+// armReaper gives the box what it needs to destroy itself: the token to call
+// the API with, and the ID of the machine to name in that call.
+//
+// This is the one place a Hetzner token leaves this machine, and it is worth
+// being clear about the trade. The alternative to a box that can delete itself
+// is a box that bills until a person deletes it, and the person in question is
+// asleep — that is the entire reason the run is on a box. The token is written
+// root-only, over stdin so it never appears in a process list. What it does not
+// do is make the token safe from the agent: a run happens under an account with
+// passwordless sudo, so an agent that went looking could read this file and
+// delete every box in the project. Keep chief's boxes in a Hetzner project of
+// their own, and that is the whole blast radius.
+func armReaper(ctx context.Context, root remote, state State, opts UpOptions) error {
+	if strings.TrimSpace(opts.Secrets.HetznerToken) == "" {
+		return fmt.Errorf("no Hetzner token to arm the box's shutoff with")
+	}
+	return root.runWith(ctx,
+		"install -d -m 0700 /etc/chief && cat > /etc/chief/reap.env && chmod 600 /etc/chief/reap.env",
+		reapEnv(opts.Secrets.HetznerToken, state.ServerID))
+}
+
+// reapEnv is what the box's reaper reads: the token to call the API with, and
+// the machine to name in the call. Shell-sourced on the box, so it is the same
+// bare KEY=VALUE shape as the run's own environment file.
+func reapEnv(token string, serverID int64) string {
+	return fmt.Sprintf("CHIEF_HETZNER_TOKEN=%s\nCHIEF_SERVER_ID=%d\n", token, serverID)
+}
+
+// boxMaxHours is the outside limit this box was built with.
+func boxMaxHours(opts UpOptions) int {
+	if opts.MaxHours > 0 {
+		return opts.MaxHours
+	}
+	return DefaultMaxHours
+}
+
+// prNote says whether a pull request follows the push, so the last line of `up`
+// describes what will actually be waiting in the morning. A project that does
+// not open pull requests gets the branch and nothing else, which is worth
+// saying rather than implying.
+func prNote(baseDir string) string {
+	cfg, err := config.Load(baseDir)
+	if err != nil || !cfg.OnComplete.CreatePR {
+		return ""
+	}
+	return ", and a pull request is opened"
 }
 
 // sendEnv puts a project's .env on the box with the keys that named this
@@ -541,10 +658,13 @@ func sendEnv(ctx context.Context, r remote, local, remotePath string, p Profile)
 
 // runFlags are the chief flags the systemd unit adds to the headless run.
 func runFlags(opts UpOptions) string {
-	// Always, and not an option: this run's log lives in the journal of a machine
-	// that exists to be destroyed. Committing it next to the PRD is the only way
-	// anything it said is still readable tomorrow morning.
-	flags := []string{"--log-to-branch"}
+	// Both always, and neither an option: everything this run produces lives on a
+	// machine that exists to be destroyed. The log is committed next to the PRD
+	// so that what the run said is still readable tomorrow morning, and the
+	// branch is pushed so that what it built still exists at all — onComplete.push
+	// is off by default, and a project that never turned it on would otherwise
+	// have its whole night deleted with the box.
+	flags := []string{"--log-to-branch", "--push"}
 	if opts.Worktree {
 		flags = append(flags, "--worktree")
 	}
@@ -944,7 +1064,29 @@ func Logs(ctx context.Context, baseDir string, out io.Writer) error {
 		return errNoBox
 	}
 	r := remote{user: remoteUser, host: s.IP, knownHosts: knownHostsFor(baseDir, s)}
-	return r.stream(ctx, "journalctl -u chief-run@"+shellQuote(s.PRD)+" -f --no-hostname -o cat", out)
+	if err := r.follow(ctx, "chief-run@"+shellQuote(s.PRD), out); err != nil {
+		return orVanished(ctx, baseDir, s, err)
+	}
+	return nil
+}
+
+// orVanished turns "the box did not answer" into "the box is gone" when that is
+// what happened, and clears the record while it is there.
+//
+// Without it, every command against a box that destroyed itself overnight
+// reports an SSH failure — which reads like a network problem to be retried
+// rather than the thing chief was asked to arrange.
+func orVanished(ctx context.Context, baseDir string, s State, err error) error {
+	if !Vanished(ctx, s) {
+		return err
+	}
+	if forgetErr := ForgetState(baseDir); forgetErr != nil {
+		return forgetErr
+	}
+	return fmt.Errorf(
+		"%s does not exist any more — it either destroyed itself when its run\n"+
+			"  ended, or it was destroyed elsewhere. What the run built is on origin.\n"+
+			"  Start a new box with 'chief box up <prd>'", s.Name)
 }
 
 // Status says what the box is doing, and what it has cost so far.
@@ -964,7 +1106,7 @@ func Status(ctx context.Context, baseDir string, out io.Writer) error {
 	unit := shellQuote("chief-run@" + s.PRD)
 	state, err := r.run(ctx, "systemctl is-active "+unit+"; systemctl show "+unit+" -p Result --value")
 	if err != nil && state == "" {
-		return fmt.Errorf("the box is not answering: %w", err)
+		return orVanished(ctx, baseDir, s, fmt.Errorf("the box is not answering: %w", err))
 	}
 	for _, line := range strings.Split(state, "\n") {
 		if line = strings.TrimSpace(line); line != "" {
@@ -1277,7 +1419,7 @@ func Watch(ctx context.Context, baseDir string, out io.Writer) (Outcome, error) 
 	streaming, stopStreaming := context.WithCancel(ctx)
 	defer stopStreaming()
 	go func() {
-		_ = r.stream(streaming, "journalctl -u "+unit+" -f --no-hostname -o cat", out)
+		_ = r.follow(streaming, unit, out)
 	}()
 
 	started := time.Now()

@@ -518,6 +518,7 @@ func runHeadless(opts *cli.Options) {
 		MaxIterations: opts.MaxIterations,
 		Worktree:      opts.Worktree,
 		LogToBranch:   opts.LogToBranch,
+		Push:          opts.Push,
 		NoRetry:       opts.NoRetry,
 		Verbose:       opts.Verbose,
 		Out:           os.Stdout,

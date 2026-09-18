@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -145,6 +146,8 @@ func (s *SettingsOverlay) LoadFromConfig(cfg *config.Config) {
 		{Section: "Box", Label: "Node version", Key: "box.node", Type: SettingsItemString, StringVal: cfg.Box.Node, Placeholder: "(detected from the project)"},
 		{Section: "Box", Label: "Extra packages", Key: "box.packages", Type: SettingsItemString, StringVal: joinList(cfg.Box.Packages), Placeholder: "(none), comma separated"},
 		{Section: "Box", Label: "Untracked files", Key: "box.files", Type: SettingsItemString, StringVal: joinList(cfg.Box.Files), Placeholder: ".env, comma separated"},
+		{Section: "Box", Label: "Keep box after the run", Key: "box.keep", Type: SettingsItemBool, BoolVal: cfg.Box.Keep},
+		{Section: "Box", Label: "Outside limit (h)", Key: "box.maxHours", Type: SettingsItemInt, IntVal: cfg.Box.MaxHours, Placeholder: fmt.Sprintf("%d (default)", box.DefaultMaxHours)},
 	}
 	s.selectedIndex = 0
 	s.scrollOffset = 0
@@ -230,6 +233,10 @@ func (s *SettingsOverlay) ApplyToConfig(cfg *config.Config) {
 			cfg.Box.Packages = splitList(item.StringVal)
 		case "box.files":
 			cfg.Box.Files = splitList(item.StringVal)
+		case "box.keep":
+			cfg.Box.Keep = item.BoolVal
+		case "box.maxHours":
+			cfg.Box.MaxHours = item.IntVal
 		}
 	}
 }

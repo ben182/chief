@@ -187,3 +187,21 @@ func TestParseBoxArgsKnowsRetry(t *testing.T) {
 		t.Errorf("command = %q, want retry", got.Command)
 	}
 }
+
+func TestParseBoxArgsTakesTheShutoffFlags(t *testing.T) {
+	o, err := ParseBoxArgs([]string{"up", "auth", "--keep", "--max-hours", "6"})
+	if err != nil {
+		t.Fatalf("ParseBoxArgs: %v", err)
+	}
+	if !o.Keep || o.MaxHours != 6 {
+		t.Errorf("shutoff flags lost: %+v", o)
+	}
+
+	if o, err := ParseBoxArgs([]string{"up", "auth", "--max-hours=3"}); err != nil || o.MaxHours != 3 {
+		t.Errorf("equals form: %+v, %v", o, err)
+	}
+	// Zero hours is not "no limit", it is a box destroyed the moment it boots.
+	if _, err := ParseBoxArgs([]string{"up", "auth", "--max-hours", "0"}); err == nil {
+		t.Error("--max-hours 0 was accepted")
+	}
+}

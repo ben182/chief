@@ -61,7 +61,12 @@ func finish(ctx context.Context, log *logger, opts Options, manager *loop.Manage
 	if transcript != "" {
 		res.Actions["log"] = commitRunLog(log, opts, res, transcript)
 	}
-	if cfg.OnComplete.Push {
+	// opts.Push is the run that has to push whatever the project says, because
+	// the machine it happens on is about to be destroyed.
+	if cfg.OnComplete.Push || opts.Push {
+		if opts.Push && !cfg.OnComplete.Push {
+			log.event("push", "pushing anyway: this run's machine does not outlive it")
+		}
 		res.Actions["push"] = push(log, res)
 		// A pull request needs the branch on the remote, so a failed push takes
 		// the PR with it rather than producing a confusing second error.

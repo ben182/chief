@@ -2,6 +2,7 @@ package box
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -345,10 +346,11 @@ func TestRunFlagsPassTheRunsOptionsThrough(t *testing.T) {
 			t.Errorf("runFlags = %q, want %q in it", got, want)
 		}
 	}
-	// Every box run keeps its log in the branch, whatever else was asked for:
-	// the journal it would otherwise live in dies with the machine.
-	if got := runFlags(UpOptions{}); got != "--log-to-branch" {
-		t.Errorf("runFlags with nothing set = %q, want the log kept", got)
+	// Every box run keeps its log in the branch and pushes what it built,
+	// whatever else was asked for: the journal dies with the machine, and so
+	// does a commit that was never pushed.
+	if got := runFlags(UpOptions{}); got != "--log-to-branch --push" {
+		t.Errorf("runFlags with nothing set = %q, want the log kept and the branch pushed", got)
 	}
 	// A zero cap means "let chief size it", not "-n 0", which the loop would
 	// refuse.
@@ -458,6 +460,7 @@ func TestLoadStateIgnoresRubbish(t *testing.T) {
 }
 
 func TestUpRefusesASecondBoxForTheSameProject(t *testing.T) {
+	stillThere(t)
 	dir := t.TempDir()
 	if err := SaveState(dir, State{ServerID: 1, Name: "chief-old", IP: "203.0.113.1", PRD: "auth", Created: time.Now()}); err != nil {
 		t.Fatal(err)
@@ -469,6 +472,15 @@ func TestUpRefusesASecondBoxForTheSameProject(t *testing.T) {
 	if !strings.Contains(err.Error(), "chief-old") || !strings.Contains(err.Error(), "down") {
 		t.Errorf("error = %q, want it to name the box and how to get rid of it", err)
 	}
+}
+
+// stillThere makes the recorded box exist for the duration of a test, so a
+// check that would otherwise ask Hetzner about it does not.
+func stillThere(t *testing.T) {
+	t.Helper()
+	previous := vanishedCheck
+	vanishedCheck = func(context.Context, State) bool { return false }
+	t.Cleanup(func() { vanishedCheck = previous })
 }
 
 func TestUpRefusesAPRDThatIsNotThere(t *testing.T) {
@@ -1110,5 +1122,164 @@ func TestOutcomeSaysHowTheRunEnded(t *testing.T) {
 	odd := Outcome{Result: "success", Status: 2}
 	if odd.Completed() {
 		t.Error("an exit status of 2 was reported as a completed run")
+	}
+}
+
+func TestASelfDestructingBoxIsBuiltWithItsOwnShutoff(t *testing.T) {
+	cfg := cloudInit(cloudInitOptions{Hostname: "chief-shop-auth", SelfDestruct: true, MaxHours: 6})
+	for _, want := range []string{
+		"/usr/local/bin/chief-reap",
+		"chief-reap.timer",
+		"OnSuccess=chief-reap.timer",
+		"chief-deadline.timer",
+		"OnBootSec=6h",
+		"systemctl enable --now chief-deadline.timer",
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("cloud-config is missing %q", want)
+		}
+	}
+	// The token is not in here, and must never be: a cloud-config is readable
+	// from the instance's own metadata service by anything that can make an
+	// HTTP request, no password required.
+	if strings.Contains(cfg, "CHIEF_HETZNER_TOKEN=") {
+		t.Error("the cloud-config carries the Hetzner token — it has to arrive over SSH")
+	}
+}
+
+func TestAKeptBoxHasNoShutoffAtAll(t *testing.T) {
+	cfg := cloudInit(cloudInitOptions{Hostname: "chief-shop-auth"})
+	for _, unwanted := range []string{"chief-reap", "chief-deadline", "OnSuccess="} {
+		if strings.Contains(cfg, unwanted) {
+			t.Errorf("a box that was asked to stay still renders %q", unwanted)
+		}
+	}
+}
+
+func TestTheDefaultOutsideLimitIsRenderedWhenNoneWasAsked(t *testing.T) {
+	cfg := cloudInit(cloudInitOptions{Hostname: "chief-shop-auth", SelfDestruct: true})
+	if !strings.Contains(cfg, fmt.Sprintf("OnBootSec=%dh", DefaultMaxHours)) {
+		t.Errorf("cloud-config does not carry the default limit of %dh", DefaultMaxHours)
+	}
+}
+
+func TestTheReaperRefusesToDestroyWorkThatIsOnlyOnTheBox(t *testing.T) {
+	cfg := cloudInit(cloudInitOptions{Hostname: "chief-shop-auth", SelfDestruct: true})
+	script, _, found := strings.Cut(cfg, "chief-reap.service")
+	if !found {
+		t.Fatal("no reaper in the cloud-config")
+	}
+	// The order is the whole safety property: push what is here, count what is
+	// still only here, and only then call the API.
+	push := strings.Index(script, "git push")
+	count := strings.Index(script, "rev-list --count --branches --not --remotes")
+	del := strings.Index(script, "-X DELETE")
+	if push < 0 || count < 0 || del < 0 || !(push < count && count < del) {
+		t.Errorf("the reaper does not push, then count, then destroy (%d, %d, %d)", push, count, del)
+	}
+}
+
+func TestReapEnvIsOneKeyPerLine(t *testing.T) {
+	got := reapEnv("abc123", 42)
+	if got != "CHIEF_HETZNER_TOKEN=abc123\nCHIEF_SERVER_ID=42\n" {
+		t.Errorf("reapEnv = %q", got)
+	}
+}
+
+func TestPreflightForgetsABoxThatDestroyedItself(t *testing.T) {
+	dir := t.TempDir()
+	if err := SaveState(dir, State{ServerID: 7, Name: "chief-gone", IP: "203.0.113.9", PRD: "auth", Created: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	previous := vanishedCheck
+	vanishedCheck = func(context.Context, State) bool { return true }
+	t.Cleanup(func() { vanishedCheck = previous })
+
+	// It gets past the "you already have a box" check and fails on the project
+	// instead, which is the next thing wrong with this temp directory.
+	err := Preflight(context.Background(), UpOptions{PRD: "auth", BaseDir: dir})
+	if err == nil || strings.Contains(err.Error(), "chief-gone") {
+		t.Errorf("error = %v, want the record of the vanished box to be gone", err)
+	}
+	if _, ok := LoadState(dir); ok {
+		t.Error("the record of a box that no longer exists was kept")
+	}
+}
+
+func TestFollowResumesWhereItLeftOff(t *testing.T) {
+	got := followScript("chief-run@'auth'", "/tmp/chief-follow-1-2.cursor")
+	// Without the cursor file a reconnect either repeats what was already read
+	// or skips what arrived while the connection was down.
+	if !strings.Contains(got, "--cursor-file=/tmp/chief-follow-1-2.cursor") {
+		t.Errorf("followScript = %q, want it to carry a cursor file", got)
+	}
+	if !strings.Contains(got, "-f") || !strings.Contains(got, "chief-run@'auth'") {
+		t.Errorf("followScript = %q, want it to follow the run's unit", got)
+	}
+}
+
+func TestASelfDestructingCloudConfigIsStillValidYAML(t *testing.T) {
+	out := cloudInit(cloudInitOptions{Hostname: "chief-demo-auth", SelfDestruct: true, Profile: Profile{PHP: "8.3", Database: "mysql"}})
+	var parsed struct {
+		WriteFiles []struct {
+			Path        string `yaml:"path"`
+			Content     string `yaml:"content"`
+			Permissions string `yaml:"permissions"`
+		} `yaml:"write_files"`
+	}
+	if err := yaml.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("not valid YAML: %v", err)
+	}
+	// A block scalar that loses its indentation does not fail loudly — it
+	// produces a script that is silently half a script.
+	var script string
+	for _, f := range parsed.WriteFiles {
+		if f.Path == "/usr/local/bin/chief-reap" {
+			script = f.Content
+			if f.Permissions != "0755" {
+				t.Errorf("the reaper is written %s, and systemd has to be able to run it", f.Permissions)
+			}
+		}
+	}
+	if script == "" {
+		t.Fatal("no reaper script in the cloud-config")
+	}
+	if !strings.HasPrefix(script, "#!/bin/sh\n") {
+		t.Errorf("the reaper does not start with a shebang:\n%s", firstLines(script, 3))
+	}
+	if !strings.Contains(script, "api.hetzner.cloud/v1/servers/$CHIEF_SERVER_ID") {
+		t.Error("the reaper does not name the server it is meant to destroy")
+	}
+}
+
+func TestTheReaperScriptParsesAsAShellScript(t *testing.T) {
+	// The script runs at three in the morning on a machine nobody is watching,
+	// and a syntax error there looks exactly like a box that decided to keep
+	// billing. `sh -n` is the cheapest way to find out here instead.
+	out := cloudInit(cloudInitOptions{Hostname: "chief-demo-auth", SelfDestruct: true})
+	var parsed struct {
+		WriteFiles []struct {
+			Path    string `yaml:"path"`
+			Content string `yaml:"content"`
+		} `yaml:"write_files"`
+	}
+	if err := yaml.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("not valid YAML: %v", err)
+	}
+	var script string
+	for _, f := range parsed.WriteFiles {
+		if f.Path == "/usr/local/bin/chief-reap" {
+			script = f.Content
+		}
+	}
+	if script == "" {
+		t.Fatal("no reaper script in the cloud-config")
+	}
+	path := filepath.Join(t.TempDir(), "chief-reap")
+	if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("sh", "-n", path).CombinedOutput(); err != nil {
+		t.Errorf("the reaper is not valid sh: %v\n%s", err, out)
 	}
 }

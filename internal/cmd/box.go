@@ -16,8 +16,9 @@ import (
 )
 
 // BoxUsage is what `chief box` prints when it is called without a command, and
-// what the help refers to for the detail.
-const BoxUsage = `Usage: chief box <command> [options]
+// what the help refers to for the detail. A var rather than a const because it
+// quotes chief's own defaults, and those are numbers as well as names.
+var BoxUsage = `Usage: chief box <command> [options]
 
 Run a PRD on a throwaway cloud instance, so a run that takes hours does not take
 your machine with it.
@@ -35,7 +36,11 @@ Commands:
   down          Destroy the box — this is what stops the billing
 
 Options for up/run:
-  --down-when-done      Destroy the box once the run ends (run only)
+  --keep                Leave the box standing when the run ends. Without this a
+                        box destroys itself once its work is on origin, and in
+                        any case ` + fmt.Sprint(box.DefaultMaxHours) + `h after it booted
+  --max-hours N         Change that outside limit
+  --down-when-done      Destroy the box as soon as the run ends (run only)
   --worktree            Run in the PRD's own worktree on the box
   --verbose             Put the agent's narration in the box's log
   -n, --max-iterations  Cap the run's iterations
@@ -77,6 +82,8 @@ type BoxOptions struct {
 	All           bool
 	Name          string
 	DownWhenDone  bool
+	Keep          bool
+	MaxHours      int
 	MaxIterations int
 
 	Type, Location, Image string
@@ -118,6 +125,13 @@ func ParseBoxArgs(args []string) (BoxOptions, error) {
 			o.Verbose = true
 		case arg == "--down-when-done":
 			o.DownWhenDone = true
+		case arg == "--keep":
+			o.Keep = true
+		case arg == "--max-hours":
+			var v string
+			if v, err = value(&i, arg); err == nil {
+				o.MaxHours, err = parsePositive(arg, v)
+			}
 		case arg == "--force", arg == "-f":
 			o.Force = true
 		case arg == "--all":
@@ -174,6 +188,8 @@ func ParseBoxArgs(args []string) (BoxOptions, error) {
 				o.Packages = append(o.Packages, v)
 			case "--max-iterations":
 				o.MaxIterations, err = parsePositive(name, v)
+			case "--max-hours":
+				o.MaxHours, err = parsePositive(name, v)
 			default:
 				return o, fmt.Errorf("unknown flag: %s", name)
 			}
@@ -281,7 +297,7 @@ func runBoxUp(ctx context.Context, baseDir string, opts BoxOptions) error {
 	// Everything that can be checked for free is checked first. Resolving the
 	// secrets below can open a browser, and nobody should be sent through a
 	// login to be told afterwards that their PRD does not exist.
-	if err := box.Preflight(up); err != nil {
+	if err := box.Preflight(ctx, up); err != nil {
 		return err
 	}
 
@@ -335,6 +351,8 @@ func boxUpOptions(baseDir, prdName string, cfg *config.Config, opts BoxOptions) 
 		Image:         firstNonEmpty(opts.Image, cfg.Box.Image),
 		Location:      firstNonEmpty(opts.Location, cfg.Box.Location),
 		Worktree:      worktree,
+		Keep:          opts.Keep || cfg.Box.Keep,
+		MaxHours:      firstPositive(opts.MaxHours, cfg.Box.MaxHours),
 		MaxIterations: opts.MaxIterations,
 		Verbose:       opts.Verbose,
 		ExtraFiles:    firstNonEmptyList(opts.Files, cfg.Box.Files),
@@ -477,6 +495,16 @@ func runBoxConfig(ctx context.Context, baseDir string) error {
 	}
 	fmt.Fprintf(os.Stderr, "==> %s in %s, saved to .chief/config.yaml\n", serverType, location)
 	return nil
+}
+
+// firstPositive is firstNonEmpty for the settings that are counts.
+func firstPositive(values ...int) int {
+	for _, v := range values {
+		if v > 0 {
+			return v
+		}
+	}
+	return 0
 }
 
 // firstNonEmpty returns the first value that was actually set, which is how a

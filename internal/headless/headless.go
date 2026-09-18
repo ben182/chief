@@ -61,6 +61,16 @@ type Options struct {
 	// is awake to have read it. The branch is the only thing that outlives the
 	// machine, so the log goes there.
 	LogToBranch bool
+	// Push pushes the branch when the run ends even where onComplete.push is
+	// off, which is the project default.
+	//
+	// It is for the run whose machine does not outlive it. A box is created for
+	// one run and destroyed afterwards — often that same night, by a command
+	// nobody was awake to watch — and a commit that was never pushed then exists
+	// nowhere at all. The project's own setting is about a laptop, where the
+	// commits are still there in the morning either way; this is the case it was
+	// not written for.
+	Push bool
 	// NoRetry disables the loop's automatic retry after an agent crash.
 	NoRetry bool
 	// Verbose adds the agent's own narration and every tool call to the log.

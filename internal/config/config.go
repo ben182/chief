@@ -63,6 +63,19 @@ type BoxConfig struct {
 	// Files are paths, relative to the project, that git does not carry but the
 	// run needs. Empty means ".env" alone, which is the case for most projects.
 	Files []string `yaml:"files,omitempty"`
+	// Keep leaves the box running after its run has finished. By default a box
+	// destroys itself once the work is safely on origin, because the alternative
+	// is a machine billing until somebody notices — and the person who would
+	// notice is asleep, which is the whole reason the run is on a box.
+	//
+	// Set this for the project whose boxes you want to inspect afterwards, and
+	// remember that 'chief box down' is then the only thing that stops the bill.
+	Keep bool `yaml:"keep,omitempty"`
+	// MaxHours is the box's outside limit: however the run is going, the box
+	// stops it and destroys itself this many hours after it booted. Zero takes
+	// chief's default. It is the backstop for the run that hangs rather than
+	// ends — a box nothing ever finishes on is a box nothing ever destroys.
+	MaxHours int `yaml:"maxHours,omitempty"`
 }
 
 // ConsolidateConfig holds the consolidation pass that runs once at the end of a

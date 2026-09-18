@@ -36,6 +36,10 @@ type Options struct {
 	// branch rather than with the machine. It is what a run on a throwaway box
 	// needs, and `chief box` passes it for every run it starts.
 	LogToBranch bool // --log-to-branch
+	// Push pushes the run's branch when it ends, whatever onComplete.push says.
+	// It is the other half of what a run on a throwaway box needs: the machine
+	// is destroyed, so a commit that only exists there does not exist.
+	Push bool // --push
 }
 
 // AgentFlags extracts --agent, --agent-path and --model from args[startIdx:],
@@ -110,6 +114,8 @@ func ParseArgs(args []string) (*Options, error) {
 			opts.Worktree = true
 		case arg == "--log-to-branch":
 			opts.LogToBranch = true
+		case arg == "--push":
+			opts.Push = true
 		case arg == "--agent" || arg == "--agent-path" || arg == "--model":
 			i++ // skip value (already parsed by AgentFlags)
 		case strings.HasPrefix(arg, "--agent=") || strings.HasPrefix(arg, "--agent-path=") || strings.HasPrefix(arg, "--model="):

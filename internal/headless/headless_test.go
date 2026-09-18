@@ -551,3 +551,27 @@ func TestRunKeepsNoLogUnlessAsked(t *testing.T) {
 		t.Errorf("a log file turned up in the branch unasked:\n%s", tracked)
 	}
 }
+
+func TestAnOptedInPushHappensWhateverTheProjectConfigured(t *testing.T) {
+	// The run on a throwaway box has to push: the machine is destroyed when it
+	// is done, and onComplete.push is off in every project that never turned it
+	// on. There is no remote here, so the push fails — what matters is that it
+	// was attempted, and said so.
+	dir, prdPath := project(t, "US-001", "Test Story")
+	runGit(t, dir, "checkout", "-b", "work")
+
+	res, log := run(t, Options{
+		PRDPath:  prdPath,
+		BaseDir:  dir,
+		Provider: &testProvider{script: agentScript(t, dir, "feat: demo/US-001 - Test Story")},
+		Config:   &config.Config{},
+		Push:     true,
+	})
+
+	if _, tried := res.Actions["push"]; !tried {
+		t.Errorf("no push was attempted with Push set: %v", res.Actions)
+	}
+	if !strings.Contains(log, "does not outlive it") {
+		t.Errorf("the log does not say why it pushed against the config:\n%s", log)
+	}
+}

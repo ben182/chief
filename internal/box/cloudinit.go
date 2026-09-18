@@ -55,6 +55,14 @@ type cloudInitOptions struct {
 	// first connection can be checked rather than trusted. A zero value renders
 	// no key section and lets the instance invent its own.
 	HostKey hostKey
+	// SelfDestruct builds the box so that it destroys itself: once its run has
+	// finished and the commits are on origin, and in any case once MaxHours have
+	// passed since it booted. False renders none of it, and the box then bills
+	// until somebody runs 'chief box down'.
+	SelfDestruct bool
+	// MaxHours is the outside limit for a self-destructing box. Zero takes
+	// defaultMaxHours.
+	MaxHours int
 }
 
 // cloudInit renders the cloud-config that turns a bare Ubuntu instance into one
@@ -183,7 +191,7 @@ write_files:
       [Unit]
       Description=chief headless run (%%i)
       After=network-online.target postgresql.service mariadb.service redis-server.service meilisearch.service
-      Wants=network-online.target
+      Wants=network-online.target%[9]s
 
       [Service]
       Type=oneshot
@@ -203,7 +211,7 @@ write_files:
 
       [Install]
       WantedBy=multi-user.target
-%[4]s
+%[10]s%[4]s
 users:
   # Work does not happen as root: the agent runs with permissions skipped, and
   # there is no reason to hand it the whole machine as well.
@@ -252,7 +260,7 @@ runcmd:
   - apt-get install -y claude-code gh%[7]s
 %[8]s
   - systemctl daemon-reload
-  # The marker chief waits for. Written last, so its existence means every step
+%[11]s  # The marker chief waits for. Written last, so its existence means every step
   # above finished.
   - touch /var/lib/cloud/chief-ready
 
@@ -266,6 +274,9 @@ final_message: "chief box ready after $UPTIME seconds"
 		repositorySteps(p),
 		aptInstallList(p),
 		toolSteps(p),
+		reaperHook(opts),
+		reaperFiles(opts),
+		reaperSteps(opts),
 	)
 }
 
@@ -412,6 +423,166 @@ func toolSteps(p Profile) string {
 	}
 
 	return b.String()
+}
+
+// What a self-destructing box waits for before it goes.
+const (
+	// DefaultMaxHours is the outside limit on a box's life. It is measured from
+	// boot rather than from the start of the run because that is the clock that
+	// keeps running when everything else has stopped — including a run that
+	// never started because provisioning hung.
+	//
+	// Twelve hours covers a long night's run with room to spare, and it is short
+	// enough that a box forgotten before bedtime is gone before the morning
+	// rather than still billing at lunchtime.
+	DefaultMaxHours = 12
+	// reapGrace is how long a finished box waits before destroying itself, so
+	// that somebody who was watching the log as it ended has a moment to look
+	// around on the machine.
+	reapGrace = "20min"
+	// reapRetry is how long the box waits before trying again after a reap it
+	// refused to carry out, which happens only when commits on it are still
+	// nowhere else.
+	reapRetry = "1h"
+)
+
+// maxHours is the limit to build a box with, in hours.
+func maxHours(opts cloudInitOptions) int {
+	if opts.MaxHours > 0 {
+		return opts.MaxHours
+	}
+	return DefaultMaxHours
+}
+
+// reaperHook is the line in the run unit that starts the countdown to the box's
+// own destruction. It is OnSuccess rather than OnFailure as well, and that is
+// the whole policy: a run that ended with stories unresolved is one somebody
+// will want to look at, retry, or ssh into, and the deadline below is what
+// stops that box from billing forever. A run that finished has nothing left on
+// the machine that is not also on origin.
+func reaperHook(opts cloudInitOptions) string {
+	if !opts.SelfDestruct {
+		return ""
+	}
+	return "\n      OnSuccess=chief-reap.timer"
+}
+
+// reaperFiles renders the script and the units that let a box destroy itself.
+//
+// The credentials the script needs are not here: they arrive over SSH once the
+// instance is up, into a file this script reads. A Hetzner token in the
+// cloud-config would be a token in the instance's own metadata, readable by
+// anything on the machine that can reach 169.254.169.254 — which is every
+// process, without a password.
+func reaperFiles(opts cloudInitOptions) string {
+	if !opts.SelfDestruct {
+		return ""
+	}
+	return fmt.Sprintf(`
+  # What makes a box stop billing without anybody being awake for it.
+  #
+  # Two things start this: the run unit finishing successfully, and the deadline
+  # below. Both go through the same script, which refuses to destroy a machine
+  # whose commits are still only on it.
+  - path: /usr/local/bin/chief-reap
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      # Destroys this box through the Hetzner API, once what the run built is
+      # somewhere other than here.
+      set -u
+      say() { echo "chief-reap: $1"; }
+
+      if [ ! -f /etc/chief/reap.env ]; then
+        say "no credentials — this box was not built to destroy itself"
+        exit 0
+      fi
+      . /etc/chief/reap.env
+
+      # The last thing this machine can do for the run: get its commits off
+      # itself. Normally there is nothing to do here, because the run pushes
+      # when it ends — this is for the run that was cut short by the deadline,
+      # or whose own push failed.
+      su - chief -c 'set -a; . ~/.chief-env; set +a; cd ~/project && git push --quiet --all origin' ||
+        say "the rescue push did not work"
+
+      left=$(su - chief -c 'cd ~/project && git rev-list --count --branches --not --remotes' 2>/dev/null || echo 0)
+      case "$left" in '' | *[!0-9]*) left=0 ;; esac
+      if [ "$left" -gt 0 ]; then
+        # Destroying the machine now would delete the only copy of this work.
+        # The timer tries again later, and 'chief box list' still shows it.
+        say "$left commit(s) exist only here — keeping the box, trying again in %[2]s"
+        exit 1
+      fi
+
+      say "the work is on origin; destroying this box"
+      curl -fsS --retry 5 --retry-all-errors --retry-delay 3 -X DELETE \
+        -H "Authorization: Bearer $CHIEF_HETZNER_TOKEN" \
+        "https://api.hetzner.cloud/v1/servers/$CHIEF_SERVER_ID"
+
+  - path: /etc/systemd/system/chief-reap.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Destroy this box now that its work is on origin
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/chief-reap
+
+  # Started by the run unit when the run succeeds, not enabled at boot: a box
+  # whose run has not finished has no business destroying itself.
+  - path: /etc/systemd/system/chief-reap.timer
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Countdown to destroying this box
+
+      [Timer]
+      OnActiveSec=%[1]s
+      OnUnitActiveSec=%[2]s
+      AccuracySec=1min
+      Unit=chief-reap.service
+
+  # The backstop. A run that hangs never succeeds, so nothing above would ever
+  # fire, and the box would bill until somebody remembered it.
+  - path: /etc/systemd/system/chief-deadline.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Stop the run and destroy this box after %[3]d hours
+
+      [Service]
+      Type=oneshot
+      # The run is stopped first, and stopped rather than killed: systemd sends
+      # it SIGTERM, chief ends the iteration, and the commits it already made
+      # are there for the push the reaper tries next.
+      ExecStart=/bin/sh -c 'systemctl stop "chief-run@*.service" || true; /usr/local/bin/chief-reap'
+
+  - path: /etc/systemd/system/chief-deadline.timer
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=This box's outside limit
+
+      [Timer]
+      OnBootSec=%[3]dh
+      OnUnitActiveSec=%[2]s
+      AccuracySec=1min
+      Unit=chief-deadline.service
+
+      [Install]
+      WantedBy=timers.target
+`, reapGrace, reapRetry, maxHours(opts))
+}
+
+// reaperSteps arms the deadline. The reap timer is deliberately left alone —
+// the run unit starts it when it has something to report.
+func reaperSteps(opts cloudInitOptions) string {
+	if !opts.SelfDestruct {
+		return ""
+	}
+	return "  - systemctl enable --now chief-deadline.timer\n"
 }
 
 // hostKeySection is the part of the cloud-config that gives the instance the

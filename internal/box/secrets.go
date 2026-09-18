@@ -22,8 +22,9 @@ type Secrets struct {
 	// GitHubToken lets the box clone the project and, when the run finishes,
 	// push the branch and open the pull request.
 	GitHubToken string
-	// HetznerToken creates and destroys the box itself. It never leaves this
-	// machine.
+	// HetznerToken creates and destroys the box itself. A copy goes to the box,
+	// root-only, so that it can destroy itself when its run is done — see
+	// armReaper for what that costs and what it buys.
 	HetznerToken string
 }
 

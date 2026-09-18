@@ -119,6 +119,73 @@ func (r remote) stream(ctx context.Context, script string, out io.Writer) error 
 	return cmd.Run()
 }
 
+// How long to wait between attempts to pick a dropped log stream back up, and
+// how long to keep trying before calling the box gone.
+const (
+	followRetryDelay = 5 * time.Second
+	followGiveUp     = 3 * time.Minute
+)
+
+// follow streams a systemd unit's journal and reconnects when the connection
+// drops.
+//
+// A single `ssh … journalctl -f` is a five-hour bet on one TCP connection. A
+// laptop that sleeps for a minute, a network that changes, a router that ages a
+// NAT entry out — any of them end the stream, and ssh exits quietly, because
+// from its point of view nothing went wrong. What that looks like on this side
+// is a log that stops moving, which is indistinguishable from a run that has
+// gone quiet: the exact confusion the log exists to prevent.
+//
+// The cursor file is what makes picking it up again seamless rather than
+// approximate. journalctl writes the last entry it showed into it and, on the
+// next run, resumes after that entry — so a reconnect neither repeats the lines
+// already read nor skips the ones that arrived while the connection was down.
+// It lives in /tmp under a name unique to this watcher, so two people following
+// the same box do not advance each other's place.
+func (r remote) follow(ctx context.Context, unit string, out io.Writer) error {
+	cursor := fmt.Sprintf("/tmp/chief-follow-%d-%d.cursor", os.Getpid(), time.Now().UnixNano())
+	script := followScript(unit, cursor)
+	defer func() {
+		// Best-effort: a cursor file left behind on a machine that exists to be
+		// destroyed is not a leak worth an error path.
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		_, _ = r.run(cleanup, "rm -f "+cursor)
+	}()
+
+	lastConnected := time.Now()
+	for {
+		err := r.stream(ctx, script, out)
+		if ctx.Err() != nil {
+			// Stopped watching on purpose. That is not a failure of the stream.
+			return nil
+		}
+		if err == nil {
+			// journalctl -f only ends on its own when the box is going away —
+			// shutting down, or having its journal cut off under it.
+			return nil
+		}
+		if time.Since(lastConnected) > followGiveUp {
+			return fmt.Errorf("lost the box's log and could not get it back: %w", err)
+		}
+		_, _ = fmt.Fprintf(out, "\n==> lost the connection to the box, picking the log back up\n")
+		if !sleep(ctx, followRetryDelay) {
+			return nil
+		}
+		// Reaching the box at all is what resets the clock: a reconnect that
+		// works and then drops again a minute later is a flaky network, not a
+		// box that is gone, and the give-up window is for the second case.
+		if _, err := r.ask(ctx, "true", 20*time.Second); err == nil {
+			lastConnected = time.Now()
+		}
+	}
+}
+
+// followScript is the journalctl invocation follow reconnects with.
+func followScript(unit, cursor string) string {
+	return "journalctl -u " + unit + " -f --no-hostname -o cat --cursor-file=" + cursor
+}
+
 // shell opens an interactive session, replacing this process's terminal for the
 // duration.
 func (r remote) shell(ctx context.Context, dir string) error {

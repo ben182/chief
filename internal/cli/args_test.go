@@ -231,3 +231,18 @@ func TestParseArgs_HeadlessCombinesWithTheOtherRunFlags(t *testing.T) {
 		t.Error("PRDPath is unset, want the named PRD")
 	}
 }
+
+func TestPushIsOffUnlessAsked(t *testing.T) {
+	// It overrides the project's own onComplete.push, so nothing but a box's
+	// own run should be setting it.
+	if opts, err := ParseArgs([]string{"start", "auth", "--headless"}); err != nil || opts.Push {
+		t.Errorf("Push = %v by default (%v)", opts.Push, err)
+	}
+	opts, err := ParseArgs([]string{"start", "auth", "--headless", "--push"})
+	if err != nil {
+		t.Fatalf("ParseArgs: %v", err)
+	}
+	if !opts.Push {
+		t.Error("--push was not read")
+	}
+}
