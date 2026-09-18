@@ -21,6 +21,15 @@ type State struct {
 	// PRD is the run the box was created for, which is also the systemd unit
 	// instance its log lives under.
 	PRD string `json:"prd"`
+	// HostKey is the public half of the SSH host identity this box was built
+	// with, so every connection after the first can be checked against a key
+	// that was known before the machine existed. Empty on a box created before
+	// chief pinned host keys.
+	HostKey string `json:"hostKey,omitempty"`
+	// FirewallID is the firewall created alongside the box, which has to be
+	// destroyed with it — an orphaned firewall costs nothing but accumulates in
+	// the console until nobody can tell which are in use.
+	FirewallID int64 `json:"firewallId,omitempty"`
 	// Created is when the box started billing.
 	Created time.Time `json:"created"`
 }
@@ -72,7 +81,14 @@ func LoadState(baseDir string) (State, bool) {
 }
 
 // ForgetState drops the record, after the box it described is gone.
+//
+// The host key goes with it. Hetzner hands the address to somebody else's
+// machine within hours, and an entry claiming to know what that address is
+// would then be wrong in the one direction that matters.
 func ForgetState(baseDir string) error {
+	if err := os.Remove(knownHostsPath(baseDir)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
 	err := os.Remove(statePath(baseDir))
 	if os.IsNotExist(err) {
 		return nil

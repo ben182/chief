@@ -197,6 +197,11 @@ type createServerOpts struct {
 	SSHKeyID int64
 	UserData string
 	Labels   map[string]string
+	// FirewallID is the firewall to create the server behind. Attaching it here
+	// rather than afterwards matters: a server attached in a second call is
+	// unprotected for the seconds between the two, and it is booting and
+	// installing packages in exactly those seconds.
+	FirewallID int64
 }
 
 // createServer creates the instance and returns it once Hetzner has accepted
@@ -215,6 +220,9 @@ func (h *hetzner) createServer(ctx context.Context, opts createServerOpts) (serv
 	}
 	if len(opts.Labels) > 0 {
 		body["labels"] = opts.Labels
+	}
+	if opts.FirewallID != 0 {
+		body["firewalls"] = []map[string]int64{{"firewall": opts.FirewallID}}
 	}
 
 	var out struct {
@@ -345,4 +353,67 @@ func fingerprint(publicKey string) (string, error) {
 		parts[i] = fmt.Sprintf("%02x", b)
 	}
 	return strings.Join(parts, ":"), nil
+}
+
+// firewall is a Hetzner firewall, which is the cheapest security a box can
+// have: it is free, it is enforced outside the machine, and it does not care
+// what the run does to iptables inside.
+type firewall struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+// createFirewall makes the firewall a box runs behind.
+//
+// The rules are an allowlist and they are deliberately short: SSH from
+// anywhere, ping from anywhere, nothing else in. SSH stays open to the world
+// rather than pinned to the creator's address, because an address that changes
+// between creating a box and looking at it locks you out of your own machine
+// for no gain — the port is protected by keys, not by obscurity.
+//
+// What this does close is everything else, and that is the point. A project's
+// `worktree.setup` starts a dev server, a queue dashboard, a database that was
+// configured to listen on all interfaces; without a firewall each of those is
+// on the public internet for the hours the run takes, and nobody involved
+// decided that. Outbound is untouched — no `out` rules means Hetzner allows all
+// of it, which apt, GitHub and the agent's API all need.
+func (h *hetzner) createFirewall(ctx context.Context, name string) (firewall, error) {
+	anywhere := []string{"0.0.0.0/0", "::/0"}
+	body := map[string]any{
+		"name": name,
+		"rules": []map[string]any{
+			{
+				"direction":   "in",
+				"protocol":    "tcp",
+				"port":        "22",
+				"source_ips":  anywhere,
+				"description": "ssh",
+			},
+			{
+				"direction":   "in",
+				"protocol":    "icmp",
+				"source_ips":  anywhere,
+				"description": "ping",
+			},
+		},
+	}
+
+	var out struct {
+		Firewall firewall `json:"firewall"`
+	}
+	if err := h.do(ctx, http.MethodPost, "/firewalls", body, &out); err != nil {
+		return firewall{}, err
+	}
+	return out.Firewall, nil
+}
+
+// deleteFirewall removes a firewall once the box behind it is gone. One that is
+// already deleted is not an error, for the same reason a deleted server is not.
+func (h *hetzner) deleteFirewall(ctx context.Context, id int64) error {
+	err := h.do(ctx, http.MethodDelete, "/firewalls/"+strconv.FormatInt(id, 10), nil, nil)
+	var e apiError
+	if asAPIError(err, &e) && e.Status == http.StatusNotFound {
+		return nil
+	}
+	return err
 }

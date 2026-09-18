@@ -254,3 +254,85 @@ func TestAvailableTypesReportsALocationThatIsNotThere(t *testing.T) {
 		t.Error("expected an error for a location that does not exist")
 	}
 }
+
+func TestCreateFirewallOpensSSHAndNothingElse(t *testing.T) {
+	f := newFakeHetzner(t, map[string]any{
+		"POST /firewalls": `{"firewall":{"id":77,"name":"chief-demo"}}`,
+	})
+	fw, err := f.client("t").createFirewall(context.Background(), "chief-demo")
+	if err != nil {
+		t.Fatalf("createFirewall: %v", err)
+	}
+	if fw.ID != 77 {
+		t.Errorf("firewall ID = %d, want 77", fw.ID)
+	}
+
+	rules, ok := f.requests[0].Body["rules"].([]any)
+	if !ok {
+		t.Fatalf("no rules in the request: %v", f.requests[0].Body)
+	}
+
+	// The whole point of the firewall is what is *not* in this list. A run's
+	// setup script starting a dev server or a queue dashboard must not put it on
+	// the public internet, and the only way to guarantee that is for the
+	// allowlist to stay this short.
+	var tcpPorts []string
+	for _, r := range rules {
+		rule := r.(map[string]any)
+		if rule["direction"] != "in" {
+			t.Errorf("an outbound rule turns the allowlist into a blocklist: %v", rule)
+		}
+		if rule["protocol"] == "tcp" {
+			tcpPorts = append(tcpPorts, rule["port"].(string))
+		}
+	}
+	if len(tcpPorts) != 1 || tcpPorts[0] != "22" {
+		t.Errorf("open TCP ports = %v, want only 22", tcpPorts)
+	}
+}
+
+func TestCreateServerAttachesTheFirewall(t *testing.T) {
+	f := newFakeHetzner(t, map[string]any{
+		"POST /servers": `{"server":{"id":5,"name":"chief-demo","public_net":{"ipv4":{"ip":"203.0.113.7"}}}}`,
+	})
+	_, err := f.client("t").createServer(context.Background(), createServerOpts{
+		Name: "chief-demo", Type: "cx33", Image: "ubuntu-26.04", Location: "fsn1",
+		SSHKeyID: 1, FirewallID: 77,
+	})
+	if err != nil {
+		t.Fatalf("createServer: %v", err)
+	}
+
+	// Attached in the create call rather than afterwards: a server attached in a
+	// second request boots and installs packages unprotected in between.
+	firewalls, ok := f.requests[0].Body["firewalls"].([]any)
+	if !ok || len(firewalls) != 1 {
+		t.Fatalf("the server was created without its firewall: %v", f.requests[0].Body)
+	}
+	if got := firewalls[0].(map[string]any)["firewall"]; got != float64(77) {
+		t.Errorf("attached firewall = %v, want 77", got)
+	}
+}
+
+func TestCreateServerWithoutAFirewall(t *testing.T) {
+	f := newFakeHetzner(t, map[string]any{
+		"POST /servers": `{"server":{"id":5,"name":"chief-demo","public_net":{"ipv4":{"ip":"203.0.113.7"}}}}`,
+	})
+	if _, err := f.client("t").createServer(context.Background(), createServerOpts{
+		Name: "chief-demo", Type: "cx33", Image: "ubuntu-26.04", Location: "fsn1", SSHKeyID: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := f.requests[0].Body["firewalls"]; present {
+		t.Error("sent an empty firewalls field, which Hetzner reads as a request it cannot satisfy")
+	}
+}
+
+func TestDeleteFirewallToleratesOneThatIsAlreadyGone(t *testing.T) {
+	// Nothing answers for /firewalls/77, so the fake returns 404. Destroying a
+	// box must not fail because its firewall was removed in the console first.
+	f := newFakeHetzner(t, map[string]any{})
+	if err := f.client("t").deleteFirewall(context.Background(), 77); err != nil {
+		t.Errorf("deleteFirewall on a missing firewall: %v", err)
+	}
+}

@@ -23,21 +23,39 @@ type remote struct {
 	// user and host say where to connect. host is an IP: a throwaway box has no
 	// name anyone has heard of.
 	user, host string
+	// knownHosts is the file holding the host key this box was built with. Empty
+	// falls back to accepting whatever answers, which is what a box created
+	// before chief pinned host keys has to be reached with.
+	knownHosts string
 }
 
 // sshArgs are the options every connection uses.
 //
-// Host key checking is off and known_hosts points at nowhere, which for a
-// long-lived server would be wrong. These are not long-lived: addresses are
-// recycled between boxes within hours, so the strict setting turns the next run
-// into a host key mismatch — an error message about a possible attack, for a
-// machine that was created eleven minutes ago.
+// The host key is checked against the one chief generated and put into the box
+// through cloud-init, in a known_hosts file belonging to this project rather
+// than the user's own. That keeps both halves of the usual trade: the address
+// of a machine created eleven minutes ago cannot collide with an entry for a
+// machine somebody cares about, and chief still refuses to hand its tokens to a
+// host that is not the one it created.
+//
+// Without a pinned key — a box from before this existed — it falls back to
+// accepting whatever answers. Being unable to read the log of a running box
+// would protect nothing: that box was handed its secrets hours ago.
 func (r remote) sshArgs(extra ...string) []string {
 	args := []string{
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "LogLevel=ERROR",
 		"-o", "ServerAliveInterval=30",
+	}
+	if r.knownHosts != "" {
+		args = append(args,
+			"-o", "StrictHostKeyChecking=yes",
+			"-o", "UserKnownHostsFile="+r.knownHosts,
+		)
+	} else {
+		args = append(args,
+			"-o", "StrictHostKeyChecking=no",
+			"-o", "UserKnownHostsFile=/dev/null",
+		)
 	}
 	return append(args, extra...)
 }

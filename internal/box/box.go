@@ -126,7 +126,7 @@ func Preflight(opts UpOptions) error {
 		return err
 	}
 
-	if err := needTools("ssh", "scp", "rsync"); err != nil {
+	if err := needTools("ssh", "scp", "rsync", "ssh-keygen"); err != nil {
 		return err
 	}
 
@@ -195,6 +195,21 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 		location = DefaultLocation
 	}
 
+	// The box's own identity, made here so that it is known before the machine
+	// it belongs to exists. Everything chief sends the box in its first minutes
+	// — both tokens and the project's .env — is checked against this.
+	host, err := generateHostKey(ctx)
+	if err != nil {
+		return state, err
+	}
+
+	rep.step("Creating the firewall")
+	fw, err := api.createFirewall(ctx, name)
+	if err != nil {
+		return state, err
+	}
+	rep.detail("inbound: ssh only")
+
 	rep.step("Creating %s (%s in %s)", name, instanceType, location)
 	srv, err := api.createServer(ctx, createServerOpts{
 		Name:     name,
@@ -202,10 +217,19 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 		Image:    image,
 		Location: location,
 		SSHKeyID: key.ID,
-		UserData: cloudInit(cloudInitOptions{Hostname: name, ExtraPackages: opts.ExtraPackages}),
-		Labels:   map[string]string{"managed-by": "chief"},
+		UserData: cloudInit(cloudInitOptions{
+			Hostname:      name,
+			ExtraPackages: opts.ExtraPackages,
+			HostKey:       host,
+		}),
+		Labels:     map[string]string{"managed-by": "chief"},
+		FirewallID: fw.ID,
 	})
 	if err != nil {
+		// The firewall outlived the server it was for by a few milliseconds.
+		// Nobody is billed for it, but an account that collects one of these per
+		// failed attempt becomes a console nobody can read.
+		_ = api.deleteFirewall(context.WithoutCancel(ctx), fw.ID)
 		// A refused type/location pair is the one failure worth turning into an
 		// answer: the price list still advertises superseded generations, so
 		// "unsupported" reads like a bug in chief rather than a type to change.
@@ -218,7 +242,15 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 		return state, err
 	}
 
-	state = State{ServerID: srv.ID, Name: srv.Name, IP: srv.IP(), PRD: opts.PRD, Created: time.Now()}
+	state = State{
+		ServerID:   srv.ID,
+		Name:       srv.Name,
+		IP:         srv.IP(),
+		PRD:        opts.PRD,
+		HostKey:    host.Public,
+		FirewallID: fw.ID,
+		Created:    time.Now(),
+	}
 	// Record it before anything else can fail: an instance that exists but was
 	// never written down is one the user pays for and cannot find again.
 	if err := SaveState(opts.BaseDir, state); err != nil {
@@ -226,14 +258,21 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 	}
 	rep.detail("%s", state.IP)
 
+	// Now that the box has an address, the key it was built with can be written
+	// against it, and every connection below is checked rather than trusted.
+	knownHosts, err := writeKnownHosts(opts.BaseDir, state.IP, host.Public)
+	if err != nil {
+		return state, err
+	}
+
 	// From here a failure leaves a box behind, and the user has to be told what
 	// it is called and how to get rid of it.
 	fail := func(err error) (State, error) {
 		return state, fmt.Errorf("%w\n  The box %s is still running — destroy it with 'chief box down'", err, state.Name)
 	}
 
-	r := remote{user: remoteUser, host: state.IP}
-	root := remote{user: "root", host: state.IP}
+	r := remote{user: remoteUser, host: state.IP, knownHosts: knownHosts}
+	root := remote{user: "root", host: state.IP, knownHosts: knownHosts}
 
 	rep.step("Waiting for the box to boot")
 	if err := root.waitReachable(ctx, bootTimeout); err != nil {
@@ -643,7 +682,7 @@ func Logs(ctx context.Context, baseDir string, out io.Writer) error {
 	if !ok {
 		return errNoBox
 	}
-	r := remote{user: remoteUser, host: s.IP}
+	r := remote{user: remoteUser, host: s.IP, knownHosts: knownHostsFor(baseDir, s)}
 	return r.stream(ctx, "journalctl -u chief-run@"+shellQuote(s.PRD)+" -f --no-hostname -o cat", out)
 }
 
@@ -656,7 +695,7 @@ func Status(ctx context.Context, baseDir string, out io.Writer) error {
 	rep := reporter{out: out}
 	rep.step("%s at %s — PRD %s, %s old", s.Name, s.IP, s.PRD, s.Age())
 
-	r := remote{user: remoteUser, host: s.IP}
+	r := remote{user: remoteUser, host: s.IP, knownHosts: knownHostsFor(baseDir, s)}
 	unit := shellQuote("chief-run@" + s.PRD)
 	state, err := r.run(ctx, "systemctl is-active "+unit+"; systemctl show "+unit+" -p Result --value")
 	if err != nil && state == "" {
@@ -687,7 +726,7 @@ func SSH(ctx context.Context, baseDir string, command string, out io.Writer) err
 	if !ok {
 		return errNoBox
 	}
-	r := remote{user: remoteUser, host: s.IP}
+	r := remote{user: remoteUser, host: s.IP, knownHosts: knownHostsFor(baseDir, s)}
 	if strings.TrimSpace(command) == "" {
 		return r.shell(ctx, remoteProject)
 	}
@@ -718,7 +757,7 @@ func Down(ctx context.Context, opts DownOptions) error {
 	rep := reporter{out: opts.Out}
 
 	if !opts.Force {
-		if n := unpushedCommits(ctx, s); n > 0 {
+		if n := unpushedCommits(ctx, opts.BaseDir, s); n > 0 {
 			prompt := fmt.Sprintf(
 				"The box has %d commit(s) that were never pushed — they exist nowhere else.\n"+
 					"  Look with: chief box ssh, then git log\n"+
@@ -733,6 +772,15 @@ func Down(ctx context.Context, opts DownOptions) error {
 	api := newHetzner(secretsOrEnvHetzner())
 	if err := api.deleteServer(ctx, s.ServerID); err != nil {
 		return fmt.Errorf("%w\n  The record is kept; destroy it in the Hetzner console if this persists", err)
+	}
+	// The firewall goes after the server, because it cannot be deleted while
+	// something is attached to it. Failing here is reported and not returned:
+	// the machine is gone, which is the thing that was costing money, and a
+	// firewall left behind is tidiness rather than a problem.
+	if s.FirewallID != 0 {
+		if err := api.deleteFirewall(ctx, s.FirewallID); err != nil {
+			rep.detail("the firewall %s is still there (%v) — it is free, but you may want to remove it", s.Name, err)
+		}
 	}
 	if err := ForgetState(opts.BaseDir); err != nil {
 		return err
@@ -751,8 +799,8 @@ func secretsOrEnvHetzner() string {
 // unpushedCommits counts what the box has committed and not pushed. A box that
 // cannot be reached reports zero: it cannot be asked, and refusing to destroy a
 // machine that is not answering would leave it billing forever.
-func unpushedCommits(ctx context.Context, s State) int {
-	r := remote{user: remoteUser, host: s.IP}
+func unpushedCommits(ctx context.Context, baseDir string, s State) int {
+	r := remote{user: remoteUser, host: s.IP, knownHosts: knownHostsFor(baseDir, s)}
 	probe, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	out, err := r.run(probe, "cd "+remoteProject+" && git log --oneline @{upstream}..HEAD 2>/dev/null | wc -l")
