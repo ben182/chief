@@ -123,6 +123,19 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		return res, fmt.Errorf("headless: resolving the project root: %w", err)
 	}
 
+	// Everything downstream works with these rather than with what the caller
+	// passed, so they are normalised once, here, rather than resolved again in
+	// each place that needs them — or, as happened, not resolved at all.
+	//
+	// A relative PRD path is the normal case: `chief box` starts the run from
+	// the project root with the path it was given. The run itself happens in a
+	// worktree somewhere else, so anything that resolves that relative path
+	// later gets a different answer than the agent did. The summary was the
+	// place it showed: the agent wrote the file into the worktree, exactly as
+	// asked, and chief then looked for it under the project root and reported
+	// that the agent had not written it.
+	opts.PRDPath, opts.BaseDir = prdPath, baseDir
+
 	name := prdNameFrom(prdPath)
 	res.PRDName = name
 

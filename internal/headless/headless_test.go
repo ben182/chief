@@ -28,8 +28,11 @@ func (p *testProvider) ParseLine(line string) *loop.Event        { return loop.P
 func (p *testProvider) LogFileName() string                      { return "claude.log" }
 func (p *testProvider) CleanOutput(out string) string            { return out }
 
-func (p *testProvider) LoopCommand(ctx context.Context, _, workDir string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, p.script)
+// LoopCommand hands the prompt to the script as its first argument. The real
+// providers pass it differently, but a mock that never sees it cannot stand in
+// for an agent that is told where to write a file.
+func (p *testProvider) LoopCommand(ctx context.Context, prompt, workDir string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, p.script, prompt)
 	cmd.Dir = workDir
 	return cmd
 }
@@ -345,5 +348,73 @@ func TestRunFailsOnAPRDThatIsNotThere(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "reading") {
 		t.Errorf("error = %v, want it to say what it could not read", err)
+	}
+}
+
+// summarisingAgentScript stands in for an agent that does two different jobs:
+// building the story, and — when handed a prompt naming a summary file — writing
+// that file exactly where it was told to, which is what the real one does.
+func summarisingAgentScript(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "mock-agent")
+	body := `#!/bin/bash
+target=$(printf '%s' "$1" | grep -oE '[^[:space:]"]*summary-[0-9-]+\.md' | head -1)
+if [ -n "$target" ]; then
+  mkdir -p "$(dirname "$target")"
+  printf '# Run summary\n\nIt went fine.\n' > "$target"
+  echo '{"type":"assistant","message":{"content":[{"type":"text","text":"summarised"}]}}'
+  exit 0
+fi
+echo impl >> impl.txt
+git add impl.txt >/dev/null 2>&1
+git commit -m 'feat: demo/US-001 - Test Story' >/dev/null 2>&1
+echo '{"type":"assistant","message":{"content":[{"type":"text","text":"built it <chief-done/>"}]}}'
+`
+	if err := os.WriteFile(path, []byte(body), 0755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestRunFindsTheSummaryWhenTheCallerPassedARelativePRDPath(t *testing.T) {
+	// Exactly how `chief start --headless` is called, and therefore how every
+	// box run is called: an absolute BaseDir and a PRD path relative to it.
+	// That pairing is the one that breaks, because a relative path cannot be
+	// expressed relative to an absolute directory — the mapping into the
+	// worktree silently gives up and hands back the relative path unchanged.
+	//
+	// The work then happens in a worktree somewhere else, so the agent and
+	// chief resolve that path against different directories: the agent writes
+	// the summary into the worktree, exactly as asked, and chief looks under the
+	// project root and reports that the agent wrote nothing.
+	dir, _ := project(t, "US-001", "Test Story")
+	t.Chdir(dir)
+
+	cfg := &config.Config{}
+	cfg.OnComplete.Summary = true
+
+	res, log := run(t, Options{
+		PRDPath:  filepath.Join(".chief", "prds", "demo", "prd.md"),
+		BaseDir:  dir,
+		Provider: &testProvider{script: summarisingAgentScript(t)},
+		Config:   cfg,
+		Worktree: true,
+	})
+
+	if err := res.Actions["summary"]; err != nil {
+		t.Errorf("summary reported as failed: %v\nlog:\n%s", err, log)
+	}
+	if !strings.Contains(log, "wrote summary-") {
+		t.Errorf("the run did not report writing a summary:\n%s", log)
+	}
+
+	// And it is where a worktree run's summary belongs: next to the PRD inside
+	// the checkout the work happened in, so the push carries it.
+	found, err := filepath.Glob(filepath.Join(res.WorkDir, ".chief", "prds", "demo", "summary-*.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) != 1 {
+		t.Errorf("found %d summary files in the worktree, want 1\nlog:\n%s", len(found), log)
 	}
 }
