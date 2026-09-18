@@ -103,7 +103,7 @@ func TestParseBoxArgsAllowsCommandsWithoutAPRD(t *testing.T) {
 }
 
 func TestBoxUsageNamesEveryCommandAndTheCostWarning(t *testing.T) {
-	for _, want := range []string{"up", "run", "logs", "status", "ssh", "down"} {
+	for _, want := range []string{"up", "run", "retry", "logs", "status", "ssh", "down"} {
 		if !strings.Contains(BoxUsage, "  "+want) {
 			t.Errorf("the usage does not document %q", want)
 		}
@@ -145,5 +145,45 @@ func TestParseBoxArgsTakesTheSSHCommandVerbatim(t *testing.T) {
 	}
 	if o.Command2 != "" {
 		t.Errorf("Command2 = %q, want empty for an interactive shell", o.Command2)
+	}
+}
+
+func TestParseBoxArgsTakesTheDestroyFlags(t *testing.T) {
+	// --all is the answer to a box nothing local remembers, and --name to one
+	// box out of several. Both have to survive the parser, or `chief box list`
+	// keeps pointing at the Hetzner console.
+	all, err := ParseBoxArgs([]string{"down", "--all", "--force"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !all.All || !all.Force {
+		t.Errorf("down --all --force parsed as %+v", all)
+	}
+
+	for _, args := range [][]string{
+		{"down", "--name", "chief-demo-142455"},
+		{"down", "--name=chief-demo-142455"},
+	} {
+		got, err := ParseBoxArgs(args)
+		if err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if got.Name != "chief-demo-142455" {
+			t.Errorf("%v parsed the name as %q", args, got.Name)
+		}
+	}
+
+	if _, err := ParseBoxArgs([]string{"down", "--name"}); err == nil {
+		t.Error("--name without a value was accepted")
+	}
+}
+
+func TestParseBoxArgsKnowsRetry(t *testing.T) {
+	got, err := ParseBoxArgs([]string{"retry"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Command != "retry" {
+		t.Errorf("command = %q, want retry", got.Command)
 	}
 }

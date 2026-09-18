@@ -2,6 +2,7 @@ package box
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -153,5 +154,116 @@ func TestGitHubTokenNoteWarnsOnlyAboutBroadTokens(t *testing.T) {
 		if note := gitHubTokenNote(token); note != "" {
 			t.Errorf("warned about %q, which is scoped or unknown: %s", token, note)
 		}
+	}
+}
+
+// TestDownAllDestroysWhatNoCheckoutRemembers covers the gap `chief box list`
+// used to leave open: it could show you a box you had forgotten and then had
+// nothing to offer but a link to the Hetzner console.
+func TestDownAllDestroysWhatNoCheckoutRemembers(t *testing.T) {
+	created := time.Now().Add(-3 * time.Hour).UTC().Format(time.RFC3339)
+	routes := map[string]any{
+		"GET /servers": `{"servers":[
+			{"id":1,"name":"chief-shop-import-0915","created":"` + created + `","server_type":{"name":"cx23"},
+			 "location":{"name":"fsn1"},"public_net":{"ipv4":{"ip":"192.0.2.1"}}},
+			{"id":2,"name":"chief-chief-auth-1422","created":"` + created + `","server_type":{"name":"cx23"},
+			 "location":{"name":"fsn1"},"public_net":{"ipv4":{"ip":"192.0.2.2"}}}
+		]}`,
+		"DELETE /servers/1": `{}`,
+		"DELETE /servers/2": `{}`,
+	}
+	f := newFakeHetzner(t, routes)
+
+	var out strings.Builder
+	asked := ""
+	err := downWith(context.Background(), DownOptions{
+		BaseDir: t.TempDir(),
+		All:     true,
+		Out:     &out,
+		Confirm: func(prompt string) bool { asked = prompt; return true },
+	}, f.client("token"))
+	if err != nil {
+		t.Fatalf("down --all: %v", err)
+	}
+
+	if !strings.Contains(asked, "2 boxes") {
+		t.Errorf("the question did not say how many machines it covers: %q", asked)
+	}
+	var deleted []string
+	for _, r := range f.requests {
+		if r.Method == http.MethodDelete {
+			deleted = append(deleted, r.Path)
+		}
+	}
+	if len(deleted) != 2 {
+		t.Errorf("deleted %v, want both boxes", deleted)
+	}
+	if !strings.Contains(out.String(), "chief-shop-import-0915") {
+		t.Errorf("the report does not name what it destroyed:\n%s", out.String())
+	}
+}
+
+func TestDownAllKeepsEverythingWhenTheAnswerIsNo(t *testing.T) {
+	created := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	f := newFakeHetzner(t, map[string]any{
+		"GET /servers": `{"servers":[
+			{"id":1,"name":"chief-demo-0915","created":"` + created + `","server_type":{"name":"cx23"},
+			 "location":{"name":"fsn1"},"public_net":{"ipv4":{"ip":"192.0.2.1"}}}
+		]}`,
+		"DELETE /servers/1": `{}`,
+	})
+
+	var out strings.Builder
+	err := downWith(context.Background(), DownOptions{
+		BaseDir: t.TempDir(),
+		All:     true,
+		Out:     &out,
+		Confirm: func(string) bool { return false },
+	}, f.client("token"))
+	if err == nil {
+		t.Fatal("a refused destroy reported success")
+	}
+	for _, r := range f.requests {
+		if r.Method == http.MethodDelete {
+			t.Errorf("a box was destroyed after the answer was no: %s", r.Path)
+		}
+	}
+}
+
+func TestDownByNameLeavesTheOtherBoxesAlone(t *testing.T) {
+	created := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	f := newFakeHetzner(t, map[string]any{
+		"GET /servers": `{"servers":[
+			{"id":1,"name":"chief-keep-0915","created":"` + created + `","server_type":{"name":"cx23"},
+			 "location":{"name":"fsn1"},"public_net":{"ipv4":{"ip":"192.0.2.1"}}},
+			{"id":2,"name":"chief-go-1422","created":"` + created + `","server_type":{"name":"cx23"},
+			 "location":{"name":"fsn1"},"public_net":{"ipv4":{"ip":"192.0.2.2"}}}
+		]}`,
+		"DELETE /servers/2": `{}`,
+	})
+
+	var out strings.Builder
+	err := downWith(context.Background(), DownOptions{
+		BaseDir: t.TempDir(),
+		Name:    "chief-go-1422",
+		Force:   true,
+		Out:     &out,
+	}, f.client("token"))
+	if err != nil {
+		t.Fatalf("down --name: %v", err)
+	}
+	for _, r := range f.requests {
+		if r.Method == http.MethodDelete && !strings.HasSuffix(r.Path, "/servers/2") {
+			t.Errorf("a box that was not named got destroyed: %s", r.Path)
+		}
+	}
+
+	// A name nobody has is a typo, and deleting nothing quietly would read as
+	// success.
+	err = downWith(context.Background(), DownOptions{
+		BaseDir: t.TempDir(), Name: "chief-typo", Force: true, Out: &out,
+	}, f.client("token"))
+	if err == nil || !strings.Contains(err.Error(), "chief-typo") {
+		t.Errorf("a name that matches nothing reported %v", err)
 	}
 }

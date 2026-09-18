@@ -77,6 +77,24 @@ func (r remote) run(ctx context.Context, script string) (string, error) {
 	return out, nil
 }
 
+// ask is run for a question whose answer is worth a few seconds and no more: a
+// box that does not respond promptly is treated as one that cannot answer.
+//
+// The connect timeout is the point. Without it, ssh to an address that is not
+// answering at all — a box already deleted, a machine that never booted — sits
+// in its own TCP timeout, and a command that asks several boxes in turn spends
+// minutes before it says anything.
+func (r remote) ask(ctx context.Context, script string, timeout time.Duration) (string, error) {
+	probe, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	args := append(r.sshArgs("-o", "ConnectTimeout=5", "-o", "BatchMode=yes"), r.target(), script)
+	cmd := exec.CommandContext(probe, "ssh", args...)
+	var buf bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &buf, &buf
+	err := cmd.Run()
+	return strings.TrimSpace(buf.String()), err
+}
+
 // runWith executes a command on the box with input on its stdin. It is how a
 // secret gets there: written into a file by the command rather than passed as
 // an argument, so it never appears in a process list or a shell history.

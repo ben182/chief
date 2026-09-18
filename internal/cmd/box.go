@@ -26,6 +26,7 @@ Commands:
   config        Pick the location and the machine size, once, for this project
   up <prd>      Create a box, put the project on it, and start the run
   run <prd>     The same, then follow the log until you stop watching
+  retry         Put the project on the box that is already there, and start it
   logs          Follow the running box's log
   status        What the box is doing, and how long it has been billing
   list          Every box in your Hetzner project, and what each has cost
@@ -53,6 +54,9 @@ prints what it found before creating anything.
 
 Options for down:
   --force               Destroy without asking about unpushed commits
+  --all                 Destroy every box in your Hetzner project, not just this
+                        project's — this is how a forgotten box is stopped
+  --name <name>         Destroy one box by name, whichever checkout created it
 
 Credentials are worked out rather than configured: the GitHub token comes from
 'gh auth token', and the Claude token from 'claude setup-token' the first time
@@ -69,6 +73,8 @@ type BoxOptions struct {
 	Worktree      bool
 	Verbose       bool
 	Force         bool
+	All           bool
+	Name          string
 	DownWhenDone  bool
 	MaxIterations int
 
@@ -113,6 +119,10 @@ func ParseBoxArgs(args []string) (BoxOptions, error) {
 			o.DownWhenDone = true
 		case arg == "--force", arg == "-f":
 			o.Force = true
+		case arg == "--all":
+			o.All = true
+		case arg == "--name":
+			o.Name, err = value(&i, arg)
 		case arg == "--type":
 			o.Type, err = value(&i, arg)
 		case arg == "--location":
@@ -145,6 +155,8 @@ func ParseBoxArgs(args []string) (BoxOptions, error) {
 				return o, fmt.Errorf("unknown flag: %s", arg)
 			}
 			switch name {
+			case "--name":
+				o.Name = v
 			case "--type":
 				o.Type = v
 			case "--location":
@@ -198,6 +210,8 @@ func RunBox(ctx context.Context, opts BoxOptions) error {
 		return runBoxConfig(ctx, baseDir)
 	case "up", "run":
 		return runBoxUp(ctx, baseDir, opts)
+	case "retry":
+		return runBoxRetry(ctx, baseDir, opts)
 	case "logs":
 		return box.Logs(ctx, baseDir, os.Stdout)
 	case "status":
@@ -210,6 +224,8 @@ func RunBox(ctx context.Context, opts BoxOptions) error {
 		return box.Down(ctx, box.DownOptions{
 			BaseDir: baseDir,
 			Force:   opts.Force,
+			All:     opts.All,
+			Name:    opts.Name,
 			Confirm: confirm,
 			Out:     os.Stderr,
 		})
@@ -259,36 +275,7 @@ func runBoxUp(ctx context.Context, baseDir string, opts BoxOptions) error {
 		}
 	}
 
-	// A project whose runs want a worktree says so once in its config; the flag
-	// is for the run that wants one anyway.
-	worktree := opts.Worktree || cfg.Worktree.Setup != ""
-
-	// What the box is built with comes from the project, read here where the
-	// project is. It is printed before anything is created, because a wrong
-	// guess is cheapest to catch while it is still only a line on the screen.
-	profile := box.Discover(baseDir, box.DiscoverOptions{
-		PHP:  firstNonEmpty(opts.PHP, cfg.Box.PHP),
-		Node: firstNonEmpty(opts.Node, cfg.Box.Node),
-	})
-	fmt.Fprintln(os.Stderr, "==> Read from the project")
-	for _, line := range profile.Summary() {
-		fmt.Fprintf(os.Stderr, "    %s\n", line)
-	}
-
-	up := box.UpOptions{
-		PRD:           prdName,
-		BaseDir:       baseDir,
-		Type:          firstNonEmpty(opts.Type, cfg.Box.Type),
-		Image:         firstNonEmpty(opts.Image, cfg.Box.Image),
-		Location:      firstNonEmpty(opts.Location, cfg.Box.Location),
-		Worktree:      worktree,
-		MaxIterations: opts.MaxIterations,
-		Verbose:       opts.Verbose,
-		ExtraFiles:    firstNonEmptyList(opts.Files, cfg.Box.Files),
-		Profile:       profile,
-		ExtraPackages: append(append([]string{}, cfg.Box.Packages...), opts.Packages...),
-		Out:           os.Stderr,
-	}
+	up := boxUpOptions(baseDir, prdName, cfg, opts)
 
 	// Everything that can be checked for free is checked first. Resolving the
 	// secrets below can open a browser, and nobody should be sent through a
@@ -317,6 +304,70 @@ func runBoxUp(ctx context.Context, baseDir string, opts BoxOptions) error {
 	}
 	_ = state
 	return nil
+}
+
+// boxUpOptions assembles what the box is created and built with: a flag beats
+// the project's config, the config beats chief's default, and what neither
+// answers is read out of the project itself.
+//
+// The profile it printed is printed rather than merely computed, because a
+// wrong guess about which PHP or which database a project wants is cheapest to
+// catch while it is still a line on a screen instead of a provisioned machine.
+func boxUpOptions(baseDir, prdName string, cfg *config.Config, opts BoxOptions) box.UpOptions {
+	// A project whose runs want a worktree says so once in its config; the flag
+	// is for the run that wants one anyway.
+	worktree := opts.Worktree || cfg.Worktree.Setup != ""
+
+	profile := box.Discover(baseDir, box.DiscoverOptions{
+		PHP:  firstNonEmpty(opts.PHP, cfg.Box.PHP),
+		Node: firstNonEmpty(opts.Node, cfg.Box.Node),
+	})
+	fmt.Fprintln(os.Stderr, "==> Read from the project")
+	for _, line := range profile.Summary() {
+		fmt.Fprintf(os.Stderr, "    %s\n", line)
+	}
+
+	return box.UpOptions{
+		PRD:           prdName,
+		BaseDir:       baseDir,
+		Type:          firstNonEmpty(opts.Type, cfg.Box.Type),
+		Image:         firstNonEmpty(opts.Image, cfg.Box.Image),
+		Location:      firstNonEmpty(opts.Location, cfg.Box.Location),
+		Worktree:      worktree,
+		MaxIterations: opts.MaxIterations,
+		Verbose:       opts.Verbose,
+		ExtraFiles:    firstNonEmptyList(opts.Files, cfg.Box.Files),
+		Profile:       profile,
+		ExtraPackages: append(append([]string{}, cfg.Box.Packages...), opts.Packages...),
+		Out:           os.Stderr,
+	}
+}
+
+// runBoxRetry puts the project on the box this checkout already has and starts
+// the run there.
+//
+// The PRD comes from the box's own record rather than from the command line:
+// the machine was created for one run, its systemd unit is named after it, and
+// retrying with a different PRD would be a different box.
+func runBoxRetry(ctx context.Context, baseDir string, opts BoxOptions) error {
+	cfg, err := config.Load(baseDir)
+	if err != nil {
+		return fmt.Errorf("failed to load .chief/config.yaml: %w", err)
+	}
+
+	state, ok := box.LoadState(baseDir)
+	if !ok {
+		return fmt.Errorf("no box for this project to retry on — start one with 'chief box up <prd>'")
+	}
+
+	up := boxUpOptions(baseDir, state.PRD, cfg, opts)
+	up.Secrets, err = box.ResolveSecrets(ctx, false, os.Stdout, os.Stderr)
+	if err != nil {
+		return fmt.Errorf("%w\n  Run 'chief box token' once to set this up", err)
+	}
+
+	_, err = box.Retry(ctx, up)
+	return err
 }
 
 // followRun watches a run that was just started, and destroys the box

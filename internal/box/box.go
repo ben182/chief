@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ben182/chief/internal/git"
@@ -179,10 +180,18 @@ func Preflight(opts UpOptions) error {
 	if existing, ok := LoadState(opts.BaseDir); ok {
 		return fmt.Errorf(
 			"this project already has a box (%s at %s, %s old).\n"+
-				"  Destroy it first with 'chief box down', or watch it with 'chief box logs'",
+				"  Put the project on it again with 'chief box retry', destroy it with\n"+
+				"  'chief box down', or watch it with 'chief box logs'",
 			existing.Name, existing.IP, existing.Age())
 	}
+	return preflightProject(opts)
+}
 
+// preflightProject is the half of Preflight that is about the project rather
+// than about whether it already owns a machine — which is everything Retry
+// wants, since the machine it is about to use is the one that would fail that
+// check.
+func preflightProject(opts UpOptions) error {
 	prdDir := prd.PRDDir(opts.BaseDir, opts.PRD)
 	if _, err := os.Stat(filepath.Join(prdDir, "prd.md")); err != nil {
 		return fmt.Errorf("no PRD at .chief/prds/%s/prd.md — create one with 'chief new %s'", opts.PRD, opts.PRD)
@@ -222,11 +231,6 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 	var state State
 
 	if err := Preflight(opts); err != nil {
-		return state, err
-	}
-	prdDir := prd.PRDDir(opts.BaseDir, opts.PRD)
-	cloneURL, branch, err := projectOrigin(opts.BaseDir)
-	if err != nil {
 		return state, err
 	}
 
@@ -338,10 +342,74 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 		return state, err
 	}
 
+	return settle(ctx, opts, rep, state, knownHosts, binary)
+}
+
+// Retry puts the project on a box that already exists and starts the run,
+// without creating a second machine.
+//
+// It is for the box that provisioned perfectly and then fell over on the step
+// after: a clone refused by a token that had expired, a file the run needed
+// that was not where it was said to be. Everything up to that point took
+// minutes and money, and throwing it away to repeat it identically is the wrong
+// answer to a one-line failure. Every step it repeats is written to be repeated
+// — the clone removes its directory first, the credentials overwrite, the
+// copies mirror.
+func Retry(ctx context.Context, opts UpOptions) (State, error) {
+	rep := reporter{out: opts.Out}
+
+	state, ok := LoadState(opts.BaseDir)
+	if !ok {
+		return state, errNoBox
+	}
+	if err := preflightProject(opts); err != nil {
+		return state, err
+	}
+	opts.PRD = state.PRD
+
+	knownHosts := knownHostsFor(opts.BaseDir, state)
+	r := remote{user: remoteUser, host: state.IP, knownHosts: knownHosts}
+
+	// A run that is already going must not be started a second time. The unit is
+	// one-shot, so systemd would refuse anyway, but the steps before it are not:
+	// re-cloning the project under a working run would pull the ground out from
+	// under the agent.
+	if active, err := r.run(ctx, "systemctl is-active "+shellQuote("chief-run@"+state.PRD)); err == nil &&
+		strings.TrimSpace(active) == "active" {
+		return state, fmt.Errorf(
+			"the run on %s is still going — there is nothing to retry.\n"+
+				"  Watch it with 'chief box logs', or end it with 'chief box down'", state.Name)
+	}
+
+	rep.step("Reusing %s at %s (%s old)", state.Name, state.IP, state.Age())
+
+	rep.step("Building chief for the box")
+	binary, err := buildForLinux(ctx)
+	if err != nil {
+		return state, err
+	}
+	defer func() { _ = os.Remove(binary) }()
+
+	return settle(ctx, opts, rep, state, knownHosts, binary)
+}
+
+// settle is everything that happens once the machine exists: waiting for it,
+// installing chief and the credentials on it, putting the project there, and
+// starting the run. Up and Retry differ only in how the box in front of them
+// came to be.
+func settle(ctx context.Context, opts UpOptions, rep reporter, state State, knownHosts, binary string) (State, error) {
+	prdDir := prd.PRDDir(opts.BaseDir, opts.PRD)
+	cloneURL, branch, err := projectOrigin(opts.BaseDir)
+	if err != nil {
+		return state, err
+	}
+
 	// From here a failure leaves a box behind, and the user has to be told what
 	// it is called and how to get rid of it.
 	fail := func(err error) (State, error) {
-		return state, fmt.Errorf("%w\n  The box %s is still running — destroy it with 'chief box down'", err, state.Name)
+		return state, fmt.Errorf(
+			"%w\n  The box %s is still running — try again with 'chief box retry', "+
+				"or destroy it with 'chief box down'", err, state.Name)
 	}
 
 	r := remote{user: remoteUser, host: state.IP, knownHosts: knownHosts}
@@ -935,6 +1003,12 @@ type DownOptions struct {
 	BaseDir string
 	// Force destroys the box without asking about work that was never pushed.
 	Force bool
+	// All destroys every box in the Hetzner project rather than this project's.
+	// Name destroys one box by name, wherever it was created from. Both go
+	// through Hetzner rather than through a checkout's own record, which is what
+	// makes them the answer to a box nothing local remembers.
+	All  bool
+	Name string
 	// Confirm is asked when the box is holding unpushed commits. Nil means the
 	// answer is no, which is what a script that did not pass --force wants.
 	Confirm func(prompt string) bool
@@ -947,6 +1021,10 @@ type DownOptions struct {
 // and asked about — it is the only thing on the machine that does not exist
 // anywhere else.
 func Down(ctx context.Context, opts DownOptions) error {
+	if opts.All || opts.Name != "" {
+		return downFromHetzner(ctx, opts)
+	}
+
 	s, ok := LoadState(opts.BaseDir)
 	if !ok {
 		return errNoBox
@@ -980,6 +1058,122 @@ func Down(ctx context.Context, opts DownOptions) error {
 	return nil
 }
 
+// downFromHetzner destroys boxes the current checkout does not own: all of
+// them, or one by name.
+//
+// It exists because `chief box list` could already show you a machine you had
+// forgotten and then had nothing to offer but a link to the Hetzner console.
+// The record that lets `down` work lives in one checkout, and a box is
+// forgotten precisely when that checkout is gone — the branch was deleted, the
+// laptop was reinstalled, the run was started from a directory nobody has
+// opened since. What the boxes still have in common is the label chief puts on
+// every one of them.
+func downFromHetzner(ctx context.Context, opts DownOptions) error {
+	token, err := resolveHetznerToken()
+	if err != nil {
+		return err
+	}
+	return downWith(ctx, opts, newHetzner(token))
+}
+
+// downWith is downFromHetzner with the API client injected, so a test can
+// destroy a project full of boxes without owning one.
+func downWith(ctx context.Context, opts DownOptions, api *hetzner) error {
+	rep := reporter{out: opts.Out}
+
+	servers, err := api.listServers(ctx, chiefLabel)
+	if err != nil {
+		return err
+	}
+	if opts.Name != "" {
+		var matched []server
+		for _, s := range servers {
+			if s.Name == opts.Name {
+				matched = append(matched, s)
+			}
+		}
+		if len(matched) == 0 {
+			return fmt.Errorf("no box called %q — 'chief box list' shows the ones there are", opts.Name)
+		}
+		servers = matched
+	}
+	if len(servers) == 0 {
+		rep.step("No boxes — nothing is billing")
+		return nil
+	}
+
+	// Asked before anything is destroyed, and asked of every box rather than of
+	// the first: the whole list goes in one question, because a prompt per
+	// machine is a prompt people answer without reading.
+	if !opts.Force {
+		// Asked of every box at once. Each question is a connection that may
+		// never be answered — a box that is gone, a machine that never came up —
+		// and asking in turn would make the wait the sum of every one of them.
+		counts := make([]int, len(servers))
+		var wg sync.WaitGroup
+		for i, s := range servers {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				counts[i] = unpushedOn(ctx, opts.BaseDir, s)
+			}()
+		}
+		wg.Wait()
+
+		var holding []string
+		for i, s := range servers {
+			if counts[i] > 0 {
+				holding = append(holding, fmt.Sprintf("%s (%d commit(s))", s.Name, counts[i]))
+			}
+		}
+		prompt := fmt.Sprintf("Destroy %s?", plural(len(servers), "box", "boxes"))
+		if len(holding) > 0 {
+			prompt = fmt.Sprintf(
+				"Work that was never pushed would go with them:\n    %s\n"+
+					"  Destroy %s anyway?",
+				strings.Join(holding, "\n    "), plural(len(servers), "box", "boxes"))
+		}
+		if opts.Confirm == nil || !opts.Confirm(prompt) {
+			return fmt.Errorf("kept %s", plural(len(servers), "box", "boxes"))
+		}
+	}
+
+	current, hasCurrent := LoadState(opts.BaseDir)
+	var failed []string
+	for _, s := range servers {
+		rep.step("Destroying %s (%s old)", s.Name, time.Since(s.Created).Round(time.Second))
+		if err := api.deleteServer(ctx, s.ID); err != nil {
+			rep.detail("failed: %v", err)
+			failed = append(failed, s.Name)
+			continue
+		}
+		// The local record has to go with the machine it describes, or every
+		// command afterwards talks to an address that is now somebody else's.
+		if hasCurrent && s.ID == current.ServerID {
+			if err := ForgetState(opts.BaseDir); err != nil {
+				return err
+			}
+		}
+		rep.detail("gone")
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("could not destroy %s — try again, or use the Hetzner console", strings.Join(failed, ", "))
+	}
+	return nil
+}
+
+// unpushedOn asks a box that no checkout owns what it is holding. Without a
+// pinned host key the connection accepts whatever answers, which is what asking
+// a question carrying no secrets can afford — and the alternative is destroying
+// a machine without knowing what was on it.
+func unpushedOn(ctx context.Context, baseDir string, s server) int {
+	state := State{ServerID: s.ID, Name: s.Name, IP: s.IP()}
+	if current, ok := LoadState(baseDir); ok && current.ServerID == s.ID {
+		state = current
+	}
+	return unpushedCommits(ctx, baseDir, state)
+}
+
 // secretsOrEnvHetzner re-resolves the Hetzner token for a command that only
 // needs that one. Down is the case: it should work without a Claude login.
 func secretsOrEnvHetzner() string {
@@ -1001,9 +1195,7 @@ const unpushedProbe = "cd " + remoteProject + " && git rev-list --count --branch
 
 func unpushedCommits(ctx context.Context, baseDir string, s State) int {
 	r := remote{user: remoteUser, host: s.IP, knownHosts: knownHostsFor(baseDir, s)}
-	probe, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	out, err := r.run(probe, unpushedProbe)
+	out, err := r.ask(ctx, unpushedProbe, 20*time.Second)
 	if err != nil {
 		return 0
 	}
