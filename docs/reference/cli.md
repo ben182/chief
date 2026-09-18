@@ -395,10 +395,12 @@ done; at current Hetzner prices a five-hour run costs about five cents of
 computer, which is two orders of magnitude less than the tokens it spends.
 
 ```bash
+chief box config        # pick the location and the machine size, once
 chief box up <prd>      # create the box, put the project on it, start the run
 chief box run <prd>     # the same, then follow the log until you stop watching
 chief box logs          # follow the running box's log
 chief box status        # what it is doing, and how long it has been billing
+chief box list          # every box you have, and what each has cost
 chief box ssh           # a shell on the box, in the project directory
 chief box down          # destroy it — this is what stops the billing
 ```
@@ -407,16 +409,55 @@ chief box down          # destroy it — this is what stops the billing
 
 | Flag | Description | Default |
 |------|-------------|---------|
+| `--down-when-done` | Wait for the run to end, then destroy the box (`run` only) | `false` |
 | `--worktree` | Run in the PRD's own worktree on the box | On when the project configures `worktree.setup` |
 | `--verbose` | Put the agent's narration in the box's log | `false` |
 | `--max-iterations <n>`, `-n` | Cap the run's iterations | Dynamic |
-| `--type <name>` | Hetzner server type | `cx33` (4 vCPU, 8 GB, ~1 ct/h) |
-| `--location <name>` | Hetzner location | `fsn1` |
-| `--image <name>` | Hetzner image | `ubuntu-26.04` |
+| `--type <name>` | Hetzner server type | `box.type`, else `cx33` (4 vCPU, 8 GB, ~1 ct/h) |
+| `--location <name>` | Hetzner location | `box.location`, else `fsn1` |
+| `--image <name>` | Hetzner image | `box.image`, else `ubuntu-26.04` |
 | `--file <path>` | An untracked file the run needs; repeatable | `.env` |
 | `--package <name>` | An apt package to install on the box; repeatable | — |
 
 `down` takes `--force` to skip the question about commits the box never pushed.
+
+#### Choosing where the box runs
+
+`chief box config` asks two questions and writes the answers to
+[`box.location` and `box.type`](/reference/configuration#config-keys) in
+`.chief/config.yaml`. The list it offers comes from the Hetzner API rather than
+from a table inside chief, so it shows what is actually bookable today, in that
+location, at that location's price — including what five hours of each machine
+would cost.
+
+Location is asked first because it is the decision that matters. The box holds
+your source, your `.env` and a token that can push to the repository for the
+length of the run; which country that happens in is not a performance setting.
+
+The screen opens by itself on the first `chief box up` in a project that has
+never been asked — but only at a terminal, and only when no `--location` or
+`--type` already answers it. In a script or a background shell there is nobody
+to ask, and `up` falls through to the defaults as before.
+
+#### Finding a box you forgot
+
+```bash
+chief box list
+```
+
+Every server in your Hetzner project labelled `managed-by=chief`, with its age
+and what it has cost so far. `logs`, `status` and `down` all work from a record
+inside one checkout, and a box is forgotten exactly when that record stops being
+consulted — the branch was deleted, the laptop reinstalled, the run started
+three weeks ago from a directory nobody has opened since. The machine bills
+regardless, and `list` is the only command that asks Hetzner instead of the
+checkout.
+
+`chief box run --down-when-done` closes the same gap from the other end: it
+follows the log, waits for the run to actually finish, and then destroys the
+box. It is not forced — a run can commit without pushing, and `down` still asks
+about that. Ctrl-C leaves the box up, because nobody asked for a machine to be
+destroyed by closing a terminal.
 
 ::: tip A refused server type
 Hetzner's server types are generational: a line stops being bookable in a
@@ -461,14 +502,37 @@ Your SSH key is registered with Hetzner automatically if the project does not
 have it yet, matched by fingerprint so an existing key is reused rather than
 duplicated.
 
+#### How the box is protected
+
+**A firewall, attached as the server is created.** Inbound: SSH and ping, from
+anywhere. Nothing else. SSH stays open to the world rather than pinned to your
+address — an address that changes between creating a box and looking at it
+locks you out of your own machine for no gain, since the port is protected by
+keys. What the firewall does close is everything else: a `worktree.setup` that
+starts a dev server, a queue dashboard or a database listening on all interfaces
+would otherwise be on the public internet for the hours the run takes. Outbound
+is untouched. The firewall is destroyed with the box.
+
+**A host key chief generated before the machine existed.** It is created
+locally, put into the instance through cloud-init, and checked on every
+connection. Without it the first connection — the one carrying the Claude token,
+the GitHub token and your `.env` — would have to trust whatever answered at the
+address. The key lives in `.chief/box/known_hosts`, per project rather than in
+your own `~/.ssh/known_hosts`, so a throwaway address that Hetzner recycles
+within hours never lands in the file guarding your real servers. It is deleted
+along with the box.
+
 ::: warning What the box is trusted with
 The box holds a token that can act as you on GitHub and one that can spend your
 Claude subscription, and the agent runs on it with `--dangerously-skip-permissions`.
 A fine-grained GitHub token scoped to the one repository is a better fit here
-than a classic token with `repo`.
+than a classic token with `repo`, and `chief box up` says so when the token it
+found reaches further than the project — `gh auth token` returns an
+account-wide one. Set `CHIEF_BOX_GH_TOKEN` to narrow it.
 
-A box nobody destroyed bills until somebody does. `chief box down` is the only
-thing that stops it.
+A box nobody destroyed bills until somebody does. `chief box down` stops it,
+`chief box list` finds the ones you forgot, and `chief box run --down-when-done`
+avoids the situation.
 :::
 
 ---
