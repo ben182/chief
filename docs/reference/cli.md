@@ -489,6 +489,17 @@ dependencies, its schema, its build — belongs in that project's
 [`worktree.setup`](/reference/configuration#worktree-setup), which runs inside
 the checkout before the agent starts.
 
+**If a provisioning step fails, `up` says so within seconds** rather than
+reporting a box that is missing a tool. cloud-init would otherwise carry on
+past a failing line — a download that answered 504, a package that does not
+exist for the PHP series — and mark the box ready anyway; the first box built
+this way did exactly that. The cloud-config stops at the first failure and
+leaves a `chief-failed` marker instead of the ready one, `up` prints the last
+lines of the provisioning log, and the box is left running for you to look at
+(`chief box ssh`, then `cat /var/log/cloud-init-output.log`) and to destroy
+with `chief box down`. Downloads of binaries retry a few times first, so a
+single bad answer from a CDN does not fail the box.
+
 #### What the box is built with
 
 There is no fixed list. Before creating anything, `up` reads the project and
@@ -696,6 +707,10 @@ The TUI has three views: **Dashboard** showing stories and progress, **Log** str
 | `CHIEF_MODEL` | Model passed to the Claude CLI via `--model`. Overridden by `--model`. |
 | `NO_COLOR` | Any non-empty value strips all colors/styling from the TUI ([no-color.org](https://no-color.org)). |
 | `CHIEF_ASCII` | Truthy value (`1`/`true`/`yes`/`on`) replaces emoji/Unicode icons with ASCII fallbacks, for terminals that render them poorly. |
+| `CHIEF_BOX_HETZNER_TOKEN` | Hetzner Cloud API token for [`chief box`](#chief-box). Overrides the one `chief box token` stored. |
+| `CHIEF_BOX_GH_TOKEN` | GitHub token the box clones and pushes with, when `gh auth token`'s account-wide one is more than the project should get. |
+| `CHIEF_BOX_SSH_KEY` | Path to the public key registered with Hetzner for the box, when it is not `~/.ssh/id_ed25519.pub`, `id_ecdsa.pub` or `id_rsa.pub`. |
+| `CHIEF_SRC` | Path to a chief checkout, for building the binary the box runs when `chief box` is started from a project that is not chief itself and the checkout is not in one of the usual places. |
 
 Agent resolution order: `--agent` / `--agent-path` / `--model` flags → `CHIEF_AGENT` / `CHIEF_AGENT_PATH` / `CHIEF_MODEL` → `.chief/config.yaml` → default `claude`. See [Configuration → Appearance](/reference/configuration#appearance) for the TUI appearance variables.
 

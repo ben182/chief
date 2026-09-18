@@ -27,6 +27,37 @@ make vet         # Run go vet
 make run         # Build and run the TUI
 ```
 
+## Live Box Tests
+
+`internal/box` has tests that create a real Hetzner server, check something
+on it, and destroy it again. They are the only way to prove what a fake cannot
+— that cloud-init puts the host key in place before sshd starts, that the
+firewall blocks traffic, that the PPA has the packages a project's PHP needs,
+that a failing provisioning step actually reaches chief. They cost money (a
+few cents each: the cheapest machine Hetzner sells, billed as one hour) and
+are **off by default**. `make test` never runs them.
+
+```bash
+# The three that need no project: host key, firewall, list/down lifecycle.
+CHIEF_LIVE_BOX_TEST=1 go test ./internal/box/ -run TestLive -v -timeout 20m
+
+# Build a box the way `chief box up` would for a real project on this machine,
+# and check every runtime, extension and server discovery promised is there.
+CHIEF_LIVE_BOX_TEST=1 CHIEF_LIVE_PROJECT=~/Herd/my-app \
+  go test ./internal/box/ -run TestLiveBoxIsBuiltToTheProject -v -timeout 25m
+
+# The same, with one provisioning step sabotaged: the test expects the box to
+# report the failure within a couple of minutes rather than come up "ready".
+CHIEF_LIVE_BOX_TEST=1 CHIEF_LIVE_BREAK=1 CHIEF_LIVE_PROJECT=~/Herd/my-app \
+  go test ./internal/box/ -run TestLiveBoxIsBuiltToTheProject -v -timeout 25m
+```
+
+They need the Hetzner token `chief box token` stores. Each test destroys its
+box in a cleanup that runs whatever else fails; if one is ever left behind,
+`chief box list` finds it. Mind the project's server limit: a Hetzner project
+with production machines in it may not have room for more than one or two
+boxes at once.
+
 ## Using a Local Build Instead of the Homebrew Version
 
 If you installed Chief via Homebrew but want the `chief` command to run your
