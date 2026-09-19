@@ -1283,3 +1283,87 @@ func TestTheReaperScriptParsesAsAShellScript(t *testing.T) {
 		t.Errorf("the reaper is not valid sh: %v\n%s", err, out)
 	}
 }
+
+// TestEveryBoxGetsSwapAndAPatientApt covers the two things that are true of
+// every box regardless of what the project is, and that a box is thrown away
+// for not having.
+func TestEveryBoxGetsSwapAndAPatientApt(t *testing.T) {
+	_, runcmd, files := parseCloudInit(t, cloudInitOptions{Hostname: "h"})
+
+	for _, want := range []string{"fallocate -l 4G /swapfile", "mkswap", "swapon /swapfile"} {
+		if !strings.Contains(runcmd, want) {
+			t.Errorf("no swap on the box (%q missing):\n%s", want, runcmd)
+		}
+	}
+	// Under set -e, which is the point: a box that could not get its swap is a
+	// box that will lose a run to the OOM killer at three in the morning.
+	if strings.Index(runcmd, "set -e") > strings.Index(runcmd, "fallocate") {
+		t.Error("the swap is created before set -e, so a failure to make it is silent")
+	}
+	if !strings.Contains(files, "vm.swappiness") {
+		t.Error("swappiness is left at 60, so a build pages to disk long before it has to")
+	}
+
+	// apt is the one download in the file that had neither a retry nor patience
+	// with the image's own unattended upgrade holding the lock.
+	if !strings.Contains(files, `DPkg::Lock::Timeout`) || !strings.Contains(files, `Acquire::Retries`) {
+		t.Errorf("apt is configured with neither a lock timeout nor retries:\n%s", files)
+	}
+}
+
+// TestTheReadyMarkerMeansTheToolsAreThere. The marker used to mean "nothing
+// exited non-zero", which is a different sentence, and the difference was paid
+// for four hours into a run.
+func TestTheReadyMarkerMeansTheToolsAreThere(t *testing.T) {
+	_, runcmd, _ := parseCloudInit(t, cloudInitOptions{Hostname: "h", Profile: laravelProfile()})
+
+	for _, want := range []string{
+		"claude --version", "gh --version", "php -v", "composer --version",
+		"node -v", "bun --version",
+		"rolname='chief'", "datname='agency_os'", "redis-cli ping",
+	} {
+		if !strings.Contains(runcmd, want) {
+			t.Errorf("nothing proves %q is on the box:\n%s", want, runcmd)
+		}
+	}
+	// Last of all, or it proves nothing about the steps after it. The marker is
+	// matched by its touch: the trap at the top of the script names it too.
+	if strings.LastIndex(runcmd, "claude --version") > strings.Index(runcmd, "touch /var/lib/cloud/chief-ready") {
+		t.Error("the tools are verified after the ready marker is written")
+	}
+}
+
+// TestTheChecksAreTheProfile'sOwn: a Go box has no PHP to verify, and asking it
+// to prove one would fail every Go box.
+func TestTheChecksAreTheProfilesOwn(t *testing.T) {
+	_, runcmd, _ := parseCloudInit(t, cloudInitOptions{Hostname: "h", Profile: Profile{Stack: StackGo, Go: "1.25.1"}})
+
+	if !strings.Contains(runcmd, "go version") {
+		t.Error("the Go toolchain is installed but never asked to run")
+	}
+	for _, unwanted := range []string{"php -v", "redis-cli", "psql", "bun --version"} {
+		if strings.Contains(runcmd, unwanted) {
+			t.Errorf("a Go box verifies %q, which it was never given:\n%s", unwanted, runcmd)
+		}
+	}
+}
+
+// TestTheDatabaseIsWaitedForBeforeItIsUsed. The statements that create the role
+// and the database are allowed to fail, because a retry runs them again — which
+// means a server that was not accepting connections yet looked exactly like one
+// that was already set up.
+func TestTheDatabaseIsWaitedForBeforeItIsUsed(t *testing.T) {
+	_, runcmd, _ := parseCloudInit(t, cloudInitOptions{Hostname: "h", Profile: laravelProfile()})
+	if !strings.Contains(runcmd, "pg_isready") {
+		t.Errorf("the role is created without waiting for the server:\n%s", runcmd)
+	}
+	if strings.Index(runcmd, "pg_isready") > strings.Index(runcmd, "CREATE ROLE") {
+		t.Error("the wait happens after the statement it was meant to protect")
+	}
+
+	_, mysql, _ := parseCloudInit(t, cloudInitOptions{Hostname: "h",
+		Profile: Profile{PHP: "8.3", Database: "mysql", DatabaseName: "shop"}})
+	if !strings.Contains(mysql, "mariadb-admin ping") {
+		t.Errorf("the MariaDB setup runs without waiting for the server:\n%s", mysql)
+	}
+}

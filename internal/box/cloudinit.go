@@ -162,6 +162,30 @@ packages:
   - software-properties-common%[3]s
 
 write_files:
+  # Every download of a binary in this file retries. apt did not, and apt is the
+  # one that has competition: an Ubuntu image starts its own unattended upgrade
+  # in the same minutes cloud-init is installing, and whichever asks second gets
+  # "Could not get lock /var/lib/dpkg/lock-frontend" — under the set -e below,
+  # that is a box thrown away for something that would have passed thirty
+  # seconds later. Waiting is the whole fix; five minutes is far longer than any
+  # of it takes.
+  #
+  # Written here rather than passed as -o flags because it also covers the apt
+  # that cloud-init runs for the package list above, and the one that
+  # add-apt-repository and playwright's installer call underneath themselves.
+  - path: /etc/apt/apt.conf.d/99chief
+    permissions: "0644"
+    content: |
+      Acquire::Retries "3";
+      DPkg::Lock::Timeout "300";
+
+  # Swap is there to catch a spike, not to run on. The default of 60 would have
+  # a build paging steadily to a network disk long before it has to.
+  - path: /etc/sysctl.d/99-chief.conf
+    permissions: "0644"
+    content: |
+      vm.swappiness = 10
+
   - path: /etc/sudoers.d/chief
     permissions: "0440"
     content: |
@@ -234,6 +258,27 @@ runcmd:
   # failed marker so chief stops waiting at once instead of at the timeout.
   - set -e
   - trap 'test -f /var/lib/cloud/chief-ready || touch /var/lib/cloud/chief-failed' EXIT
+
+  # Swap. A box is created on the cheapest machine its location sells, which
+  # today means four gigabytes, and a Vite build, a browser under test and the
+  # agent itself can want more than that between them. What happens then is the
+  # worst failure this whole thing has: the kernel kills the run at three in the
+  # morning, the run therefore never reports success, so the box never destroys
+  # itself, and the night is gone with the machine still billing for it.
+  #
+  # Swap does not make the box fast — swappiness above keeps it as the buffer it
+  # is meant to be. It makes the difference between a run that slows down for a
+  # minute and a run that is dead, and the disk it costs is free.
+  #
+  # Here rather than through cloud-init's own swap module because this is under
+  # set -e: a box that could not get its swap says so and is thrown away, rather
+  # than coming up short of it with a warning in a log nobody reads.
+  - fallocate -l 4G /swapfile
+  - chmod 600 /swapfile
+  - mkswap -q /swapfile
+  - swapon /swapfile
+  - printf '/swapfile none swap sw 0 0\n' >> /etc/fstab
+  - sysctl -q -p /etc/sysctl.d/99-chief.conf
   # Give the chief user the key the instance was created with, so nothing has to
   # run as root to get work done.
   - mkdir -p /home/chief/.ssh
@@ -260,7 +305,7 @@ runcmd:
   - apt-get install -y claude-code gh%[7]s
 %[8]s
   - systemctl daemon-reload
-%[11]s  # The marker chief waits for. Written last, so its existence means every step
+%[11]s%[12]s  # The marker chief waits for. Written last, so its existence means every step
   # above finished.
   - touch /var/lib/cloud/chief-ready
 
@@ -277,7 +322,79 @@ final_message: "chief box ready after $UPTIME seconds"
 		reaperHook(opts),
 		reaperFiles(opts),
 		reaperSteps(opts),
+		verifySteps(p),
 	)
+}
+
+// verifySteps asks every tool the profile promised to say its own version, and
+// every server to answer once, immediately before the ready marker is written.
+//
+// The marker means "this box is ready for a run", and until now it meant
+// "nothing exited non-zero", which is not the same sentence. A package that
+// installs without enabling itself, a binary for the wrong architecture, a
+// database whose role was created against a socket that was not up yet — each
+// of those leaves a perfectly healthy-looking box that fails at the first thing
+// the run does, hours after the terminal that could have retried it was closed.
+//
+// Everything here runs under the same set -e as the rest, so a check that fails
+// leaves the failed marker and chief reports it within seconds. That is the
+// trade: a box occasionally destroyed at minute twelve instead of a run
+// occasionally lost at hour four.
+func verifySteps(p Profile) string {
+	var b strings.Builder
+	b.WriteString(`
+  # What the run cannot start without, asked to prove it is there. The versions
+  # land in /var/log/cloud-init-output.log, which is what chief prints when a
+  # box fails to provision.
+  # HOME, because runcmd has none and the agent CLI wants one even to say its
+  # own version.
+  - HOME=/root claude --version
+  - gh --version
+`)
+	if p.PHP != "" {
+		fmt.Fprintf(&b, "  - php -v | head -1\n  - HOME=/root composer --version\n")
+	}
+	if p.Node != "" {
+		b.WriteString("  - node -v\n  - npm -v\n")
+	}
+	switch p.PackageManager {
+	case "bun":
+		b.WriteString("  - bun --version\n")
+	case "pnpm", "yarn":
+		fmt.Fprintf(&b, "  - %s --version\n", p.PackageManager)
+	}
+	if p.Go != "" {
+		b.WriteString("  - go version\n")
+	}
+	switch p.Database {
+	case "pgsql":
+		// The role and the database by name rather than a bare connection: those
+		// two are what the .env chief rewrites points at, and they are the pair
+		// created by statements allowed to fail.
+		fmt.Fprintf(&b,
+			"  - su - postgres -c \"psql -tAc \\\"SELECT 1 FROM pg_roles WHERE rolname='%[1]s'\\\"\" | grep -q 1\n"+
+				"  - su - postgres -c \"psql -tAc \\\"SELECT 1 FROM pg_database WHERE datname='%[2]s'\\\"\" | grep -q 1\n",
+			remoteDatabaseUser, p.DatabaseName)
+	case "mysql":
+		fmt.Fprintf(&b,
+			"  - mariadb -u %[1]s -p%[1]s -e \"USE %[2]s\"\n",
+			remoteDatabaseUser, p.DatabaseName)
+	}
+	if p.Redis {
+		b.WriteString("  - redis-cli ping | grep -q PONG\n")
+	}
+	if p.Meilisearch {
+		// Started a moment ago by systemd, so the first connection can arrive
+		// before it is listening; --retry-connrefused is what makes that a wait
+		// rather than a failure.
+		b.WriteString("  - curl -fsS --retry 10 --retry-delay 1 --retry-connrefused http://127.0.0.1:7700/health\n")
+	}
+	if p.Browser {
+		// Not the browser — that is the project's to install — but the loader
+		// answering for the libraries that were the point of installing anything.
+		b.WriteString("  - ldconfig -p | grep -q libnss3\n")
+	}
+	return b.String()
 }
 
 // curlRetry is what every download of a binary gets. Release CDNs answer with
@@ -409,15 +526,25 @@ func toolSteps(p Profile) string {
 	switch p.Database {
 	case "pgsql":
 		fmt.Fprintf(&b, `
+  # The server is started by its own package, and "started" is not "accepting
+  # connections". Without this wait the two statements below race the socket,
+  # which is what the "|| true" on them used to hide — and what it hid was a box
+  # whose .env names a role that does not exist, found out by the first
+  # migration of the run, four hours later.
+  - for i in $(seq 60); do pg_isready -q && break; sleep 1; done
   # A database superuser named after the account that will use it, so a project's
   # setup script can create and drop its own databases without a password, and
-  # the database the project's .env names.
+  # the database the project's .env names. Both stay tolerant of already existing,
+  # because a retry runs this again; the check after the wait is what proves they
+  # are there.
   - su - postgres -c "psql -c \"CREATE ROLE %[1]s WITH LOGIN SUPERUSER PASSWORD '%[1]s'\"" || true
   - su - postgres -c "createdb -O %[1]s %[2]s" || true
 `, remoteDatabaseUser, p.DatabaseName)
 	case "mysql":
 		b.WriteString(`
-  # The account and database the project's .env is rewritten to name.
+  # The account and database the project's .env is rewritten to name, once the
+  # server is answering rather than merely installed.
+  - for i in $(seq 60); do mariadb-admin ping --silent && break; sleep 1; done
   - mariadb < /etc/chief/mysql-setup.sql
 `)
 	}

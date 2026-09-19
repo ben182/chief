@@ -87,6 +87,10 @@ Chief reads the project rather than provisioning one fixed machine, and prints w
 
 **The PHP and Node versions are the ones this machine runs**, because that is what the project is developed against: a site Herd isolates to a version gets that version, otherwise the `php` and `node` found in the project directory, then the project's own pins (`composer.json` platform, `.nvmrc`, `engines`), then the lowest version the constraints accept. Each answer is reported with where it came from.
 
+Every box also gets **4 GB of swap** and `vm.swappiness=10` on top of whatever the machine has. The cheapest machine a location sells has four gigabytes of memory, and a Vite build, a browser under test and the agent between them can want more; without swap the kernel kills the run in the middle of the night, and a run that never finishes is also a box that never destroys itself.
+
+Before Chief calls a box ready, **every tool the profile promised is asked to say its own version** and every server to answer once — the agent CLI, `gh`, PHP and Composer, Node and its package manager, the Go toolchain, the database role and database by name, Redis, Meilisearch, the browser libraries. A package that installs without enabling itself leaves a box that looks perfectly healthy and fails at the first thing the run does, four hours after the terminal that could have retried it was closed. A box thrown away at minute twelve is the cheaper end of that trade.
+
 Override any of it with `--php`, `--node`, `--package` for one run, or `box.php`, `box.node`, `box.packages` for the project. Anything project-specific beyond runtimes — dependencies, schema, seeds — belongs in [`worktree.setup`](/reference/configuration#config-keys), which Chief runs inside the checkout before the agent starts.
 
 ### The `.env` is pointed at the box
@@ -171,7 +175,7 @@ Both ask about commits that exist nowhere else before destroying anything — al
 
 ## When something goes wrong
 
-**A provisioning step failed.** cloud-init writes a marker when everything finished and a different one when a step died, so `up` reports the failure within seconds instead of waiting out the timeout, and prints the last thirty lines of the provisioning log. The box stays up so you can look.
+**A provisioning step failed.** cloud-init writes a marker when everything finished and a different one when a step died, so `up` reports the failure within seconds instead of waiting out the timeout, and prints the last thirty lines of the provisioning log. The box stays up so you can look. apt waits up to five minutes for a lock and retries a download three times before it counts as a step that died, so the Ubuntu image's own unattended upgrade running in the same minute is not one.
 
 **The clone failed, or a file was not where you said.** `chief box retry` puts the project on the box that is already there and starts the run again — no second machine, no waiting through provisioning twice. Every step it repeats is written to be repeated. It refuses while a run is still active.
 
