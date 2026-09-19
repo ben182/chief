@@ -60,9 +60,10 @@ func liveBox(t *testing.T, purpose string) (*hetzner, server, hostKey, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	machine := cheapestType(t, api)
 	name := fmt.Sprintf("chief-%s-%s", purpose, time.Now().Format("150405"))
 	srv, err := api.createServer(ctx, createServerOpts{
-		Name: name, Type: DefaultType, Image: DefaultImage, Location: DefaultLocation,
+		Name: name, Type: machine, Image: DefaultImage, Location: DefaultLocation,
 		SSHKeyID: key.ID, FirewallID: fw.ID,
 		UserData: cloudInit(cloudInitOptions{Hostname: name, HostKey: host}),
 		Labels:   map[string]string{"managed-by": "chief"},
@@ -70,12 +71,12 @@ func liveBox(t *testing.T, purpose string) (*hetzner, server, hostKey, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("created %s (%s) at %s", srv.Name, DefaultType, srv.IP())
+	t.Logf("created %s (%s) at %s", srv.Name, machine, srv.IP())
 
 	project := t.TempDir()
 	state := State{
 		ServerID: srv.ID, Name: srv.Name, IP: srv.IP(), PRD: "probe",
-		Type: DefaultType, Location: DefaultLocation,
+		Type: machine, Location: DefaultLocation,
 		HostKey: host.Public, Created: time.Now(),
 	}
 	if err := SaveState(project, state); err != nil {
@@ -190,7 +191,7 @@ func TestLiveListAndDown(t *testing.T) {
 	t.Logf("chief box list:\n%s", listed.String())
 	// The location is the field that decoded empty for a while, and it takes the
 	// cost down with it: the price is looked up by location.
-	for _, want := range []string{srv.Name, DefaultType, DefaultLocation, "this project"} {
+	for _, want := range []string{srv.Name, srv.Type.Name, DefaultLocation, "this project"} {
 		if !strings.Contains(listed.String(), want) {
 			t.Errorf("the list does not mention %q", want)
 		}
@@ -462,20 +463,19 @@ func liveBoxFor(t *testing.T, purpose string, profile Profile) (*hetzner, server
 }
 
 // cheapestType is the least machine Hetzner will sell in the default location
-// right now. A test proves that provisioning works, not that it is fast, and
-// Hetzner bills every started hour — so the default's four cores would cost
-// twice as much for the same answer.
+// right now, which is also what a box created without a --type runs on. The
+// test goes through the same code as the product so that a bug in choosing the
+// machine shows up here rather than on somebody's real run.
 func cheapestType(t *testing.T, api *hetzner) string {
 	t.Helper()
 	c, err := api.catalog(context.Background())
 	if err != nil {
-		t.Logf("could not read the catalogue (%v); using %s", err, DefaultType)
-		return DefaultType
+		t.Logf("could not read the catalogue (%v); using %s", err, FallbackType)
+		return FallbackType
 	}
-	for _, st := range c.TypesIn(DefaultLocation) {
-		if !st.Deprecated {
-			return st.Name
-		}
+	st, ok := c.Cheapest(DefaultLocation)
+	if !ok {
+		return FallbackType
 	}
-	return DefaultType
+	return st.Name
 }

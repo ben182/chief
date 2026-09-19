@@ -59,9 +59,6 @@ func NewBoxSetup(catalog box.Catalog, currentLocation, currentType string) *BoxS
 	if currentLocation == "" {
 		currentLocation = box.DefaultLocation
 	}
-	if currentType == "" {
-		currentType = box.DefaultType
-	}
 	for i, l := range catalog.Locations {
 		if l.Name == currentLocation {
 			s.locationIndex = i
@@ -69,7 +66,9 @@ func NewBoxSetup(catalog box.Catalog, currentLocation, currentType string) *BoxS
 		}
 	}
 	// The type is looked up in the location that was just selected, because the
-	// same machine is not offered everywhere.
+	// same machine is not offered everywhere. A project that has never chosen
+	// one opens on index zero, which is the cheapest the location sells — the
+	// same machine `box up` would create unasked.
 	for i, t := range catalog.TypesIn(s.currentLocation().Name) {
 		if t.Name == currentType {
 			s.typeIndex = i
@@ -272,12 +271,7 @@ func (m BoxSetup) renderTypes(content *strings.Builder) {
 // money formats an amount in euros, in cents when it is small enough that euros
 // would round it to nothing. "€0.00" next to a machine somebody is choosing is
 // worse than no number at all.
-func money(eur float64) string {
-	if eur < 0.10 {
-		return fmt.Sprintf("%.1f cents", eur*100)
-	}
-	return fmt.Sprintf("€%.2f", eur)
-}
+func money(eur float64) string { return box.FormatRateEUR(eur) }
 
 // RunBoxSetup shows the picker and returns the chosen location and type.
 func RunBoxSetup(catalog box.Catalog, currentLocation, currentType string) (location, serverType string, cancelled bool, err error) {

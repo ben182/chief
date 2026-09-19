@@ -71,6 +71,49 @@ type Catalog struct {
 // TypesIn returns what can be created in a location, cheapest first.
 func (c Catalog) TypesIn(location string) []ServerType { return c.Types[location] }
 
+// Cheapest is the least machine a location will sell right now, which is what a
+// box is created with when nobody named a type.
+//
+// A deprecated generation is skipped even when it is the cheapest line on the
+// list. It creates today and stops creating without warning — the failure mode
+// this whole catalog exists to avoid — and the few tenths of a cent an hour it
+// saves are not worth a default that breaks on a morning nobody chose.
+func (c Catalog) Cheapest(location string) (ServerType, bool) {
+	types := c.TypesIn(location)
+	for _, t := range types {
+		if !t.Deprecated {
+			return t, true
+		}
+	}
+	// Everything here is being retired. Still better than nothing: the box has
+	// to be created on something, and the list is what Hetzner says it will sell.
+	if len(types) > 0 {
+		return types[0], true
+	}
+	return ServerType{}, false
+}
+
+// Spec is the one-line shape of a machine, for the report that names the one a
+// box is about to be created on. The five-hour figure is there because it is
+// the number that actually decides anything: a run is an evening, and an hourly
+// rate in tenths of a cent is not a quantity anybody holds in their head.
+func (t ServerType) Spec() string {
+	s := fmt.Sprintf("%d vCPU, %g GB, %s disk", t.Cores, t.Memory, formatGB(t.Disk))
+	if t.HourlyEUR > 0 {
+		s += fmt.Sprintf(" — %s an hour, %s for a five-hour run",
+			FormatRateEUR(t.HourlyEUR), FormatRateEUR(t.Estimate(5)))
+	}
+	return s
+}
+
+// formatGB renders a disk size, in the unit somebody thinks about it in.
+func formatGB(gb int) string {
+	if gb >= 1000 && gb%1000 == 0 {
+		return fmt.Sprintf("%d TB", gb/1000)
+	}
+	return fmt.Sprintf("%d GB", gb)
+}
+
 // catalog asks Hetzner what it will actually sell, in three calls: the places,
 // the machines with their prices, and which machines each place still offers.
 func (h *hetzner) catalog(ctx context.Context) (Catalog, error) {

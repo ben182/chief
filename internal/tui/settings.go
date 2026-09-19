@@ -140,7 +140,7 @@ func (s *SettingsOverlay) LoadFromConfig(cfg *config.Config) {
 		{Section: "Consolidate", Label: "Skill", Key: "consolidate.skill", Type: SettingsItemString, StringVal: cfg.Consolidate.Skill},
 		{Section: "Consolidate", Label: "Instructions", Key: "consolidate.instructions", Type: SettingsItemString, StringVal: cfg.Consolidate.Instructions},
 		{Section: "Box", Label: "Location", Key: "box.location", Type: SettingsItemString, StringVal: cfg.Box.Location, Placeholder: box.DefaultLocation + " (default)"},
-		{Section: "Box", Label: "Server type", Key: "box.type", Type: SettingsItemString, StringVal: cfg.Box.Type, Placeholder: box.DefaultType + " (default)"},
+		{Section: "Box", Label: "Server type", Key: "box.type", Type: SettingsItemString, StringVal: cfg.Box.Type, Placeholder: "the cheapest the location sells (default)"},
 		{Section: "Box", Label: "Image", Key: "box.image", Type: SettingsItemString, StringVal: cfg.Box.Image, Placeholder: box.DefaultImage + " (default)"},
 		{Section: "Box", Label: "PHP version", Key: "box.php", Type: SettingsItemString, StringVal: cfg.Box.PHP, Placeholder: "(detected from the project)"},
 		{Section: "Box", Label: "Node version", Key: "box.node", Type: SettingsItemString, StringVal: cfg.Box.Node, Placeholder: "(detected from the project)"},

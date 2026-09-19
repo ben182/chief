@@ -14,7 +14,7 @@ chief box up auth        # create a box, put the project on it, start the run
 That is the whole thing. The run keeps going when you close the terminal, when you close the lid, and when you go to bed. In the morning there is a branch on origin, a pull request if your project opens them, and no machine.
 
 ::: tip What it costs
-The default machine is about six cents an hour, so a five-hour run is under thirty cents — two orders of magnitude less than the same run spends on tokens. The box is not the expensive part; **forgetting** the box is, which is why it destroys itself.
+Without a `--type`, a box is created on the cheapest machine the location sells — well under a cent an hour today, so a five-hour run is a few cents. That is two orders of magnitude less than the same run spends on tokens. The box is not the expensive part; **forgetting** the box is, which is why it destroys itself.
 :::
 
 ## Why a box
@@ -37,7 +37,10 @@ A box turns all three into one number on a bill. It is a machine with exactly th
     Node 24 (from .nvmrc), bun
 ==> Building chief for the box
     18 MB
-==> Creating chief-shop-auth-101500 (cpx32 in fsn1)
+==> The cheapest machine fsn1 sells: cx22
+    2 vCPU, 4 GB, 40 GB disk — 0.6 cents an hour, 3.1 cents for a five-hour run
+    a bigger one for one run: --type; for good: chief box config
+==> Creating chief-shop-auth-101500 (cx22 in fsn1)
     203.0.113.42
 ==> Waiting for the box to boot
 ==> Armed the box's own shutoff (12h at the outside)
@@ -194,6 +197,8 @@ Asks Hetzner what it offers **right now** and lets you pick a location and a mac
 
 Two of these are decisions rather than preferences: the location decides which country your source and your `.env` spend the run in, and the type decides what it costs. A project that has never been asked gets asked the first time it runs `box up` at a terminal.
 
+A project that never answers gets the **cheapest machine the location sells**, chosen at the moment the box is created rather than written down in Chief. A run spends its hours waiting on the agent's API calls, not on cores, so the small machine reaches the same place for a few cents. Pick a bigger one when the project's own test suite is the slow part — `--type` for one run, `chief box config` for good. Generations being retired are skipped: they create today and stop without warning, which is the one surprise a default must not have.
+
 ::: info IPv4 is not optional
 GitHub publishes no IPv6 address for `github.com`, `api.github.com` or `codeload.github.com`, and neither does the apt repository Claude Code installs from. An IPv6-only box could not clone, push, open a pull request, or install the agent. The IPv4 address costs 0.08 cents an hour — under half a cent for a five-hour run.
 :::
@@ -212,7 +217,7 @@ Full flag list: [`chief box`](/reference/cli#chief-box). Project settings: [`box
 | Setting | Flag | Default |
 |---|---|---|
 | `box.location` | `--location` | `fsn1` |
-| `box.type` | `--type` | `cpx32` (4 vCPU, 8 GB, ~6 ct/h) |
+| `box.type` | `--type` | the cheapest the location sells |
 | `box.image` | `--image` | `ubuntu-24.04` |
 | `box.php` / `box.node` | `--php` / `--node` | detected from the project |
 | `box.packages` | `--package` | none |

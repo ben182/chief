@@ -421,7 +421,7 @@ chief box down          # destroy it — this is what stops the billing
 | `--worktree` | Run in the PRD's own worktree on the box | On when the project configures `worktree.setup` |
 | `--verbose` | Put the agent's narration in the box's log | `false` |
 | `--max-iterations <n>`, `-n` | Cap the run's iterations | Dynamic |
-| `--type <name>` | Hetzner server type | `box.type`, else `cpx32` (4 vCPU, 8 GB, ~6 ct/h) |
+| `--type <name>` | Hetzner server type | `box.type`, else the cheapest the location sells |
 | `--location <name>` | Hetzner location | `box.location`, else `fsn1` |
 | `--image <name>` | Hetzner image | `box.image`, else `ubuntu-24.04` |
 | `--php <series>` | PHP to install, e.g. `8.3` | `box.php`, else what this machine runs |

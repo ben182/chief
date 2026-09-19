@@ -18,10 +18,10 @@ func testCatalog() box.Catalog {
 		Types: map[string][]box.ServerType{
 			"fsn1": {
 				{Name: "cx22", Cores: 2, Memory: 4, Disk: 40, HourlyEUR: 0.0060},
-				// Named after the real default, so the "opens on what you already
-				// use" behaviour is tested rather than coincidentally satisfied by
-				// whichever machine happens to sit at index zero.
-				{Name: box.DefaultType, Cores: 4, Memory: 8, Disk: 80, HourlyEUR: 0.0119},
+				// Not at index zero, so the "opens on what you already use"
+				// behaviour is tested rather than coincidentally satisfied by
+				// whichever machine happens to sit at the top of the list.
+				{Name: "cpx32", Cores: 4, Memory: 8, Disk: 80, HourlyEUR: 0.0119},
 				{Name: "cx43", Cores: 8, Memory: 16, Disk: 160, HourlyEUR: 0.0304, Deprecated: true},
 			},
 			"ash": {
@@ -63,12 +63,22 @@ func TestBoxSetupReturnsBothChoices(t *testing.T) {
 	if m.location != "fsn1" {
 		t.Errorf("location = %q, want fsn1", m.location)
 	}
-	// Opened on the default type, one down is cx43.
-	if m.typeName != "cx43" {
-		t.Errorf("type = %q, want cx43", m.typeName)
+	// Opened on the cheapest, cx22; one down is cpx32.
+	if m.typeName != "cpx32" {
+		t.Errorf("type = %q, want cpx32", m.typeName)
 	}
 	if m.cancelled {
 		t.Error("reported cancelled after a completed selection")
+	}
+}
+
+func TestBoxSetupOpensOnTheCheapest(t *testing.T) {
+	// What a project that has never chosen gets, and what `box up` would create
+	// for it without asking. The picker must open on the same machine, or the
+	// screen disagrees with the thing it is configuring.
+	m := pressBoxSetup(NewBoxSetup(testCatalog(), "", ""), "enter", "enter")
+	if m.typeName != "cx22" {
+		t.Errorf("type = %q, want the cheapest fsn1 sells (cx22)", m.typeName)
 	}
 }
 

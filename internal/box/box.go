@@ -3,9 +3,10 @@
 // A chief run takes hours, and for those hours it owns the machine it runs on:
 // the CPU, the rate limit window, and the laptop that has to stay open. This
 // package moves the run onto a machine created for it and destroyed afterwards.
-// At current Hetzner prices a five-hour run costs under thirty cents of
-// computer, which is two orders of magnitude less than the tokens it spends —
-// and less than five if the run is happy on two cores.
+// The machine is the cheapest the chosen location sells, because a run spends
+// its hours waiting on the agent rather than on cores: at current Hetzner
+// prices a five-hour run costs a few cents of computer, which is three orders
+// of magnitude less than the tokens it spends.
 //
 // The sequence is: create the instance from a generated cloud-config, upload the
 // chief binary this process is running, clone the project, copy over the files
@@ -31,21 +32,27 @@ import (
 )
 
 // Defaults for a box. Each can be overridden per run; these are the answers
-// that suit a chief run rather than a server — a German region, and enough
-// cores that a test suite is not the slow part.
+// that suit a chief run rather than a server — a German region, and the
+// cheapest machine that region sells.
+//
+// The type is not a constant, and that is the point. Server types are
+// generational: a line that is current today stops being bookable in a location
+// when its successor arrives, while still appearing in the price list. A name
+// written down here was cx33, then cpx32, and each time the line was retired
+// every `chief box up` without a `--type` failed with "unsupported location"
+// until somebody edited this file. So the default is now a question asked of
+// Hetzner at the moment the box is created — what is the cheapest thing you
+// will sell me here — and the constant below is only what to try when the price
+// list cannot be reached at all.
+//
+// Cheapest rather than biggest because a chief run spends its time waiting on
+// the agent's API calls, not on cores: the machine is two orders of magnitude
+// below the tokens either way, and the difference between the smallest box and
+// a comfortable one is the difference between three cents an evening and thirty.
 const (
-	// DefaultType is 4 vCPU and 8 GB for about six cents an hour — enough that a
-	// test suite is not the slow part. A five-hour run is under thirty cents,
-	// which is still two orders of magnitude below what it spends on tokens.
-	//
-	// Server types are generational: a line that is current today stops being
-	// bookable in a location when its successor arrives, while still appearing
-	// in the price list. This constant was cx33 until the cx line shrank to a
-	// single 2-core machine in every European location, at which point every
-	// `chief box up` that had not been given a `--type` failed with "unsupported
-	// location". If that happens again, `chief box config` lists what is
-	// actually creatable today, and so does the error itself.
-	DefaultType = "cpx32"
+	// FallbackType is what a box is created with when the price list did not
+	// answer and nobody named a type. It is a machine, not a recommendation.
+	FallbackType = "cpx32"
 	// DefaultLocation is Falkenstein.
 	DefaultLocation = "fsn1"
 )
@@ -301,15 +308,19 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 	}
 
 	name := serverName(opts.BaseDir, opts.PRD)
-	instanceType, image, location := opts.Type, opts.Image, opts.Location
-	if instanceType == "" {
-		instanceType = DefaultType
-	}
+	image, location := opts.Image, opts.Location
 	if image == "" {
 		image = DefaultImage
 	}
 	if location == "" {
 		location = DefaultLocation
+	}
+	machine, chosen := chooseType(ctx, api, opts.Type, location)
+	instanceType := machine.Name
+	if chosen {
+		rep.step("The cheapest machine %s sells: %s", location, instanceType)
+		rep.detail("%s", machine.Spec())
+		rep.detail("a bigger one for one run: --type; for good: chief box config")
 	}
 
 	// The box's own identity, made here so that it is known before the machine
@@ -372,10 +383,11 @@ func Up(ctx context.Context, opts UpOptions) (State, error) {
 		Location: location,
 		HostKey:  host.Public,
 		Created:  time.Now(),
-		// Best-effort, and asked once: what this machine costs per hour does not
-		// change while it exists, and recording it here is what lets anything
-		// afterwards say what the box has run up without a token or a network.
-		HourlyEUR: hourlyPrice(ctx, api, location, instanceType),
+		// Asked once, when the type was chosen: what this machine costs per hour
+		// does not change while it exists, and recording it here is what lets
+		// anything afterwards say what the box has run up without a token or a
+		// network. Zero means the price list did not answer.
+		HourlyEUR: machine.HourlyEUR,
 	}
 	// Record it before anything else can fail: an instance that exists but was
 	// never written down is one the user pays for and cannot find again.
@@ -624,16 +636,42 @@ func boxMaxHours(opts UpOptions) int {
 	return DefaultMaxHours
 }
 
-// hourlyPrice is what a machine of this type costs per hour in this location,
-// or zero when the price list did not answer. A box worth creating is not worth
-// refusing over a price lookup.
-func hourlyPrice(ctx context.Context, api *hetzner, location, instanceType string) float64 {
+// chooseType settles the machine a box is created on, and what it costs per
+// hour there. It reports whether chief picked it rather than the user.
+//
+// A named type is taken as given and only priced. It is deliberately not
+// checked against the catalog first: a type that this location will not create
+// fails at creation with an error that already lists what it does create, and a
+// second opinion here would only turn that into a worse-worded version of the
+// same sentence.
+//
+// An unnamed one is the cheapest the location sells. The price list is asked
+// once, here, for both answers — a box worth creating is not worth refusing
+// because the catalog did not answer, so a failure falls back to a machine that
+// exists and to a price of zero, which everything downstream already reads as
+// "not established".
+func chooseType(ctx context.Context, api *hetzner, wanted, location string) (ServerType, bool) {
 	catalog, err := api.catalog(ctx)
 	if err != nil {
-		return 0
+		if wanted != "" {
+			return ServerType{Name: wanted}, false
+		}
+		return ServerType{Name: FallbackType}, false
 	}
-	price, _ := priceOf(catalog, location, instanceType)
-	return price
+	if wanted != "" {
+		for _, t := range catalog.TypesIn(location) {
+			if t.Name == wanted {
+				return t, false
+			}
+		}
+		return ServerType{Name: wanted}, false
+	}
+	if cheapest, ok := catalog.Cheapest(location); ok {
+		return cheapest, true
+	}
+	// A location that sells nothing chief can use. Creation will say so, with
+	// the list of what it does sell.
+	return ServerType{Name: FallbackType}, false
 }
 
 // prNote says whether a pull request follows the push, so the last line of `up`

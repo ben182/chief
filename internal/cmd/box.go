@@ -44,7 +44,8 @@ Options for up/run:
   --worktree            Run in the PRD's own worktree on the box
   --verbose             Put the agent's narration in the box's log
   -n, --max-iterations  Cap the run's iterations
-  --type <name>         Hetzner server type (default ` + box.DefaultType + `)
+  --type <name>         Hetzner server type (default: the cheapest the location
+                        sells, which is what a run that waits on an API needs)
   --location <name>     Hetzner location (default ` + box.DefaultLocation + `)
   --image <name>        Hetzner image (default ` + box.DefaultImage + `)
                         All three default to what 'chief box config' stored

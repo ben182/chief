@@ -145,6 +145,19 @@ func FormatEUR(eur float64) string {
 	}
 }
 
+// FormatRateEUR renders a price rather than a total: what a machine costs per
+// hour, or what five hours of it would come to.
+//
+// One decimal more than FormatEUR, and that decimal is the whole point. Every
+// machine worth choosing between here is under two cents an hour, and a column
+// of "1 cents" against "1 cents" compares nothing.
+func FormatRateEUR(eur float64) string {
+	if eur < 0.10 {
+		return fmt.Sprintf("%.1f cents", eur*100)
+	}
+	return fmt.Sprintf("€%.2f", eur)
+}
+
 // FormatAge renders a duration the way somebody reads a bill: days once there
 // are days, because "51h" is a number you have to stop and convert, and the
 // conversion is the moment you realise how long it has been.

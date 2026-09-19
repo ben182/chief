@@ -2,6 +2,7 @@ package box
 
 import (
 	"context"
+	"net/http"
 	"testing"
 )
 
@@ -127,5 +128,83 @@ func TestEstimateIsTheNumberThatDecides(t *testing.T) {
 	ty := ServerType{HourlyEUR: 0.0119}
 	if got := ty.Estimate(5); got < 0.059 || got > 0.060 {
 		t.Errorf("five hours of cx33 = %v, want about 0.0595", got)
+	}
+}
+
+// TestABoxWithNoTypeGetsTheCheapest is the default this whole catalog exists
+// for: a machine chosen at the moment of creation from what Hetzner will
+// actually sell, rather than a name written into chief that goes stale.
+func TestABoxWithNoTypeGetsTheCheapest(t *testing.T) {
+	f := newFakeHetzner(t, catalogRoutes())
+	machine, chosen := chooseType(context.Background(), f.client("t"), "", "fsn1")
+	if machine.Name != "cx22" {
+		t.Errorf("created a %s, want the cheapest fsn1 sells (cx22)", machine.Name)
+	}
+	if !chosen {
+		t.Error("did not report the machine as chief's choice, so the report will not name it")
+	}
+	if machine.HourlyEUR == 0 {
+		t.Error("no price came back with the machine, so the box would be recorded as free")
+	}
+}
+
+// TestANamedTypeIsTakenAsGiven: a --type or a box.type is a person deciding,
+// and the price is looked up rather than the decision second-guessed.
+func TestANamedTypeIsTakenAsGiven(t *testing.T) {
+	f := newFakeHetzner(t, catalogRoutes())
+	machine, chosen := chooseType(context.Background(), f.client("t"), "cx33", "fsn1")
+	if machine.Name != "cx33" {
+		t.Errorf("created a %s, want the cx33 that was asked for", machine.Name)
+	}
+	if chosen {
+		t.Error("reported a named type as chief's choice")
+	}
+	if machine.HourlyEUR != 0.0119 {
+		t.Errorf("priced cx33 at %v, want its fsn1 price", machine.HourlyEUR)
+	}
+}
+
+// TestAPriceListThatDoesNotAnswerStillCreatesABox. The catalog is how the
+// default is found, but it is not worth a run: a Hetzner that is having a bad
+// morning should cost the fallback machine, not the night's work.
+func TestAPriceListThatDoesNotAnswerStillCreatesABox(t *testing.T) {
+	f := newFakeHetzner(t, map[string]any{"GET /locations": http.StatusInternalServerError})
+	machine, chosen := chooseType(context.Background(), f.client("t"), "", "fsn1")
+	if machine.Name != FallbackType {
+		t.Errorf("created a %s, want the fallback %s", machine.Name, FallbackType)
+	}
+	if chosen {
+		t.Error("announced a fallback as the cheapest, which it was not established to be")
+	}
+
+	// And a named one survives the same outage, unpriced.
+	machine, _ = chooseType(context.Background(), f.client("t"), "cx33", "fsn1")
+	if machine.Name != "cx33" {
+		t.Errorf("dropped a named type when the price list failed: %s", machine.Name)
+	}
+}
+
+// TestCheapestSkipsARetiredGeneration. A deprecated line still creates today
+// and stops without warning; saving two tenths of a cent an hour is not worth a
+// default that breaks on a morning nobody chose.
+func TestCheapestSkipsARetiredGeneration(t *testing.T) {
+	c := Catalog{Types: map[string][]ServerType{"fsn1": {
+		{Name: "old", HourlyEUR: 0.004, Deprecated: true},
+		{Name: "current", HourlyEUR: 0.006},
+	}}}
+	got, ok := c.Cheapest("fsn1")
+	if !ok || got.Name != "current" {
+		t.Errorf("chose %q, want the cheapest that is not being retired", got.Name)
+	}
+
+	// Unless everything is being retired, in which case a box still has to be
+	// created on something.
+	c = Catalog{Types: map[string][]ServerType{"fsn1": {{Name: "old", Deprecated: true}}}}
+	if got, ok := c.Cheapest("fsn1"); !ok || got.Name != "old" {
+		t.Errorf("chose %q from a list of nothing but retired machines", got.Name)
+	}
+
+	if _, ok := c.Cheapest("nowhere"); ok {
+		t.Error("claimed a machine in a location that sells none")
 	}
 }
