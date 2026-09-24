@@ -145,6 +145,9 @@ const (
 func (r remote) follow(ctx context.Context, unit string, out io.Writer) error {
 	cursor := fmt.Sprintf("/tmp/chief-follow-%d-%d.cursor", os.Getpid(), time.Now().UnixNano())
 	script := followScript(unit, cursor)
+	local := newLocalTimes(out)
+	out = local
+	defer func() { _ = local.Flush() }()
 	defer func() {
 		// Best-effort: a cursor file left behind on a machine that exists to be
 		// destroyed is not a leak worth an error path.

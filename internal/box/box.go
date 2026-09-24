@@ -1199,7 +1199,7 @@ func Status(ctx context.Context, baseDir string, out io.Writer) error {
 	tail, err := r.run(ctx, "journalctl -u "+unit+" --no-hostname -o cat -n 15")
 	if err == nil && tail != "" {
 		_, _ = fmt.Fprintln(out)
-		_, _ = fmt.Fprintln(out, tail)
+		_, _ = fmt.Fprintln(out, localizeLog(tail))
 	}
 	return nil
 }
