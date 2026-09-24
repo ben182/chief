@@ -21,7 +21,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1173,6 +1175,13 @@ func Status(ctx context.Context, baseDir string, out io.Writer) error {
 			for _, line := range progressLines(p) {
 				rep.detail("%s", line)
 			}
+			if strings.HasPrefix(state, "active") {
+				if journal, err := r.ask(ctx, storyEventsProbe(unit), 20*time.Second); err == nil {
+					if line, ok := estimateLine(journal, storiesLeft(p)); ok {
+						rep.detail("%s", line)
+					}
+				}
+			}
 		}
 	}
 
@@ -1226,6 +1235,100 @@ func progressLines(p *prd.PRD) []string {
 		lines = append(lines, fmt.Sprintf("working on %s: %s", current.ID, current.Title))
 	}
 	return lines
+}
+
+// storyEventsProbe prints the box's clock, then every line this run of the unit
+// logged about a story starting or ending, stamped with when the journal got it.
+// Only the current invocation counts: a retried run on the same box starts its
+// own clock.
+func storyEventsProbe(unit string) string {
+	return "date +%s; journalctl _SYSTEMD_INVOCATION_ID=$(systemctl show " + unit + " -p InvocationID --value)" +
+		" --no-hostname -o short-unix | grep -E ' story +[^ ]+ (started|done|parked)'"
+}
+
+// storyEventRegex reads one line of storyEventsProbe: the journal's unix time,
+// then chief's own stamp and "story", then the ID and what happened to it.
+var storyEventRegex = regexp.MustCompile(`^(\d+)(?:\.\d+)?\s.*\sstory\s+\S+ (started|done|parked)\b`)
+
+// storiesLeft is how many stories the run still has to work through. A parked
+// story is not one of them: the loop skips it until a person has looked.
+func storiesLeft(p *prd.PRD) int {
+	n := 0
+	for _, st := range p.UserStories {
+		if !st.Passes && !st.NeedsReview {
+			n++
+		}
+	}
+	return n
+}
+
+// estimateLine is the time the run still needs, extrapolated from how long the
+// stories it has finished took.
+//
+// The clock starts at the first story, not at the unit: provisioning and
+// worktree setup happen once and say nothing about the next story. Parked
+// stories count as finished — the time went into them all the same. What the
+// current story has already taken is subtracted, so the estimate goes down
+// while a story is being worked on rather than only in steps.
+//
+// There is no estimate before the first story has ended; one story's worth of
+// history is a guess, and none is not even that.
+func estimateLine(journal string, left int) (string, bool) {
+	if left == 0 {
+		return "", false
+	}
+	lines := strings.Split(strings.TrimSpace(journal), "\n")
+	now, err := strconv.ParseInt(strings.TrimSpace(lines[0]), 10, 64)
+	if err != nil {
+		return "", false
+	}
+	var first, last int64
+	finished := 0
+	for _, line := range lines[1:] {
+		m := storyEventRegex.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		at, _ := strconv.ParseInt(m[1], 10, 64)
+		if first == 0 {
+			first = at
+		}
+		if m[2] != "started" {
+			finished++
+			last = at
+		}
+	}
+	if first == 0 {
+		return "", false
+	}
+	if finished == 0 {
+		return fmt.Sprintf("no estimate yet — the first story has been running for %s", roundMinutes(time.Duration(now-first)*time.Second)), true
+	}
+	per := time.Duration(last-first) * time.Second / time.Duration(finished)
+	remaining := per*time.Duration(left) - time.Duration(now-last)*time.Second
+	stories := plural(left, "story", "stories")
+	if remaining < time.Minute {
+		return fmt.Sprintf("should be done any minute (about %s per story, %s to go)", roundMinutes(per), stories), true
+	}
+	return fmt.Sprintf("about %s left (about %s per story, %s to go)", roundMinutes(remaining), roundMinutes(per), stories), true
+}
+
+// roundMinutes prints a duration the way a person estimates one: "2h10m",
+// "35m", never seconds.
+func roundMinutes(d time.Duration) string {
+	d = d.Round(time.Minute)
+	if d < time.Minute {
+		return "under a minute"
+	}
+	h, m := int(d.Hours()), int(d.Minutes())%60
+	switch {
+	case h == 0:
+		return fmt.Sprintf("%dm", m)
+	case m == 0:
+		return fmt.Sprintf("%dh", h)
+	default:
+		return fmt.Sprintf("%dh%dm", h, m)
+	}
 }
 
 // SSH opens a shell on the box in the project directory, or runs command there

@@ -91,3 +91,51 @@ func TestPRDProbeReadsTheNewestCopy(t *testing.T) {
 		t.Errorf("probe read %q, want the worktree's copy", out)
 	}
 }
+
+func TestEstimateLine(t *testing.T) {
+	// Setup takes 10 minutes and must not count; two stories finish 20 and 40
+	// minutes into the first one; the third has been going for 5 minutes.
+	journal := strings.Join([]string{
+		"4500",
+		"1000.123 chief[1]: 2026-09-24 10:00:00  story      US-1 started (iteration 1)",
+		"2200.5 chief[1]: 2026-09-24 10:20:00  story      US-1 done",
+		"2201 chief[1]: 2026-09-24 10:20:01  story      US-2 started (iteration 2)",
+		"3400 chief[1]: 2026-09-24 10:40:00  story      US-2 parked for human review after too many failed attempts",
+		"4200 chief[1]: 2026-09-24 10:45:00  story      US-3 started (iteration 3)",
+	}, "\n")
+	line, ok := estimateLine(journal, 3)
+	// 20m per story × 3 left − 18m20s since the last one ended ≈ 42m.
+	if !ok || line != "about 42m left (about 20m per story, 3 stories to go)" {
+		t.Errorf("got %q, %v", line, ok)
+	}
+
+	line, ok = estimateLine("1600\n1000 x: s  story      US-1 started (iteration 1)", 2)
+	if !ok || line != "no estimate yet — the first story has been running for 10m" {
+		t.Errorf("before the first story ends: %q, %v", line, ok)
+	}
+
+	line, _ = estimateLine("99999\n1000 x: s  story      US-1 started (iteration 1)\n2200 x: s  story      US-1 done", 1)
+	if !strings.HasPrefix(line, "should be done any minute") {
+		t.Errorf("overdue: %q", line)
+	}
+
+	if _, ok := estimateLine("1600", 2); ok {
+		t.Error("a run with no story events yet has nothing to say")
+	}
+	if _, ok := estimateLine(journal, 0); ok {
+		t.Error("nothing left means no estimate")
+	}
+}
+
+func TestRoundMinutes(t *testing.T) {
+	for d, want := range map[time.Duration]string{
+		20 * time.Second:             "under a minute",
+		35 * time.Minute:             "35m",
+		2 * time.Hour:                "2h",
+		2*time.Hour + 10*time.Minute: "2h10m",
+	} {
+		if got := roundMinutes(d); got != want {
+			t.Errorf("roundMinutes(%v) = %q, want %q", d, got, want)
+		}
+	}
+}
