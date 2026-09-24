@@ -139,3 +139,25 @@ func TestRoundMinutes(t *testing.T) {
 		}
 	}
 }
+
+func TestSpentLine(t *testing.T) {
+	journal := strings.Join([]string{
+		"4500",
+		"2200 chief[1]: 2026-09-24 10:20:00  cost       $1.23 so far",
+		"3400 chief[1]: 2026-09-24 10:40:00  cost       $2.50 so far",
+	}, "\n")
+	if got := spentLine(0.04, true, journal); got != "cost so far: machine 4 cents, agent $2.50" {
+		t.Errorf("running: %q", got)
+	}
+	ended := journal + "\n5000 chief[1]: x  run        demo after 3h · 6/6 stories, $4.56"
+	if got := spentLine(0.04, true, ended); got != "cost so far: machine 4 cents, agent $4.56" {
+		t.Errorf("ended: %q", got)
+	}
+	// A box started by an older chief logs no running total.
+	if got := spentLine(0.04, true, "4500"); got != "cost so far: machine 4 cents" {
+		t.Errorf("no agent total: %q", got)
+	}
+	if got := spentLine(0, false, ""); got != "cost so far: machine cost unknown" {
+		t.Errorf("unpriced: %q", got)
+	}
+}

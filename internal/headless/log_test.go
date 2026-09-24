@@ -329,3 +329,22 @@ func TestInterruptStopsTheRunAndSkipsPostCompletionActions(t *testing.T) {
 		t.Errorf("the interrupted run lost its commit:\n%s", out)
 	}
 }
+
+// chief box status reads the running total off these lines, so their shape is
+// what it parses: "cost", then "$<amount> so far".
+func TestReportSpentOnlyWhenAStoryEnds(t *testing.T) {
+	var buf bytes.Buffer
+	l := newLogger(&buf, false)
+	reportSpent(l, loop.Event{Type: loop.EventUsage, Cost: 0.5}, 0.5)
+	if buf.Len() != 0 {
+		t.Fatalf("a usage event logged a total: %q", buf.String())
+	}
+	reportSpent(l, loop.Event{Type: loop.EventStoryDone}, 1.234)
+	reportSpent(l, loop.Event{Type: loop.EventStoryNeedsReview}, 2.5)
+	out := buf.String()
+	for _, want := range []string{"cost       $1.23 so far", "cost       $2.50 so far"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}

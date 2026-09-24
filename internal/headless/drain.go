@@ -44,7 +44,7 @@ func drain(ctx context.Context, log *logger, manager *loop.Manager, name string)
 			log.event("run", "interrupt received — stopping the agent")
 			_ = manager.Stop(name)
 			state, _, _ := manager.GetState(name)
-			cost += flush(log, manager, &story)
+			cost += flush(log, manager, &story, cost)
 			return state, cost
 
 		case ev := <-manager.Events():
@@ -53,6 +53,7 @@ func drain(ctx context.Context, log *logger, manager *loop.Manager, name string)
 			}
 			cost += ev.Event.Cost
 			report(log, ev.Event, &story)
+			reportSpent(log, ev.Event, cost)
 
 		case <-ticker.C:
 			state, _, err := manager.GetState(name)
@@ -64,7 +65,7 @@ func drain(ctx context.Context, log *logger, manager *loop.Manager, name string)
 			}
 			// The loop has stopped. Take whatever is still queued before
 			// reporting the ending, so the log ends where the run did.
-			cost += flush(log, manager, &story)
+			cost += flush(log, manager, &story, cost)
 			return state, cost
 		}
 	}
@@ -72,8 +73,9 @@ func drain(ctx context.Context, log *logger, manager *loop.Manager, name string)
 
 // flush reports the events already queued and returns what they cost, without
 // waiting for any more. It is what the end of a run and an interrupt both need:
-// the channel has a backlog and nobody is going to fill it further.
-func flush(log *logger, manager *loop.Manager, story *string) float64 {
+// the channel has a backlog and nobody is going to fill it further. spent is
+// what the run had cost before the backlog, so the running total stays right.
+func flush(log *logger, manager *loop.Manager, story *string, spent float64) float64 {
 	var cost float64
 	for {
 		select {
@@ -83,9 +85,20 @@ func flush(log *logger, manager *loop.Manager, story *string) float64 {
 			}
 			cost += ev.Event.Cost
 			report(log, ev.Event, story)
+			reportSpent(log, ev.Event, spent+cost)
 		default:
 			return cost
 		}
+	}
+}
+
+// reportSpent writes what the run has cost so far each time a story ends. The
+// cost arrives a message at a time, so a line per event would bury the log;
+// once per story is often enough for `chief box status` to read a running total
+// off the journal while the run is still going.
+func reportSpent(log *logger, ev loop.Event, spent float64) {
+	if ev.Type == loop.EventStoryDone || ev.Type == loop.EventStoryNeedsReview {
+		log.event("cost", "$%.2f so far", spent)
 	}
 }
 
