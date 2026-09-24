@@ -437,8 +437,9 @@ func Retry(ctx context.Context, opts UpOptions) (State, error) {
 	// one-shot, so systemd would refuse anyway, but the steps before it are not:
 	// re-cloning the project under a working run would pull the ground out from
 	// under the agent.
-	if active, err := r.run(ctx, "systemctl is-active "+shellQuote("chief-run@"+state.PRD)); err == nil &&
-		strings.TrimSpace(active) == "active" {
+	// is-active exits non-zero for "activating", which is what a one-shot unit
+	// says for as long as it runs, so the answer is read whatever the exit code.
+	if active, _ := r.run(ctx, "systemctl is-active "+shellQuote("chief-run@"+state.PRD)); unitRunning(active) {
 		return state, fmt.Errorf(
 			"the run on %s is still going — there is nothing to retry.\n"+
 				"  Watch it with 'chief box logs', or end it with 'chief box down'", state.Name)
@@ -1164,13 +1165,19 @@ func Status(ctx context.Context, baseDir string, out io.Writer) error {
 	if err != nil && state == "" {
 		return orVanished(ctx, baseDir, s, fmt.Errorf("the box is not answering: %w", err))
 	}
-	for _, line := range strings.Split(state, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			rep.detail("%s", line)
+	active := unitRunning(state)
+	if active {
+		// The unit's Result is systemd's verdict on the previous run, if any;
+		// next to a run that is still going it reads as this one having ended.
+		rep.detail("running")
+	} else {
+		for _, line := range strings.Split(state, "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				rep.detail("%s", line)
+			}
 		}
 	}
 
-	active := strings.HasPrefix(state, "active")
 	journal, journalErr := r.ask(ctx, storyEventsProbe(unit), 20*time.Second)
 	if journalErr != nil {
 		journal = ""
@@ -1195,6 +1202,19 @@ func Status(ctx context.Context, baseDir string, out io.Writer) error {
 		_, _ = fmt.Fprintln(out, tail)
 	}
 	return nil
+}
+
+// unitRunning reads the first line of `systemctl is-active` as "the run is
+// going". The run is a one-shot unit, and a one-shot unit is "activating" — not
+// "active" — for as long as its process lives; it only ever says "active" with
+// RemainAfterExit, which this one does not have.
+func unitRunning(isActive string) bool {
+	first, _, _ := strings.Cut(strings.TrimSpace(isActive), "\n")
+	switch strings.TrimSpace(first) {
+	case "active", "activating", "reloading":
+		return true
+	}
+	return false
 }
 
 // prdProbe prints the PRD the run is actually writing to. With worktrees on,
@@ -1673,13 +1693,10 @@ func Watch(ctx context.Context, baseDir string, out io.Writer) (Outcome, error) 
 			// destroying it on that basis would throw away work. Keep watching.
 			continue
 		}
-		switch strings.TrimSpace(state) {
-		case "active", "activating", "reloading":
+		if unitRunning(state) {
 			everRan = true
-		default:
-			if everRan || time.Since(started) > startGrace {
-				return unitOutcome(ctx, r, unit), nil
-			}
+		} else if everRan || time.Since(started) > startGrace {
+			return unitOutcome(ctx, r, unit), nil
 		}
 	}
 }

@@ -161,3 +161,18 @@ func TestSpentLine(t *testing.T) {
 		t.Errorf("unpriced: %q", got)
 	}
 }
+
+func TestUnitRunning(t *testing.T) {
+	for in, want := range map[string]bool{
+		"activating\nsuccess": true, // a one-shot run, as Status asks for it
+		"active":              true,
+		"activating":          true,
+		"inactive\nsuccess":   false,
+		"failed\nexit-code":   false,
+		"":                    false,
+	} {
+		if got := unitRunning(in); got != want {
+			t.Errorf("unitRunning(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
