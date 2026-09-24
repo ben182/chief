@@ -1168,12 +1168,64 @@ func Status(ctx context.Context, baseDir string, out io.Writer) error {
 		}
 	}
 
+	if doc, err := r.ask(ctx, prdProbe(remoteProject, s.PRD), 20*time.Second); err == nil && doc != "" {
+		if p, err := prd.ParseMarkdownPRDFromString(doc); err == nil && len(p.UserStories) > 0 {
+			for _, line := range progressLines(p) {
+				rep.detail("%s", line)
+			}
+		}
+	}
+
 	tail, err := r.run(ctx, "journalctl -u "+unit+" --no-hostname -o cat -n 15")
 	if err == nil && tail != "" {
 		_, _ = fmt.Fprintln(out)
 		_, _ = fmt.Fprintln(out, tail)
 	}
 	return nil
+}
+
+// prdProbe prints the PRD the run is actually writing to. With worktrees on,
+// that is the worktree's copy, not the one in the checkout — the checkout's is
+// only brought up to date when the worktree is torn down. So every checkout git
+// knows of is asked, and the most recently written copy wins.
+func prdProbe(project, name string) string {
+	rel := "/.chief/prds/" + shellQuote(name) + "/prd.md"
+	return "cd " + shellQuote(project) + " && git worktree list --porcelain | sed -n 's/^worktree //p' | " +
+		`{ n=; while IFS= read -r w; do f="$w"` + rel + `; ` +
+		`if [ -f "$f" ] && { [ -z "$n" ] || [ "$f" -nt "$n" ]; }; then n=$f; fi; done; ` +
+		`[ -n "$n" ] && cat "$n"; }`
+}
+
+// progressWidth is how many cells the bar has.
+const progressWidth = 30
+
+// progressLines is how far the run has got, as a bar and the story it is on.
+func progressLines(p *prd.PRD) []string {
+	total := len(p.UserStories)
+	done := p.CompletedCount()
+	filled := done * progressWidth / total
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", progressWidth-filled)
+	line := fmt.Sprintf("%s %d/%d stories (%d%%)", bar, done, total, done*100/total)
+
+	parked := 0
+	var current *prd.UserStory
+	for i := range p.UserStories {
+		st := &p.UserStories[i]
+		if st.NeedsReview {
+			parked++
+		}
+		if st.InProgress && current == nil {
+			current = st
+		}
+	}
+	if parked > 0 {
+		line += fmt.Sprintf(", %d parked for review", parked)
+	}
+	lines := []string{line}
+	if current != nil {
+		lines = append(lines, fmt.Sprintf("working on %s: %s", current.ID, current.Title))
+	}
+	return lines
 }
 
 // SSH opens a shell on the box in the project directory, or runs command there
