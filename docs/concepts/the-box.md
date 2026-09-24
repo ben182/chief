@@ -141,6 +141,21 @@ A machine cannot delete itself without a token that can delete it. Chief writes 
 **Keep Chief's boxes in a Hetzner project of their own.** That is the whole blast radius.
 :::
 
+## Starting later
+
+```bash
+chief box up auth --at 23:00
+```
+
+`--at` sets the box up now and holds the run back until the time you give — the next time the clock reads it, in your time zone, so `--at 02:00` in the evening means tonight. Setting up now rather than at eleven means a box that fails to provision says so while you are still at the machine, not in the morning.
+
+The box starts the run itself, from a systemd timer, so your laptop can be off by then. Until the start `chief box status` says *starts at 23:00* and how long that is from now, and `chief box run --at …` waits for the start instead of mistaking the wait for a run that never came.
+
+- **The outside limit counts from the start**, not from boot: `--max-hours 8 --at 23:00` stops the run at seven, however early the box was created.
+- **The wait bills.** The box exists from the moment `up` creates it — on the cheapest machine, well under a cent an hour, so four hours of waiting cost two or three cents.
+- **A start time that passes while the box is still being set up** starts the run at once and says so.
+- **`chief box retry` takes `--at` as well**, and replaces whatever start was scheduled before; without it, a retry starts the run now.
+
 ## Watching, or not
 
 | Command | What it does |
@@ -228,3 +243,4 @@ Full flag list: [`chief box`](/reference/cli#chief-box). Project settings: [`box
 | `box.files` | `--file` | `.env` |
 | `box.keep` | `--keep` | off — the box destroys itself |
 | `box.maxHours` | `--max-hours` | `12` |
+| — | `--at` | start at once |

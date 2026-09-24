@@ -160,6 +160,10 @@ type UpOptions struct {
 	// MaxHours is the box's outside limit, whatever the run is doing. Zero takes
 	// chief's default.
 	MaxHours int
+	// StartAt holds the run back until then, so a box set up in the evening
+	// works through the night. Zero starts it as soon as the box is ready. With
+	// it, the outside limit is counted from this moment rather than from boot.
+	StartAt time.Time
 	// Secrets are the tokens, already resolved.
 	Secrets Secrets
 	// Out is where progress is reported.
@@ -581,17 +585,55 @@ func settle(ctx context.Context, opts UpOptions, rep reporter, state State, know
 		rep.detail("%s", f)
 	}
 
-	rep.step("Starting the run")
-	if _, err := r.run(ctx, "sudo systemctl start --no-block chief-run@"+shellQuote(opts.PRD)); err != nil {
+	// A start an earlier attempt scheduled is taken back whatever this one does:
+	// left armed, it would start the run a second time after this one.
+	if _, err := root.run(ctx, cancelStartScript()); err != nil {
+		return fail(err)
+	}
+	startAt := opts.StartAt
+	if !startAt.IsZero() && !startAt.After(time.Now()) {
+		rep.step("Starting the run — %s passed while the box was being set up", startAt.Format("15:04"))
+		startAt = time.Time{}
+	}
+	if startAt.IsZero() {
+		rep.step("Starting the run")
+		if _, err := r.run(ctx, "sudo systemctl start --no-block chief-run@"+shellQuote(opts.PRD)); err != nil {
+			return fail(err)
+		}
+	} else {
+		rep.step("Scheduling the run for %s", clockAt(time.Now(), startAt))
+		if _, err := root.run(ctx, scheduleStartScript(opts.PRD, startAt)); err != nil {
+			return fail(err)
+		}
+		if !opts.Keep {
+			deadline := startAt.Add(time.Duration(boxMaxHours(opts)) * time.Hour)
+			if err := root.runWith(ctx, moveDeadlineScript, deadlineDropIn(deadline)); err != nil {
+				return fail(err)
+			}
+		}
+	}
+	// Recorded so status can say "starts at 23:00" rather than "inactive", and
+	// so watching the run does not mistake the wait for a run that never came.
+	state.StartAt = startAt
+	if err := SaveState(opts.BaseDir, state); err != nil {
 		return fail(err)
 	}
 
-	rep.step("The run is going — it survives this terminal")
-	rep.detail("what it builds is pushed to origin when it ends%s", prNote(opts.BaseDir))
-	if opts.Keep {
-		rep.detail("this box keeps billing until 'chief box down' — it was asked to stay")
+	if startAt.IsZero() {
+		rep.step("The run is going — it survives this terminal")
 	} else {
+		rep.step("The run starts at %s — the box starts it, nothing here has to stay on",
+			clockAt(time.Now(), startAt))
+	}
+	rep.detail("what it builds is pushed to origin when it ends%s", prNote(opts.BaseDir))
+	switch {
+	case opts.Keep:
+		rep.detail("this box keeps billing until 'chief box down' — it was asked to stay")
+	case startAt.IsZero():
 		rep.detail("the box destroys itself %s after a finished run, and %dh from boot whatever happens",
+			reapGrace, boxMaxHours(opts))
+	default:
+		rep.detail("the box destroys itself %s after a finished run, and %dh after the start whatever happens",
 			reapGrace, boxMaxHours(opts))
 	}
 	rep.detail("chief box logs     follow along")
@@ -1169,7 +1211,7 @@ func Status(ctx context.Context, baseDir string, out io.Writer) error {
 	}
 	// A run that has ended is looked at to find out why, and the why is in the
 	// log's last lines rather than in any summary of it.
-	if !v.Running {
+	if !v.Running && !v.waiting() {
 		if tail, err := r.run(ctx, "journalctl -u "+unit+" --no-hostname -o cat -n 15"); err == nil {
 			v.Tail = localizeLog(tail)
 		}
@@ -1503,7 +1545,11 @@ func Watch(ctx context.Context, baseDir string, out io.Writer) (Outcome, error) 
 		_ = r.follow(streaming, unit, out)
 	}()
 
+	// A run scheduled for later is not late until its start time has passed.
 	started := time.Now()
+	if s.StartAt.After(started) {
+		started = s.StartAt
+	}
 	var everRan bool
 	for {
 		if !sleep(ctx, pollInterval) {

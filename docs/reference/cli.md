@@ -417,6 +417,7 @@ chief box down          # destroy it — this is what stops the billing
 |------|-------------|---------|
 | `--keep` | Leave the box standing when the run ends, instead of letting it destroy itself | `box.keep`, else `false` |
 | `--max-hours <n>` | The box's outside limit: it stops the run and destroys itself this long after booting | `box.maxHours`, else `12` |
+| `--at <HH:MM>` | Set the box up now and start the run at this time — the next time the clock reads it, in your time zone. The outside limit then counts from the start (also on `retry`) | start at once |
 | `--down-when-done` | Wait for the run to end, then destroy the box at once, rather than after its own grace period (`run` only) | `false` |
 | `--worktree` | Run in the PRD's own worktree on the box | On when the project configures `worktree.setup` |
 | `--verbose` | Put the agent's narration in the box's log | `false` |
@@ -451,6 +452,12 @@ that exist nowhere else: it says so in the journal and tries again in an hour. A
 a run that ended with stories unresolved does not start the first timer at all,
 because that is the box you want to `chief box ssh` into or `chief box retry` —
 it lives until the deadline instead.
+
+With `--at` the box is set up at once and the run waits for the time you gave:
+the box starts it from a systemd timer, so nothing on your machine has to be awake
+for it, and `--max-hours` is then counted from the start rather than from boot.
+The wait bills like any other hour of the box. See
+[Starting later](/concepts/the-box#starting-later).
 
 `--keep` builds the old behaviour, where `chief box down` is the only thing that
 stops the bill. The Hetzner token has to be on the box for any of this, root-only

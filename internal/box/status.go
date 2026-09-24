@@ -194,6 +194,11 @@ func renderStatus(out io.Writer, v statusView) {
 		row("Progress", "%s", line)
 	}
 
+	if v.waiting() {
+		row("Now", "waiting — the box starts the run at %s, in %s",
+			clockAt(v.Now, s.StartAt), roundMinutes(s.StartAt.Sub(v.Now)))
+	}
+
 	if v.Running {
 		if cur, ok := v.Log.current(); ok {
 			row("Now", "%s  %s", cur.ID, clip(titleOf(v.PRD, cur.ID), 64))
@@ -244,7 +249,7 @@ func renderStatus(out io.Writer, v statusView) {
 		}
 	}
 
-	if !v.Running && strings.TrimSpace(v.Tail) != "" {
+	if !v.Running && !v.waiting() && strings.TrimSpace(v.Tail) != "" {
 		w("")
 		w("  Log")
 		for _, line := range strings.Split(strings.TrimRight(v.Tail, "\n"), "\n") {
@@ -253,11 +258,21 @@ func renderStatus(out io.Writer, v statusView) {
 	}
 }
 
+// waiting reports a run that was scheduled with --at and has not started yet.
+// systemd calls that "inactive", which is also what it calls a run that is
+// over, so the box's own record is what tells the two apart.
+func (v statusView) waiting() bool {
+	return !v.Running && v.Now.Before(v.Box.StartAt)
+}
+
 // runState is the run's state in a word or two. systemd's own words are kept
 // for a run that has ended, because they are what explains how.
 func runState(v statusView) string {
 	if v.Running {
 		return "running"
+	}
+	if v.waiting() {
+		return "starts at " + clockAt(v.Now, v.Box.StartAt)
 	}
 	lines := strings.Fields(v.Unit)
 	switch len(lines) {

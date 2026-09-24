@@ -407,6 +407,13 @@ func TestLiveBoxIsBuiltToTheProject(t *testing.T) {
 // would have it rather than to the base.
 func liveBoxFor(t *testing.T, purpose string, profile Profile) (*hetzner, server, hostKey, string) {
 	t.Helper()
+	return liveBoxWith(t, purpose, cloudInitOptions{Profile: profile})
+}
+
+// liveBoxWith is liveBox built from any cloud-config options; the hostname and
+// the host key are filled in here.
+func liveBoxWith(t *testing.T, purpose string, opts cloudInitOptions) (*hetzner, server, hostKey, string) {
+	t.Helper()
 	ctx := context.Background()
 
 	token, err := resolveHetznerToken()
@@ -432,7 +439,7 @@ func liveBoxFor(t *testing.T, purpose string, profile Profile) (*hetzner, server
 	srv, err := api.createServer(ctx, createServerOpts{
 		Name: name, Type: machine, Image: DefaultImage, Location: DefaultLocation,
 		SSHKeyID: key.ID, FirewallID: fw.ID,
-		UserData: cloudInit(cloudInitOptions{Hostname: name, HostKey: host, Profile: profile}),
+		UserData: cloudInit(withIdentity(opts, name, host)),
 		Labels:   map[string]string{"managed-by": "chief"},
 	})
 	if err != nil {
@@ -478,4 +485,102 @@ func cheapestType(t *testing.T, api *hetzner) string {
 		return FallbackType
 	}
 	return st.Name
+}
+
+func withIdentity(opts cloudInitOptions, name string, host hostKey) cloudInitOptions {
+	opts.Hostname, opts.HostKey = name, host
+	return opts
+}
+
+// TestLiveStartAt proves what --at leans on systemd for: a transient timer that
+// starts the run at a wall-clock time given in UTC, a second schedule that
+// replaces the first instead of adding to it, and a deadline drop-in that
+// really replaces "hours after boot" — checked by letting it fire and stop the
+// run.
+func TestLiveStartAt(t *testing.T) {
+	requireLiveBox(t)
+	ctx := context.Background()
+	// Built to destroy itself, so the deadline unit exists; there are no reap
+	// credentials on it, so the reaper only says so and leaves the box alone.
+	_, srv, _, project := liveBoxWith(t, "startat", cloudInitOptions{SelfDestruct: true})
+
+	state, _ := LoadState(project)
+	root := remote{user: "root", host: srv.IP(), knownHosts: knownHostsFor(project, state)}
+	if err := root.waitReachable(ctx, 4*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.waitFile(ctx, readyMarker, provisionTimeout(Profile{})); err != nil {
+		t.Fatalf("provisioning did not finish: %v", err)
+	}
+	// A stand-in for chief that does nothing but last, so "is the run going" has
+	// a clear answer.
+	if _, err := root.run(ctx, "printf '#!/bin/sh\\nexec sleep 900\\n' > /usr/local/bin/chief && chmod 755 /usr/local/bin/chief && "+
+		"install -d -o chief -g chief /home/chief/project"); err != nil {
+		t.Fatal(err)
+	}
+	unit := "chief-run@" + shellQuote("probe")
+	isActive := func() string {
+		out, _ := root.run(ctx, "systemctl is-active "+unit)
+		return strings.TrimSpace(out)
+	}
+
+	// Nothing scheduled yet: cancelling has to be harmless.
+	if out, err := root.run(ctx, cancelStartScript()); err != nil {
+		t.Fatalf("cancelling nothing failed: %v\n%s", err, out)
+	}
+	// A first schedule far out, then the one that counts: only the second may
+	// be armed afterwards.
+	if out, err := root.run(ctx, scheduleStartScript("probe", time.Now().Add(time.Hour))); err != nil {
+		t.Fatalf("scheduling: %v\n%s", err, out)
+	}
+	at := time.Now().Add(90 * time.Second).Truncate(time.Second)
+	if out, err := root.run(ctx, cancelStartScript()+"; "+scheduleStartScript("probe", at)); err != nil {
+		t.Fatalf("rescheduling: %v\n%s", err, out)
+	}
+	next, _ := root.run(ctx, "systemctl show chief-start.timer -p NextElapseUSecRealtime --value; date -u")
+	t.Logf("armed: %s", strings.ReplaceAll(strings.TrimSpace(next), "\n", " · now "))
+	if got := isActive(); unitRunning(got) {
+		t.Fatalf("the run started before its time: %s", got)
+	}
+
+	// The deadline, moved to shortly after the start.
+	deadline := at.Add(2 * time.Minute)
+	if err := root.runWith(ctx, moveDeadlineScript, deadlineDropIn(deadline)); err != nil {
+		t.Fatalf("moving the deadline: %v", err)
+	}
+	timers, _ := root.run(ctx, "systemctl show chief-deadline.timer -p TimersMonotonic -p TimersCalendar")
+	t.Logf("deadline timer: %s", strings.TrimSpace(timers))
+	if strings.Contains(timers, "OnBootUSec") {
+		t.Errorf("the boot-based deadline is still there:\n%s", timers)
+	}
+
+	for time.Now().Before(at.Add(-5 * time.Second)) {
+		time.Sleep(5 * time.Second)
+	}
+	if got := isActive(); unitRunning(got) {
+		t.Fatalf("the run started early: %s", got)
+	}
+	time.Sleep(20 * time.Second)
+	if got := isActive(); !unitRunning(got) {
+		log, _ := root.run(ctx, "journalctl -u chief-start.service -u chief-start.timer -u "+unit+" --no-pager | tail -20")
+		t.Fatalf("the run did not start at %s: %s\n%s", at.Format(time.TimeOnly), got, log)
+	}
+	started, _ := root.run(ctx, "systemctl show "+unit+" -p ExecMainStartTimestamp --value")
+	t.Logf("the run started: %s (scheduled %s UTC)", strings.TrimSpace(started), at.UTC().Format(time.TimeOnly))
+	if n, _ := root.run(ctx, "systemctl show "+unit+" -p NRestarts -p InvocationID --value"); n != "" {
+		t.Logf("invocation: %s", strings.ReplaceAll(strings.TrimSpace(n), "\n", " "))
+	}
+
+	for time.Now().Before(deadline.Add(30 * time.Second)) {
+		time.Sleep(5 * time.Second)
+	}
+	if got := isActive(); unitRunning(got) {
+		t.Fatalf("the moved deadline did not stop the run: %s", got)
+	}
+	reap, _ := root.run(ctx, "journalctl -u chief-deadline.service --no-pager -o cat | tail -5")
+	t.Logf("the deadline stopped the run:\n%s", strings.TrimSpace(reap))
+	// The first, cancelled schedule must not have come back.
+	if left, _ := root.run(ctx, "systemctl list-timers --all --no-pager chief-start.timer | head -3"); strings.Contains(left, "chief-start.timer") {
+		t.Errorf("a start is still armed after the run:\n%s", left)
+	}
 }

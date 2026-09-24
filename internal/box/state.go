@@ -38,6 +38,9 @@ type State struct {
 	// hour into a run — can do it without a network call and without a token.
 	// Zero means the price could not be established.
 	HourlyEUR float64 `json:"hourlyEUR,omitempty"`
+	// StartAt is when the box starts the run, for a run that was told to wait
+	// with --at. Zero for one that started as soon as the box was ready.
+	StartAt time.Time `json:"startAt,omitzero"`
 }
 
 // Age is how long the box has existed, which is what it has cost so far.

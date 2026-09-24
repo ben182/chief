@@ -3,6 +3,7 @@ package cmd
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ben182/chief/internal/box"
 )
@@ -203,5 +204,20 @@ func TestParseBoxArgsTakesTheShutoffFlags(t *testing.T) {
 	// Zero hours is not "no limit", it is a box destroyed the moment it boots.
 	if _, err := ParseBoxArgs([]string{"up", "auth", "--max-hours", "0"}); err == nil {
 		t.Error("--max-hours 0 was accepted")
+	}
+}
+
+func TestParseBoxArgsTakesAStartTime(t *testing.T) {
+	for _, args := range [][]string{{"up", "auth", "--at", "23:00"}, {"run", "auth", "--at=23:00"}} {
+		o, err := ParseBoxArgs(args)
+		if err != nil {
+			t.Fatalf("ParseBoxArgs(%v): %v", args, err)
+		}
+		if o.At.Hour() != 23 || o.At.Minute() != 0 || !o.At.After(time.Now()) {
+			t.Errorf("%v: At = %v, want the next 23:00", args, o.At)
+		}
+	}
+	if _, err := ParseBoxArgs([]string{"up", "auth", "--at", "tonight"}); err == nil {
+		t.Error("--at tonight was accepted")
 	}
 }

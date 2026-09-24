@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ben182/chief/internal/box"
 	"github.com/ben182/chief/internal/cli"
@@ -40,6 +41,9 @@ Options for up/run:
                         box destroys itself once its work is on origin, and in
                         any case ` + fmt.Sprint(box.DefaultMaxHours) + `h after it booted
   --max-hours N         Change that outside limit
+  --at HH:MM            Set the box up now, start the run at this time (next
+                        time the clock reads it, in your time zone). The outside
+                        limit then counts from the start. Also on retry
   --down-when-done      Destroy the box as soon as the run ends (run only)
   --worktree            Run in the PRD's own worktree on the box
   --verbose             Put the agent's narration in the box's log
@@ -86,6 +90,9 @@ type BoxOptions struct {
 	Keep          bool
 	MaxHours      int
 	MaxIterations int
+	// At is when the run should start, already resolved to the next time the
+	// clock reads what was typed. Zero starts it once the box is ready.
+	At time.Time
 
 	Type, Location, Image string
 	PHP, Node             string
@@ -132,6 +139,11 @@ func ParseBoxArgs(args []string) (BoxOptions, error) {
 			var v string
 			if v, err = value(&i, arg); err == nil {
 				o.MaxHours, err = parsePositive(arg, v)
+			}
+		case arg == "--at":
+			var v string
+			if v, err = value(&i, arg); err == nil {
+				o.At, err = box.NextAt(time.Now(), v)
 			}
 		case arg == "--force", arg == "-f":
 			o.Force = true
@@ -191,6 +203,8 @@ func ParseBoxArgs(args []string) (BoxOptions, error) {
 				o.MaxIterations, err = parsePositive(name, v)
 			case "--max-hours":
 				o.MaxHours, err = parsePositive(name, v)
+			case "--at":
+				o.At, err = box.NextAt(time.Now(), v)
 			default:
 				return o, fmt.Errorf("unknown flag: %s", name)
 			}
@@ -354,6 +368,7 @@ func boxUpOptions(baseDir, prdName string, cfg *config.Config, opts BoxOptions) 
 		Worktree:      worktree,
 		Keep:          opts.Keep || cfg.Box.Keep,
 		MaxHours:      firstPositive(opts.MaxHours, cfg.Box.MaxHours),
+		StartAt:       opts.At,
 		MaxIterations: opts.MaxIterations,
 		Verbose:       opts.Verbose,
 		ExtraFiles:    firstNonEmptyList(opts.Files, cfg.Box.Files),
