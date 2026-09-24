@@ -21,9 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1146,61 +1144,37 @@ func orVanished(ctx context.Context, baseDir string, s State, err error) error {
 			"  Start a new box with 'chief box up <prd>'", s.Name)
 }
 
-// Status says what the box is doing, and what it has cost so far.
+// Status says what the box is doing, how far the run has got, how long it
+// still needs, and what it has cost so far.
 func Status(ctx context.Context, baseDir string, out io.Writer) error {
 	s, ok := LoadState(baseDir)
 	if !ok {
 		return errNoBox
 	}
-	rep := reporter{out: out}
-	machine := ""
-	if s.Type != "" {
-		machine = fmt.Sprintf(" — %s in %s", s.Type, s.Location)
-	}
-	rep.step("%s at %s%s — PRD %s, %s old", s.Name, s.IP, machine, s.PRD, s.Age())
-
 	r := remote{user: remoteUser, host: s.IP, knownHosts: knownHostsFor(baseDir, s)}
 	unit := shellQuote("chief-run@" + s.PRD)
 	state, err := r.run(ctx, "systemctl is-active "+unit+"; systemctl show "+unit+" -p Result --value")
 	if err != nil && state == "" {
 		return orVanished(ctx, baseDir, s, fmt.Errorf("the box is not answering: %w", err))
 	}
-	active := unitRunning(state)
-	if active {
-		// The unit's Result is systemd's verdict on the previous run, if any;
-		// next to a run that is still going it reads as this one having ended.
-		rep.detail("running")
-	} else {
-		for _, line := range strings.Split(state, "\n") {
-			if line = strings.TrimSpace(line); line != "" {
-				rep.detail("%s", line)
-			}
-		}
-	}
 
-	journal, journalErr := r.ask(ctx, storyEventsProbe(unit), 20*time.Second)
-	if journalErr != nil {
-		journal = ""
+	v := statusView{Box: s, Now: time.Now(), Running: unitRunning(state), Unit: state}
+	if journal, err := r.ask(ctx, storyEventsProbe(unit), 20*time.Second); err == nil {
+		v.Log = parseRunLog(journal)
 	}
 	if doc, err := r.ask(ctx, prdProbe(remoteProject, s.PRD), 20*time.Second); err == nil && doc != "" {
 		if p, err := prd.ParseMarkdownPRDFromString(doc); err == nil && len(p.UserStories) > 0 {
-			for _, line := range progressLines(p) {
-				rep.detail("%s", line)
-			}
-			if active && journalErr == nil {
-				if line, ok := estimateLine(journal, storiesLeft(p)); ok {
-					rep.detail("%s", line)
-				}
-			}
+			v.PRD = p
 		}
 	}
-	rep.detail("%s", spentLine(s.HourlyEUR*time.Since(s.Created).Hours(), s.HourlyEUR > 0, journal))
-
-	tail, err := r.run(ctx, "journalctl -u "+unit+" --no-hostname -o cat -n 15")
-	if err == nil && tail != "" {
-		_, _ = fmt.Fprintln(out)
-		_, _ = fmt.Fprintln(out, localizeLog(tail))
+	// A run that has ended is looked at to find out why, and the why is in the
+	// log's last lines rather than in any summary of it.
+	if !v.Running {
+		if tail, err := r.run(ctx, "journalctl -u "+unit+" --no-hostname -o cat -n 15"); err == nil {
+			v.Tail = localizeLog(tail)
+		}
 	}
+	renderStatus(out, v)
 	return nil
 }
 
@@ -1227,158 +1201,6 @@ func prdProbe(project, name string) string {
 		`{ n=; while IFS= read -r w; do f="$w"` + rel + `; ` +
 		`if [ -f "$f" ] && { [ -z "$n" ] || [ "$f" -nt "$n" ]; }; then n=$f; fi; done; ` +
 		`[ -n "$n" ] && cat "$n"; }`
-}
-
-// progressWidth is how many cells the bar has.
-const progressWidth = 30
-
-// progressLines is how far the run has got, as a bar and the story it is on.
-func progressLines(p *prd.PRD) []string {
-	total := len(p.UserStories)
-	done := p.CompletedCount()
-	filled := done * progressWidth / total
-	bar := strings.Repeat("█", filled) + strings.Repeat("░", progressWidth-filled)
-	line := fmt.Sprintf("%s %d/%d stories (%d%%)", bar, done, total, done*100/total)
-
-	parked := 0
-	var current *prd.UserStory
-	for i := range p.UserStories {
-		st := &p.UserStories[i]
-		if st.NeedsReview {
-			parked++
-		}
-		if st.InProgress && current == nil {
-			current = st
-		}
-	}
-	if parked > 0 {
-		line += fmt.Sprintf(", %d parked for review", parked)
-	}
-	lines := []string{line}
-	if current != nil {
-		lines = append(lines, fmt.Sprintf("working on %s: %s", current.ID, current.Title))
-	}
-	return lines
-}
-
-// storyEventsProbe prints the box's clock, then every line this run of the unit
-// logged about a story starting or ending or about what it has cost, stamped
-// with when the journal got it.
-// Only the current invocation counts: a retried run on the same box starts its
-// own clock.
-func storyEventsProbe(unit string) string {
-	return "date +%s; journalctl _SYSTEMD_INVOCATION_ID=$(systemctl show " + unit + " -p InvocationID --value)" +
-		" --no-hostname -o short-unix | grep -E ' (story +[^ ]+ (started|done|parked)|cost +\\$|run +.* stories, \\$)'"
-}
-
-// storyEventRegex reads one line of storyEventsProbe: the journal's unix time,
-// then chief's own stamp and "story", then the ID and what happened to it.
-var storyEventRegex = regexp.MustCompile(`^(\d+)(?:\.\d+)?\s.*\sstory\s+\S+ (started|done|parked)\b`)
-
-// storiesLeft is how many stories the run still has to work through. A parked
-// story is not one of them: the loop skips it until a person has looked.
-func storiesLeft(p *prd.PRD) int {
-	n := 0
-	for _, st := range p.UserStories {
-		if !st.Passes && !st.NeedsReview {
-			n++
-		}
-	}
-	return n
-}
-
-// estimateLine is the time the run still needs, extrapolated from how long the
-// stories it has finished took.
-//
-// The clock starts at the first story, not at the unit: provisioning and
-// worktree setup happen once and say nothing about the next story. Parked
-// stories count as finished — the time went into them all the same. What the
-// current story has already taken is subtracted, so the estimate goes down
-// while a story is being worked on rather than only in steps.
-//
-// There is no estimate before the first story has ended; one story's worth of
-// history is a guess, and none is not even that.
-func estimateLine(journal string, left int) (string, bool) {
-	if left == 0 {
-		return "", false
-	}
-	lines := strings.Split(strings.TrimSpace(journal), "\n")
-	now, err := strconv.ParseInt(strings.TrimSpace(lines[0]), 10, 64)
-	if err != nil {
-		return "", false
-	}
-	var first, last int64
-	finished := 0
-	for _, line := range lines[1:] {
-		m := storyEventRegex.FindStringSubmatch(line)
-		if m == nil {
-			continue
-		}
-		at, _ := strconv.ParseInt(m[1], 10, 64)
-		if first == 0 {
-			first = at
-		}
-		if m[2] != "started" {
-			finished++
-			last = at
-		}
-	}
-	if first == 0 {
-		return "", false
-	}
-	if finished == 0 {
-		return fmt.Sprintf("no estimate yet — the first story has been running for %s", roundMinutes(time.Duration(now-first)*time.Second)), true
-	}
-	per := time.Duration(last-first) * time.Second / time.Duration(finished)
-	remaining := per*time.Duration(left) - time.Duration(now-last)*time.Second
-	stories := plural(left, "story", "stories")
-	if remaining < time.Minute {
-		return fmt.Sprintf("should be done any minute (about %s per story, %s to go)", roundMinutes(per), stories), true
-	}
-	return fmt.Sprintf("about %s left (about %s per story, %s to go)", roundMinutes(remaining), roundMinutes(per), stories), true
-}
-
-// agentSpentRegex finds the agent's running total in a journal line: the
-// "cost" line written each time a story ends, or the run's closing line.
-var agentSpentRegex = regexp.MustCompile(`\s(?:cost\s+\$([0-9.]+) so far|run\s+.* stories, \$([0-9.]+))`)
-
-// spentLine is what the run has cost so far: the machine, from its price and
-// age, and the agent, from the last total the run logged. The two are kept
-// apart because they are different money — euros to Hetzner, and dollars of
-// tokens that a subscription may already be paying for.
-func spentLine(boxEUR float64, priced bool, journal string) string {
-	machine := "machine cost unknown"
-	if priced {
-		machine = "machine " + FormatEUR(boxEUR)
-	}
-	agent := ""
-	for _, line := range strings.Split(journal, "\n") {
-		if m := agentSpentRegex.FindStringSubmatch(line); m != nil {
-			agent = m[1] + m[2]
-		}
-	}
-	if agent == "" {
-		return "cost so far: " + machine
-	}
-	return fmt.Sprintf("cost so far: %s, agent $%s", machine, agent)
-}
-
-// roundMinutes prints a duration the way a person estimates one: "2h10m",
-// "35m", never seconds.
-func roundMinutes(d time.Duration) string {
-	d = d.Round(time.Minute)
-	if d < time.Minute {
-		return "under a minute"
-	}
-	h, m := int(d.Hours()), int(d.Minutes())%60
-	switch {
-	case h == 0:
-		return fmt.Sprintf("%dm", m)
-	case m == 0:
-		return fmt.Sprintf("%dh", h)
-	default:
-		return fmt.Sprintf("%dh%dm", h, m)
-	}
 }
 
 // SSH opens a shell on the box in the project directory, or runs command there
