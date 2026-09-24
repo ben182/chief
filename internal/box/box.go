@@ -524,7 +524,7 @@ func settle(ctx context.Context, opts UpOptions, rep reporter, state State, know
 	}
 	// The tokens go over stdin into a file that is already 0600, so they never
 	// appear in a command line another process could read.
-	env := fmt.Sprintf("CLAUDE_CODE_OAUTH_TOKEN=%s\nGH_TOKEN=%s\nCHIEF_RUN_FLAGS=%s\n",
+	env := fmt.Sprintf("CLAUDE_CODE_OAUTH_TOKEN=%s\nGH_TOKEN=%s\nCHIEF_RUN_FLAGS=\"%s\"\n",
 		opts.Secrets.ClaudeToken, opts.Secrets.GitHubToken, runFlags(opts))
 	if err := r.runWith(ctx, "cat > ~/.chief-env && chmod 600 ~/.chief-env", env); err != nil {
 		return fail(err)
