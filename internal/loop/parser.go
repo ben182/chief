@@ -140,6 +140,12 @@ type Event struct {
 	OutputTokens        int
 	CacheCreationTokens int
 	CacheReadTokens     int
+	// MessageID is the assistant message the usage above belongs to. Claude
+	// streams one message as several lines — thinking, text, each tool call —
+	// and every one of them carries the whole message's usage, so the loop
+	// counts a message's usage once, by this ID. Empty when the provider does
+	// not say.
+	MessageID string
 
 	// RateLimit carries the provider's account-level rate limit report on
 	// EventRateLimit, and the limit the loop is waiting out on EventRateLimitWait.
@@ -164,6 +170,7 @@ type streamMessage struct {
 
 // assistantMessage represents the structure of an assistant message.
 type assistantMessage struct {
+	ID      string         `json:"id"`
 	Model   string         `json:"model"`
 	Content []contentBlock `json:"content"`
 	Usage   *usageInfo     `json:"usage,omitempty"`
@@ -259,6 +266,7 @@ func parseAssistantMessage(raw json.RawMessage) *Event {
 		ev.CacheCreationTokens = msg.Usage.CacheCreationInputTokens
 		ev.CacheReadTokens = msg.Usage.CacheReadInputTokens
 		ev.Cost = costForUsage(msg.Model, msg.Usage)
+		ev.MessageID = msg.ID
 	}
 
 	return ev
@@ -303,4 +311,13 @@ func parseUserMessage(raw json.RawMessage) *Event {
 	}
 
 	return nil
+}
+
+// clearUsage drops the usage an event carries, for a line repeating a message
+// whose usage has been counted already. What the line says otherwise — the text,
+// the tool call — still counts.
+func (e *Event) clearUsage() {
+	e.InputTokens, e.OutputTokens = 0, 0
+	e.CacheCreationTokens, e.CacheReadTokens = 0, 0
+	e.Cost = 0
 }

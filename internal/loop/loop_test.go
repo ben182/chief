@@ -1703,3 +1703,62 @@ func TestDefaultMaxIterationsLeavesRoomForEveryAttempt(t *testing.T) {
 		}
 	}
 }
+
+// Claude streams one message as several lines — thinking, text, each tool
+// call — and each line repeats the whole message's usage. Summing every line
+// overstated a real run's cost by 1.85x; a message's usage counts once.
+func TestProcessOutputCountsAMessagesUsageOnce(t *testing.T) {
+	tmpDir := t.TempDir()
+	prdPath := createTestPRD(t, tmpDir, true)
+	l := NewLoop(prdPath, "test prompt", 1, testProvider)
+
+	usage := `"usage":{"input_tokens":10,"output_tokens":100,"cache_creation_input_tokens":1000,"cache_read_input_tokens":100000}`
+	lines := []string{
+		`{"type":"assistant","message":{"id":"msg_1","model":"claude-sonnet-5","content":[{"type":"thinking","thinking":"hm"}],` + usage + `}}`,
+		`{"type":"assistant","message":{"id":"msg_1","model":"claude-sonnet-5","content":[{"type":"text","text":"Reading it"}],` + usage + `}}`,
+		`{"type":"assistant","message":{"id":"msg_1","model":"claude-sonnet-5","content":[{"type":"tool_use","id":"t1","name":"Read","input":{}}],` + usage + `}}`,
+		`{"type":"assistant","message":{"id":"msg_2","model":"claude-sonnet-5","content":[{"type":"text","text":"Done"}],` + usage + `}}`,
+	}
+
+	var events []Event
+	done := make(chan bool)
+	go func() {
+		for e := range l.Events() {
+			events = append(events, e)
+		}
+		done <- true
+	}()
+	r, w, _ := os.Pipe()
+	go func() {
+		for _, line := range lines {
+			_, _ = w.WriteString(line + "\n")
+		}
+		_ = w.Close()
+	}()
+	l.iteration = 1
+	l.processOutput(r, modeBuild)
+	close(l.events)
+	<-done
+
+	var cacheRead int
+	var cost float64
+	var sawTool bool
+	for _, e := range events {
+		cacheRead += e.CacheReadTokens
+		cost += e.Cost
+		if e.Type == EventToolStart {
+			sawTool = true
+		}
+	}
+	if cacheRead != 200000 {
+		t.Errorf("cache reads summed to %d, want 200000 — two messages, each counted once", cacheRead)
+	}
+	want := 2 * (10*3 + 100*15 + 1000*3.75 + 100000*0.3) / 1e6
+	if diff := cost - want; diff > 1e-9 || diff < -1e-9 {
+		t.Errorf("cost = %.6f, want %.6f", cost, want)
+	}
+	// The repeated lines still say what they say.
+	if !sawTool {
+		t.Error("the tool call on a repeated line was dropped along with its usage")
+	}
+}

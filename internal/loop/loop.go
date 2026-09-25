@@ -873,6 +873,10 @@ func (l *Loop) processOutput(r io.Reader, mode iterationMode) {
 	// Increase buffer size for long lines (Claude can output large JSON)
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
+	// Messages whose usage has been passed on already. Counting each line's
+	// copy instead overstated a run's cost by 1.85x: of 656 messages in one
+	// run, 507 arrived as several lines, each carrying the same usage.
+	counted := make(map[string]struct{})
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -886,6 +890,16 @@ func (l *Loop) processOutput(r io.Reader, mode iterationMode) {
 
 		// Parse the line and emit event if valid
 		if event := l.provider.ParseLine(line); event != nil {
+			if id := event.MessageID; id != "" {
+				if _, dup := counted[id]; dup {
+					event.clearUsage()
+					if event.Type == EventUsage {
+						continue
+					}
+				} else {
+					counted[id] = struct{}{}
+				}
+			}
 			l.mu.Lock()
 			event.Iteration = l.iteration
 			if event.Type == EventRateLimit {
