@@ -38,8 +38,12 @@ var consolidatePromptTemplate string
 //
 // subagents reports whether the provider can delegate work to subagents (today
 // only Claude); when it can, the prompt carries the research-delegation block.
-func GetPrompt(progressPath, storyContext, prdName, storyID, storyTitle string, subagents bool) string {
-	result := strings.ReplaceAll(promptTemplate, "{{PROGRESS_PATH}}", progressPath)
+//
+// progressMap is the list of line ranges to read in progress.md, worked out by
+// the caller from the file as it stands; empty leaves the agent to find them.
+func GetPrompt(progressPath, progressMap, storyContext, prdName, storyID, storyTitle string, subagents bool) string {
+	result := strings.ReplaceAll(promptTemplate, "{{PROGRESS_MAP}}", progressMap)
+	result = strings.ReplaceAll(result, "{{PROGRESS_PATH}}", progressPath)
 	result = strings.ReplaceAll(result, "{{STORY_CONTEXT}}", storyContext)
 	result = strings.ReplaceAll(result, "{{PRD_NAME}}", prdName)
 	result = strings.ReplaceAll(result, "{{STORY_ID}}", storyID)

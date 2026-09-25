@@ -251,7 +251,8 @@ func promptBuilderForPRD(prdPath string, subagents bool) func() (string, string,
 
 		storyCtx := p.NextStoryContext()
 
-		prompt := embed.GetPrompt(prd.ProgressPath(prdPath), *storyCtx, prdNameFromPath(prdPath), story.ID, story.Title, subagents)
+		progressPath := prd.ProgressPath(prdPath)
+		prompt := embed.GetPrompt(progressPath, progressGuide(progressPath), *storyCtx, prdNameFromPath(prdPath), story.ID, story.Title, subagents)
 		return prompt, story.ID, story.Title, nil
 	}
 }
