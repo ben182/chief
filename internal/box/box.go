@@ -1195,9 +1195,12 @@ func Status(ctx context.Context, baseDir string, out io.Writer) error {
 	}
 	r := remote{user: remoteUser, host: s.IP, knownHosts: knownHostsFor(baseDir, s)}
 	unit := shellQuote("chief-run@" + s.PRD)
-	state, err := r.run(ctx, "systemctl is-active "+unit+"; systemctl show "+unit+" -p Result --value")
-	if err != nil && state == "" {
-		return orVanished(ctx, baseDir, s, fmt.Errorf("the box is not answering: %w", err))
+	// Asked with a connect timeout: a box that destroyed itself leaves its
+	// address behind in the state file, and plain ssh to an address nobody
+	// answers sits in the TCP timeout before it says anything at all.
+	state, err := r.ask(ctx, "systemctl is-active "+unit+"; systemctl show "+unit+" -p Result --value", 20*time.Second)
+	if err != nil && (state == "" || sshFailed(err)) {
+		return orVanished(ctx, baseDir, s, fmt.Errorf("the box is not answering: %w: %s", err, firstLines(state, 5)))
 	}
 
 	v := statusView{Box: s, Now: time.Now(), Running: unitRunning(state), Unit: state}

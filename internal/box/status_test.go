@@ -2,7 +2,9 @@ package box
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -157,5 +159,27 @@ func TestClockAt(t *testing.T) {
 		if got := clockAt(now, now.Add(d)); got != want {
 			t.Errorf("clockAt(+%v) = %q, want %q", d, got, want)
 		}
+	}
+}
+
+// A box that is gone has to be told from a box whose command failed, because
+// only the first is worth asking Hetzner about and forgetting.
+func TestSSHFailed(t *testing.T) {
+	exitWith := func(code int) error {
+		return exec.Command("sh", "-c", fmt.Sprintf("exit %d", code)).Run()
+	}
+	if !sshFailed(exitWith(255)) {
+		t.Error("exit 255 is ssh failing to connect, and was not reported as such")
+	}
+	if sshFailed(exitWith(3)) {
+		t.Error("exit 3 is the remote command's status, not ssh's")
+	}
+	if sshFailed(nil) {
+		t.Error("no error was reported as an ssh failure")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if !sshFailed(exec.CommandContext(ctx, "sleep", "5").Run()) {
+		t.Error("a probe killed by its timeout was not reported as an ssh failure")
 	}
 }

@@ -3,6 +3,7 @@ package box
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -93,6 +94,17 @@ func (r remote) ask(ctx context.Context, script string, timeout time.Duration) (
 	cmd.Stdout, cmd.Stderr = &buf, &buf
 	err := cmd.Run()
 	return strings.TrimSpace(buf.String()), err
+}
+
+// sshFailed tells an error of ssh itself — no connection, or the probe's
+// timeout killing it — from the remote command's own exit status. ssh reserves
+// 255 for the former; a killed process has no exit code at all.
+func sshFailed(err error) bool {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode() == 255 || exitErr.ExitCode() == -1
+	}
+	return err != nil
 }
 
 // runWith executes a command on the box with input on its stdin. It is how a
