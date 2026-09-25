@@ -212,6 +212,14 @@ dozens of small shell calls in this context: each of those turns re-sends the
 entire conversation, so inline exploration is by far the most expensive way to
 learn anything, and it crowds out the context you need for the actual work.
 
+**Wait for the subagent, then trust its answer.** Run it in the foreground, not in
+the background, and do not schedule a wakeup or end your turn to wait for it —
+this run is unattended, and nothing is gained by doing the same research
+alongside it. Ask it for what you will need to act on: exact file paths, line
+ranges, and the snippets you are going to change. Once it has answered, do not
+read the files it covered again to check; open only the lines you are about to
+edit. Reading them all a second time pays for the research twice.
+
 **Read files with the Read tool, not the shell.** Use Read to look at a file,
 never ` + "`cat`, `sed`, `head`, or `tail`" + `. Targeted searching you run
 yourself is fine — that is what Grep and Glob are for — but as soon as a question

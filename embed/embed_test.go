@@ -545,3 +545,18 @@ func TestGetSummaryPrompt_Parked(t *testing.T) {
 		t.Error("parked stories not listed")
 	}
 }
+
+// In the ghost-writing run the agent put its research subagent in the
+// background, tried to schedule a wakeup to wait for it, and then read the
+// same files itself anyway — the research paid for twice, per story.
+func TestGetPrompt_SubagentIsWaitedForAndTrusted(t *testing.T) {
+	prompt := GetPrompt("/path/progress.md", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
+	for _, want := range []string{"in the foreground", "do not schedule a wakeup", "do not\nread the files it covered again"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt lacks %q", want)
+		}
+	}
+	if other := GetPrompt("/path/progress.md", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", false); strings.Contains(other, "foreground") {
+		t.Error("a provider without subagents is told how to wait for one")
+	}
+}
