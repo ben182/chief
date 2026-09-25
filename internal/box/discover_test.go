@@ -279,7 +279,7 @@ func TestDiscoverSaysSoWhenItRecognisesNothing(t *testing.T) {
 
 func TestSummaryNamesWhatWillBeInstalledAndWhy(t *testing.T) {
 	summary := strings.Join(laravelProfile().Summary(), "\n")
-	for _, want := range []string{"Laravel 13 on PHP 8.3", "Herd, isolated for demo.test", "imagick", `PostgreSQL, database "agency_os"`, "Redis", "Node 24", "bun", "Playwright"} {
+	for _, want := range []string{"Laravel 13 on PHP 8.3", "Herd, isolated for demo.test", "imagick", `PostgreSQL with pgvector, database "agency_os"`, "Redis", "Node 24", "bun", "Playwright"} {
 		if !strings.Contains(summary, want) {
 			t.Errorf("summary lacks %q:\n%s", want, summary)
 		}

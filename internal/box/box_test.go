@@ -1456,3 +1456,26 @@ func TestTheDeadlineReapsABoxWhoseRunHasEnded(t *testing.T) {
 		t.Errorf("a box with no run going was not reaped:\n%s", out)
 	}
 }
+
+// A PRD that introduces embeddings writes its pgvector migration during the
+// run, so nothing in the checkout says the box needs it. Without the extension
+// every test fails on CREATE EXTENSION until the agent finds the apt package
+// itself, which is how the ghost-writing run spent its first minutes.
+func TestAPostgresBoxHasPgvector(t *testing.T) {
+	_, runcmd, _ := parseCloudInit(t, cloudInitOptions{Hostname: "h", Profile: laravelProfile()})
+	install := strings.Index(runcmd, "-pgvector")
+	if install < 0 {
+		t.Fatalf("a Postgres box does not install pgvector:\n%s", runcmd)
+	}
+	if install < strings.Index(runcmd, "pg_isready") {
+		t.Error("pgvector is installed before the server it extends is up")
+	}
+	if !strings.Contains(runcmd, "vector.control") {
+		t.Error("pgvector is installed but never checked for")
+	}
+
+	_, mysql, _ := parseCloudInit(t, cloudInitOptions{Hostname: "h", Profile: Profile{PHP: "8.3", Database: "mysql", DatabaseName: "shop"}})
+	if strings.Contains(mysql, "pgvector") {
+		t.Error("a MariaDB box installs a Postgres extension")
+	}
+}

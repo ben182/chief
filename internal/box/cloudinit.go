@@ -375,6 +375,7 @@ func verifySteps(p Profile) string {
 			"  - su - postgres -c \"psql -tAc \\\"SELECT 1 FROM pg_roles WHERE rolname='%[1]s'\\\"\" | grep -q 1\n"+
 				"  - su - postgres -c \"psql -tAc \\\"SELECT 1 FROM pg_database WHERE datname='%[2]s'\\\"\" | grep -q 1\n",
 			remoteDatabaseUser, p.DatabaseName)
+		b.WriteString("  - ls /usr/share/postgresql/*/extension/vector.control\n")
 	case "mysql":
 		fmt.Fprintf(&b,
 			"  - mariadb -u %[1]s -p%[1]s -e \"USE %[2]s\"\n",
@@ -539,6 +540,13 @@ func toolSteps(p Profile) string {
   # are there.
   - su - postgres -c "psql -c \"CREATE ROLE %[1]s WITH LOGIN SUPERUSER PASSWORD '%[1]s'\"" || true
   - su - postgres -c "createdb -O %[1]s %[2]s" || true
+  # pgvector, whether or not the project uses it yet. Looking for it in the
+  # checkout would miss the case that matters: the PRD that introduces it, whose
+  # migration exists only once the run has written it — and then every test
+  # fails on CREATE EXTENSION until the agent works out what to apt-get. The
+  # package is named after the server's major, which is whatever the image
+  # ships.
+  - apt-get install -y "postgresql-$(ls /usr/lib/postgresql | sort -n | tail -1)-pgvector"
 `, remoteDatabaseUser, p.DatabaseName)
 	case "mysql":
 		b.WriteString(`

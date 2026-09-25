@@ -197,7 +197,7 @@ func (p Profile) Summary() []string {
 	var services []string
 	switch p.Database {
 	case "pgsql":
-		services = append(services, `PostgreSQL, database "`+p.DatabaseName+`"`)
+		services = append(services, `PostgreSQL with pgvector, database "`+p.DatabaseName+`"`)
 	case "mysql":
 		services = append(services, `MariaDB, database "`+p.DatabaseName+`"`)
 	case "sqlite":
