@@ -56,12 +56,12 @@ type cloudInitOptions struct {
 	// no key section and lets the instance invent its own.
 	HostKey hostKey
 	// SelfDestruct builds the box so that it destroys itself: once its run has
-	// finished and the commits are on origin, and in any case once MaxHours have
-	// passed since it booted. False renders none of it, and the box then bills
+	// finished and the commits are on origin, or once MaxHours have passed since
+	// it booted and the run has stopped committing. False renders none of it, and the box then bills
 	// until somebody runs 'chief box down'.
 	SelfDestruct bool
-	// MaxHours is the outside limit for a self-destructing box. Zero takes
-	// defaultMaxHours.
+	// MaxHours is when a self-destructing box starts checking on its run. Zero
+	// takes DefaultMaxHours.
 	MaxHours int
 }
 
@@ -563,6 +563,16 @@ const (
 	// enough that a box forgotten before bedtime is gone before the morning
 	// rather than still billing at lunchtime.
 	DefaultMaxHours = 12
+	// stallHours is how long a run past its deadline may go without a commit
+	// before it counts as hung. A run that is still committing is left to
+	// finish: the deadline exists for the run that hangs, and stopping one four
+	// minutes after its fortieth story leaves nine undone and no pull request.
+	// Six hours is longer than the five-hour usage window a rate-limited run
+	// sits out without committing anything.
+	stallHours = 6
+	// hardLimitFactor bounds even a run that keeps committing: past this many
+	// times its limit, counted from the run's start, it is stopped regardless.
+	hardLimitFactor = 4
 	// reapGrace is how long a finished box waits before destroying itself, so
 	// that somebody who was watching the log as it ended has a moment to look
 	// around on the machine.
@@ -673,18 +683,54 @@ func reaperFiles(opts cloudInitOptions) string {
 
   # The backstop. A run that hangs never succeeds, so nothing above would ever
   # fire, and the box would bill until somebody remembered it.
+  #
+  # Only for the run that hangs, though. A run that is still committing is
+  # making progress, and stopping it throws away what it would have finished;
+  # it is looked at again every %[2]s until it stalls, ends, or reaches the
+  # hard limit.
+  - path: /usr/local/bin/chief-deadline
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      set -u
+      say() { echo "chief-deadline: $1"; }
+      now=$(date +%%s)
+
+      unit=$(systemctl list-units --no-legend --plain --state=active,activating 'chief-run@*' | awk 'NR==1 {print $1}')
+      if [ -n "$unit" ]; then
+        started=$(date -d "$(systemctl show "$unit" -p ExecMainStartTimestamp --value)" +%%s 2>/dev/null || echo 0)
+        # The newest commit in any branch or worktree. Only one made since the
+        # run started counts: the clone's own history says nothing about it.
+        last=$(su - chief -c 'cd ~/project && git log --all -1 --format=%%ct' 2>/dev/null || echo 0)
+        case "$started" in '' | *[!0-9]*) started=0 ;; esac
+        case "$last" in '' | *[!0-9]*) last=0 ;; esac
+        if [ "$started" -gt 0 ] && [ "$last" -ge "$started" ] &&
+          [ $((now - last)) -lt %[4]d ] && [ $((now - started)) -lt %[5]d ]; then
+          say "the run is still committing (last commit $(((now - last) / 60)) min ago) — leaving it, looking again in %[2]s"
+          exit 0
+        fi
+        if [ "$started" -gt 0 ] && [ $((now - started)) -ge %[5]d ]; then
+          say "the run has been going for %[6]d hours, the hard limit — stopping it"
+        else
+          say "no commit from the run in %[7]d hours — it counts as hung, stopping it"
+        fi
+      fi
+
+      # The run is stopped first, and stopped rather than killed: systemd sends
+      # it SIGTERM, chief ends the iteration, and the commits it already made
+      # are there for the push the reaper tries next.
+      systemctl stop "chief-run@*.service" || true
+      exec /usr/local/bin/chief-reap
+
   - path: /etc/systemd/system/chief-deadline.service
     permissions: "0644"
     content: |
       [Unit]
-      Description=Stop the run and destroy this box after %[3]d hours
+      Description=Stop a stalled run and destroy this box, from %[3]d hours on
 
       [Service]
       Type=oneshot
-      # The run is stopped first, and stopped rather than killed: systemd sends
-      # it SIGTERM, chief ends the iteration, and the commits it already made
-      # are there for the push the reaper tries next.
-      ExecStart=/bin/sh -c 'systemctl stop "chief-run@*.service" || true; /usr/local/bin/chief-reap'
+      ExecStart=/usr/local/bin/chief-deadline
 
   - path: /etc/systemd/system/chief-deadline.timer
     permissions: "0644"
@@ -700,7 +746,8 @@ func reaperFiles(opts cloudInitOptions) string {
 
       [Install]
       WantedBy=timers.target
-`, reapGrace, reapRetry, maxHours(opts))
+`, reapGrace, reapRetry, maxHours(opts), stallHours*3600,
+		hardLimitFactor*maxHours(opts)*3600, hardLimitFactor*maxHours(opts), stallHours)
 }
 
 // reaperSteps arms the deadline. The reap timer is deliberately left alone —

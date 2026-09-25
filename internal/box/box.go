@@ -157,7 +157,9 @@ type UpOptions struct {
 	// destroys itself, which is the only thing that stops the bill on a night
 	// nobody is watching.
 	Keep bool
-	// MaxHours is the box's outside limit, whatever the run is doing. Zero takes
+	// MaxHours is when the box starts checking on its run: from then on a run
+	// that has stopped committing is stopped, one that has not is left until
+	// hardLimitFactor times this. Zero takes
 	// chief's default.
 	MaxHours int
 	// StartAt holds the run back until then, so a box set up in the evening
@@ -500,7 +502,7 @@ func settle(ctx context.Context, opts UpOptions, rep reporter, state State, know
 		if err := armReaper(ctx, root, state, opts); err != nil {
 			return fail(err)
 		}
-		rep.step("Armed the box's own shutoff (%dh at the outside)", boxMaxHours(opts))
+		rep.step("Armed the box's own shutoff (from %dh on, once the run stops committing)", boxMaxHours(opts))
 	}
 
 	budget := provisionTimeout(opts.Profile)
@@ -630,11 +632,11 @@ func settle(ctx context.Context, opts UpOptions, rep reporter, state State, know
 	case opts.Keep:
 		rep.detail("this box keeps billing until 'chief box down' — it was asked to stay")
 	case startAt.IsZero():
-		rep.detail("the box destroys itself %s after a finished run, and %dh from boot whatever happens",
-			reapGrace, boxMaxHours(opts))
+		rep.detail("the box destroys itself %s after a finished run; from %dh after boot it stops a run that has not committed in %dh",
+			reapGrace, boxMaxHours(opts), stallHours)
 	default:
-		rep.detail("the box destroys itself %s after a finished run, and %dh after the start whatever happens",
-			reapGrace, boxMaxHours(opts))
+		rep.detail("the box destroys itself %s after a finished run; from %dh after the start it stops a run that has not committed in %dh",
+			reapGrace, boxMaxHours(opts), stallHours)
 	}
 	rep.detail("chief box logs     follow along")
 	rep.detail("chief box status   is it still running")

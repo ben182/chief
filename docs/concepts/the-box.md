@@ -129,11 +129,11 @@ The box is temporary, so everything the run produces has to be somewhere else by
 So a box is built with its own shutoff:
 
 - **When the run finishes successfully**, a timer starts. Twenty minutes later a script on the box pushes anything still only there, checks that nothing is, and deletes the machine through the Hetzner API.
-- **Whatever else happens**, `box.maxHours` after boot — twelve by default — the run is stopped (SIGTERM, so Chief ends cleanly and its commits stay) and the same script runs. This is the backstop for the run that hangs rather than ends, and for provisioning that never finished.
+- **From `box.maxHours` after boot** — twelve by default — the box checks on its run every hour. A run that has committed in the last six hours is making progress and is left to finish; six hours is longer than the five-hour usage window a rate-limited run waits out without committing. A run that has not, or no run at all, is stopped (SIGTERM, so Chief ends cleanly and its commits stay) and the same script runs. Four times `box.maxHours` after the run started, even a run that is still committing is stopped. This is the backstop for the run that hangs rather than ends, and for provisioning that never finished.
 - **A run that ends with stories unresolved** does not trigger the first timer. That is the box you want to look at, `chief box ssh` into, or `chief box retry` — so it lives until the deadline instead.
 - **Work that exists nowhere else is never destroyed.** If commits are still only on the box after the rescue push, the script says so in the journal and tries again in an hour. A box that bills is a smaller loss than a night of work.
 
-`--keep` (or `box.keep`) builds the old behaviour, where `chief box down` is the only thing that stops the bill. `--max-hours N` moves the deadline.
+`--keep` (or `box.keep`) builds the old behaviour, where `chief box down` is the only thing that stops the bill. `--max-hours N` moves the point from which it checks.
 
 ::: warning The Hetzner token is on the box
 A machine cannot delete itself without a token that can delete it. Chief writes it root-only, over stdin, and never into the cloud-config — which is readable from the instance's own metadata service by anything that can make an HTTP request. What it cannot do is hide it from the agent: a run happens under an account with passwordless sudo, so an agent that went looking could read the file and delete every box in the project.
@@ -151,7 +151,7 @@ chief box up auth --at 23:00
 
 The box starts the run itself, from a systemd timer, so your laptop can be off by then. Until the start `chief box status` says *starts at 23:00* and how long that is from now, and `chief box run --at …` waits for the start instead of mistaking the wait for a run that never came.
 
-- **The outside limit counts from the start**, not from boot: `--max-hours 8 --at 23:00` stops the run at seven, however early the box was created.
+- **The deadline counts from the start**, not from boot: `--max-hours 8 --at 23:00` starts checking on the run at seven, however early the box was created.
 - **The wait bills.** The box exists from the moment `up` creates it — on the cheapest machine, well under a cent an hour, so four hours of waiting cost two or three cents.
 - **A start time that passes while the box is still being set up** starts the run at once and says so.
 - **`chief box retry` takes `--at` as well**, and replaces whatever start was scheduled before; without it, a retry starts the run now.
@@ -196,7 +196,7 @@ Both ask about commits that exist nowhere else before destroying anything — al
 
 **You want to see the machine.** `chief box ssh` lands you in the project directory. `chief box ssh 'php artisan test'` runs one command there and streams the output back.
 
-**The box ran out of time.** A run the outside limit stopped has pushed what it built to `chief/<prd>`, and the stories it did not get to are still open in the PRD on that branch. Start a new box for the same PRD — `chief box up <prd> --max-hours 16` — and it carries on from there: the fresh clone has the branch only on origin, and Chief checks it out from origin rather than cutting it again from `main`, so the run starts at the first open story and its push is a fast-forward. The PR that `onComplete.createPR` opens comes with the run that finishes.
+**The box ran out of time.** A run the deadline stopped, because it stalled or reached the hard limit, has pushed what it built to `chief/<prd>`, and the stories it did not get to are still open in the PRD on that branch. Start a new box for the same PRD — `chief box up <prd> --max-hours 16` — and it carries on from there: the fresh clone has the branch only on origin, and Chief checks it out from origin rather than cutting it again from `main`, so the run starts at the first open story and its push is a fast-forward. The PR that `onComplete.createPR` opens comes with the run that finishes.
 
 **The box is gone.** A box that destroyed itself leaves its record behind; `up`, `logs` and `status` notice the machine no longer exists, say so, and clear it, so the next run is not blocked by a machine that has not existed since three in the morning.
 

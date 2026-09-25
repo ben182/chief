@@ -416,7 +416,7 @@ chief box down          # destroy it — this is what stops the billing
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--keep` | Leave the box standing when the run ends, instead of letting it destroy itself | `box.keep`, else `false` |
-| `--max-hours <n>` | The box's outside limit: it stops the run and destroys itself this long after booting | `box.maxHours`, else `12` |
+| `--max-hours <n>` | From this long after booting, the box stops a run that has not committed in six hours and destroys itself; a run that is still committing goes on, up to four times this | `box.maxHours`, else `12` |
 | `--at <HH:MM>` | Set the box up now and start the run at this time — the next time the clock reads it, in your time zone. The outside limit then counts from the start (also on `retry`) | start at once |
 | `--down-when-done` | Wait for the run to end, then destroy the box at once, rather than after its own grace period (`run` only) | `false` |
 | `--worktree` | Run in the PRD's own worktree on the box | On when the project configures `worktree.setup` |
@@ -443,9 +443,11 @@ chief box down          # destroy it — this is what stops the billing
 A box destroys itself once its work is somewhere else. When the run finishes
 successfully a timer starts, and twenty minutes later a script on the box pushes
 anything still only there, checks that nothing is, and deletes the machine
-through the Hetzner API. Whatever else happens, `--max-hours` after boot (twelve
-by default) the run is stopped and the same script runs — the backstop for a run
-that hangs rather than ends.
+through the Hetzner API. From `--max-hours` after boot (twelve by default) the
+box checks on its run every hour: one that has not committed in six hours is
+stopped and the same script runs — the backstop for a run that hangs rather than
+ends. A run that is still committing is left to finish, up to four times
+`--max-hours` after it started.
 
 Two things it will not do. It never destroys a machine still holding commits
 that exist nowhere else: it says so in the journal and tries again in an hour. And

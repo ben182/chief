@@ -38,9 +38,11 @@ Commands:
 
 Options for up/run:
   --keep                Leave the box standing when the run ends. Without this a
-                        box destroys itself once its work is on origin, and in
-                        any case ` + fmt.Sprint(box.DefaultMaxHours) + `h after it booted
-  --max-hours N         Change that outside limit
+                        box destroys itself once its work is on origin. From
+                        ` + fmt.Sprint(box.DefaultMaxHours) + `h after boot it also stops a run that has
+                        stopped committing; one that still commits goes on,
+                        up to four times that
+  --max-hours N         Change when that check starts
   --at HH:MM            Set the box up now, start the run at this time (next
                         time the clock reads it, in your time zone). The outside
                         limit then counts from the start. Also on retry

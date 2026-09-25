@@ -584,3 +584,61 @@ func TestLiveStartAt(t *testing.T) {
 		t.Errorf("a start is still armed after the run:\n%s", left)
 	}
 }
+
+// TestLiveDeadlineSparesACommittingRun proves the deadline script on a real
+// Ubuntu: systemd's unit listing and start timestamp, GNU date, and git under
+// su — a run that committed a moment ago is left alone, and the same run with
+// nothing committed since it started is stopped.
+func TestLiveDeadlineSparesACommittingRun(t *testing.T) {
+	requireLiveBox(t)
+	ctx := context.Background()
+	// No reap credentials go on this box, so the reaper only says so.
+	_, srv, _, project := liveBoxWith(t, "deadline", cloudInitOptions{SelfDestruct: true})
+
+	state, _ := LoadState(project)
+	root := remote{user: "root", host: srv.IP(), knownHosts: knownHostsFor(project, state)}
+	if err := root.waitReachable(ctx, 4*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.waitFile(ctx, readyMarker, provisionTimeout(Profile{})); err != nil {
+		t.Fatalf("provisioning did not finish: %v", err)
+	}
+	// A project with history from before the run, and a stand-in for chief that
+	// commits once and then lasts.
+	setup := "install -d -o chief -g chief /home/chief/project && " +
+		"su - chief -c 'cd ~/project && git init -q && git config user.email t@t && git config user.name T && " +
+		"GIT_COMMITTER_DATE=2020-01-01T00:00:00Z git commit -q --allow-empty -m cloned' && " +
+		"printf '#!/bin/sh\\ncd ~/project && git commit -q --allow-empty -m story\\nexec sleep 900\\n' > /usr/local/bin/chief && chmod 755 /usr/local/bin/chief"
+	if out, err := root.run(ctx, setup); err != nil {
+		t.Fatalf("setup: %v\n%s", err, out)
+	}
+	unit := "chief-run@" + shellQuote("probe")
+	if out, err := root.run(ctx, "systemctl start --no-block "+unit+" && sleep 5 && systemctl is-active "+unit); err != nil && !unitRunning(out) {
+		t.Fatalf("the run did not start: %v\n%s", err, out)
+	}
+
+	out, _ := root.run(ctx, "/usr/local/bin/chief-deadline; systemctl is-active "+unit)
+	t.Logf("with a fresh commit:\n%s", out)
+	if !strings.Contains(out, "still committing") || !unitRunning(lastLine(out)) {
+		t.Fatalf("a run that just committed was not left alone:\n%s", out)
+	}
+
+	// The run's commit moved to before the run started: nothing it did counts
+	// any more, so it is hung.
+	if o, err := root.run(ctx, "su - chief -c 'cd ~/project && GIT_COMMITTER_DATE=2020-01-02T00:00:00Z git commit -q --amend --allow-empty -m story'"); err != nil {
+		t.Fatalf("backdating: %v\n%s", err, o)
+	}
+	out, _ = root.run(ctx, "/usr/local/bin/chief-deadline; systemctl is-active "+unit)
+	t.Logf("with nothing since the start:\n%s", out)
+	if !strings.Contains(out, "hung") || unitRunning(lastLine(out)) {
+		t.Fatalf("a run with no commit since its start was not stopped:\n%s", out)
+	}
+}
+
+func lastLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.LastIndex(s, "\n"); i >= 0 {
+		return s[i+1:]
+	}
+	return s
+}

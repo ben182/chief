@@ -71,9 +71,10 @@ type BoxConfig struct {
 	// Set this for the project whose boxes you want to inspect afterwards, and
 	// remember that 'chief box down' is then the only thing that stops the bill.
 	Keep bool `yaml:"keep,omitempty"`
-	// MaxHours is the box's outside limit: however the run is going, the box
-	// stops it and destroys itself this many hours after it booted. Zero takes
-	// chief's default. It is the backstop for the run that hangs rather than
+	// MaxHours is when the box starts checking on its run, in hours after boot:
+	// from then on a run that has stopped committing is stopped and the box
+	// destroys itself, while one still committing goes on up to four times this.
+	// Zero takes chief's default. It is the backstop for the run that hangs rather than
 	// ends — a box nothing ever finishes on is a box nothing ever destroys.
 	MaxHours int `yaml:"maxHours,omitempty"`
 }

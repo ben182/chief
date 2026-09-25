@@ -1367,3 +1367,92 @@ func TestTheDatabaseIsWaitedForBeforeItIsUsed(t *testing.T) {
 		t.Errorf("the MariaDB setup runs without waiting for the server:\n%s", mysql)
 	}
 }
+
+// runDeadline runs the box's deadline script against stand-ins for systemctl,
+// su and date, and returns what it said and whether it stopped the run.
+func runDeadline(t *testing.T, runActive bool, startedAgo, lastCommitAgo time.Duration) (string, bool) {
+	t.Helper()
+	cfg := cloudInit(cloudInitOptions{Hostname: "chief-shop-auth", SelfDestruct: true, MaxHours: 12})
+	_, rest, ok := strings.Cut(cfg, "- path: /usr/local/bin/chief-deadline\n")
+	if !ok {
+		t.Fatal("no deadline script in the cloud-config")
+	}
+	_, rest, _ = strings.Cut(rest, "content: |\n")
+	body, _, _ := strings.Cut(rest, "\n\n  - path:")
+	var script strings.Builder
+	for _, line := range strings.Split(body, "\n") {
+		script.WriteString(strings.TrimPrefix(line, "      ") + "\n")
+	}
+
+	dir := t.TempDir()
+	now := time.Now().Unix()
+	unit := ""
+	if runActive {
+		unit = "chief-run@demo.service"
+	}
+	stubs := map[string]string{
+		"systemctl": fmt.Sprintf(`case "$1" in
+  list-units) [ -n %q ] && echo "%s loaded activating start Chief run" ;;
+  show) echo "Thu 2026-09-24 14:30:01 UTC" ;;
+  stop) touch %q ;;
+esac`, unit, unit, filepath.Join(dir, "stopped")),
+		"su":   fmt.Sprintf("echo %d", now-int64(lastCommitAgo.Seconds())),
+		"date": fmt.Sprintf(`case "$1" in -d) echo %d ;; *) echo %d ;; esac`, now-int64(startedAgo.Seconds()), now),
+		"reap": "echo reaped",
+	}
+	for name, body := range stubs {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"+body+"\n"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	text := strings.ReplaceAll(script.String(), "/usr/local/bin/chief-reap", filepath.Join(dir, "reap"))
+	cmd := exec.Command("sh", "-c", text)
+	cmd.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
+	out, _ := cmd.CombinedOutput()
+	_, err := os.Stat(filepath.Join(dir, "stopped"))
+	return string(out), err == nil
+}
+
+// The deadline is for the run that hangs. A run that is still committing when
+// it arrives is left to finish — the one that prompted this was stopped four
+// minutes after its fortieth story, with nine left and no pull request.
+func TestTheDeadlineLeavesARunThatIsStillCommitting(t *testing.T) {
+	out, stopped := runDeadline(t, true, 12*time.Hour, 4*time.Minute)
+	if stopped || strings.Contains(out, "reaped") {
+		t.Errorf("a run that committed four minutes ago was stopped:\n%s", out)
+	}
+	if !strings.Contains(out, "still committing") {
+		t.Errorf("the deadline did not say why it left the run alone:\n%s", out)
+	}
+}
+
+func TestTheDeadlineStopsARunThatStalled(t *testing.T) {
+	out, stopped := runDeadline(t, true, 12*time.Hour, 7*time.Hour)
+	if !stopped || !strings.Contains(out, "reaped") {
+		t.Errorf("a run without a commit in seven hours was not stopped:\n%s", out)
+	}
+	if !strings.Contains(out, "hung") {
+		t.Errorf("the deadline did not say the run was hung:\n%s", out)
+	}
+}
+
+// The clone's own history is not the run's progress: a run that never
+// committed is hung, however recent the last commit it cloned.
+func TestTheDeadlineDoesNotCountCommitsFromBeforeTheRun(t *testing.T) {
+	if _, stopped := runDeadline(t, true, 12*time.Hour, 13*time.Hour); !stopped {
+		t.Error("a commit older than the run kept the run alive")
+	}
+}
+
+func TestTheDeadlineStopsEvenACommittingRunAtTheHardLimit(t *testing.T) {
+	out, stopped := runDeadline(t, true, time.Duration(hardLimitFactor*12)*time.Hour, time.Minute)
+	if !stopped || !strings.Contains(out, "hard limit") {
+		t.Errorf("a run past the hard limit was not stopped:\n%s", out)
+	}
+}
+
+func TestTheDeadlineReapsABoxWhoseRunHasEnded(t *testing.T) {
+	if out, _ := runDeadline(t, false, 0, 0); !strings.Contains(out, "reaped") {
+		t.Errorf("a box with no run going was not reaped:\n%s", out)
+	}
+}
