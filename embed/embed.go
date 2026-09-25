@@ -80,8 +80,12 @@ func GetReviewPrompt(progressPath, storyContext, storyID, storyTitle, skill, ins
 // "abc123..HEAD"), or "HEAD" when the run has no start ref to scope to. prdName
 // names the run in the commit subject. skill and instructions are optional, the
 // same way the review agent's are.
-func GetConsolidatePrompt(progressPath, commits, sinceSpec, prdName, skill, instructions string) string {
+//
+// findingsPath is where the pass writes what it leaves for a human; Chief adds
+// that file to the pull request.
+func GetConsolidatePrompt(progressPath, findingsPath, commits, sinceSpec, prdName, skill, instructions string) string {
 	result := strings.ReplaceAll(consolidatePromptTemplate, "{{PROGRESS_PATH}}", progressPath)
+	result = strings.ReplaceAll(result, "{{FINDINGS_PATH}}", findingsPath)
 	result = strings.ReplaceAll(result, "{{COMMITS}}", commits)
 	result = strings.ReplaceAll(result, "{{SINCE_SPEC}}", sinceSpec)
 	result = strings.ReplaceAll(result, "{{PRD_NAME}}", prdName)
@@ -100,7 +104,11 @@ func reviewSkillBlock(skill string) string {
 	return "- Run the `" + skill + "` skill. Act on what it flags as far as the rules above allow;\n" +
 		"  what they rule out goes into the progress note rather than unmentioned. This\n" +
 		"  runs unattended: where the skill asks for a scope, an approval or a choice,\n" +
-		"  nobody will answer — decide yourself, and take the commits above as the scope.\n"
+		"  nobody will answer — decide yourself, and take the commits above as the scope.\n" +
+		"  If you split the review across subagents, start them yourself, in the\n" +
+		"  foreground, and have every answer in hand before you change anything. Do not\n" +
+		"  hand the review to one coordinating subagent that starts its own background\n" +
+		"  agents: its report may never come back, and you end up waiting on it.\n"
 }
 
 // reviewInstructionsBlock renders the optional free-form review guidance as its

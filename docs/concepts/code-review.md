@@ -203,8 +203,8 @@ Enabling `consolidate` adds a **second, differently-scoped** quality agent that 
 | Scope | One story | The whole run (`StartRef..HEAD`) |
 | Runs | After every story commit | Once, after the last story |
 | Asks | "Does this story do what it promised, well?" | "Is the run's work coherent?" |
-| Commits | Amends the story's commit | One separate `refactor:` commit |
-| May change behavior | Yes — it fixes bugs | **No** — pure refactor |
+| Commits | Amends the story's commit | One separate `refactor:` commit, plus one `fix:` commit per bug it fixes |
+| May change behavior | Yes — it fixes bugs | Only in its `fix:` commits — the refactor commit is behavior-preserving |
 
 The two are complementary, not alternatives: the reviewer keeps each story honest,
 the consolidation pass keeps the run from fragmenting. Run both, or either alone.
@@ -213,6 +213,14 @@ The most valuable thing the pass produces may not be the refactor at all. It is 
 only agent that ever sees the whole run, so its `progress.md` note records the
 pattern the run *should* have followed from the start — which is exactly what the
 next run's fresh-context agents read before they start diverging again.
+
+Reading the whole run, the pass finds bugs no story agent could see. A clear bug in
+code this run wrote gets a `fix:` commit of its own, with a test that failed before
+it — never folded into the refactor, where nobody could review it. What it leaves
+for a human (a bug whose fix needs a decision, a problem in an earlier run's code, a
+criterion that looks unmet) goes into `findings.md` next to the PRD, and Chief puts
+that file into the pull request under *Open findings from consolidation*, where the
+reviewer reads it.
 
 See [Configuration → consolidate](/reference/configuration) for the config keys and
 the safety properties (run scoping, behavior preservation, best-effort).

@@ -231,7 +231,7 @@ func (a App) handleBackgroundAutoAction(msg backgroundAutoActionResultMsg) (tea.
 					return backgroundAutoActionResultMsg{prdName: prdName, action: "pr", err: err}
 				}
 				title := git.PRTitleFromPRD(prdName, p)
-				body := git.PRBodyFromPRD(p)
+				body := git.PRBody(p, prdPath)
 				_, err = git.EnsurePR(dir, branch, title, body, baseOverride)
 				return backgroundAutoActionResultMsg{prdName: prdName, action: "pr", err: err}
 			}
@@ -407,7 +407,7 @@ func (a *App) runAutoCreatePR() tea.Cmd {
 			return autoActionResultMsg{action: "pr", err: fmt.Errorf("failed to load PRD: %s", err.Error())}
 		}
 		title := git.PRTitleFromPRD(prdName, p)
-		body := git.PRBodyFromPRD(p)
+		body := git.PRBody(p, prdPath)
 		pr, err := git.EnsurePR(dir, branch, title, body, baseOverride)
 		if err != nil {
 			return autoActionResultMsg{action: "pr", err: err}

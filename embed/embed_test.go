@@ -166,7 +166,7 @@ func TestGetPrompt_ResearchDelegation(t *testing.T) {
 // research subagents.
 func TestReviewAndConsolidatePrompts_NoResearchBlock(t *testing.T) {
 	review := GetReviewPrompt("/p.md", `{"id":"US-001"}`, "US-001", "Test Story", "", "")
-	consolidate := GetConsolidatePrompt("/p.md", "abc123 feat: x", "abc..HEAD", "myprd", "", "")
+	consolidate := GetConsolidatePrompt("/p.md", "/findings.md", "abc123 feat: x", "abc..HEAD", "myprd", "", "")
 
 	for name, prompt := range map[string]string{"review": review, "consolidate": consolidate} {
 		if strings.Contains(prompt, "Delegate broad codebase research to a subagent") {
@@ -264,7 +264,7 @@ func TestGetConsolidatePrompt(t *testing.T) {
 	commits := "abc123 feat: myprd/US-001 - add a\ndef456 feat: myprd/US-002 - add b"
 	sinceSpec := "abc000..HEAD"
 
-	prompt := GetConsolidatePrompt(progressPath, commits, sinceSpec, "myprd", "/code-quality", "one HTTP client only")
+	prompt := GetConsolidatePrompt(progressPath, "/path/findings.md", commits, sinceSpec, "myprd", "/code-quality", "one HTTP client only")
 	for _, ph := range []string{"{{PROGRESS_PATH}}", "{{COMMITS}}", "{{SINCE_SPEC}}", "{{PRD_NAME}}", "{{CONSOLIDATE_SKILL}}", "{{CONSOLIDATE_INSTRUCTIONS}}"} {
 		if strings.Contains(prompt, ph) {
 			t.Errorf("Expected placeholder %s to be substituted", ph)
@@ -302,7 +302,7 @@ func TestGetConsolidatePrompt(t *testing.T) {
 		t.Error("Expected consolidation prompt to forbid weakening tests")
 	}
 
-	bare := GetConsolidatePrompt(progressPath, commits, sinceSpec, "myprd", "", "")
+	bare := GetConsolidatePrompt(progressPath, "/path/findings.md", commits, sinceSpec, "myprd", "", "")
 	if strings.Contains(bare, "{{CONSOLIDATE_SKILL}}") || strings.Contains(bare, "{{CONSOLIDATE_INSTRUCTIONS}}") {
 		t.Error("Expected optional consolidation blocks to be substituted away when empty")
 	}
@@ -573,5 +573,31 @@ func TestReviewSkillBlockKeepsTheScopeAndRunsUnattended(t *testing.T) {
 		if !strings.Contains(block, want) {
 			t.Errorf("skill block lacks %q:\n%s", want, block)
 		}
+	}
+}
+
+// Consolidation is the one agent that reads the whole run, so it finds bugs.
+// A clear one in this run's code gets its own fix: commit with a test that was
+// red first; what it leaves goes into the findings file the PR carries; and a
+// review split across subagents is not handed to a coordinator whose report
+// never comes back.
+func TestConsolidatePromptFixesBugsApartAndReportsTheRest(t *testing.T) {
+	prompt := GetConsolidatePrompt("/p/progress.md", "/p/findings.md", "abc123 feat: x", "abc..HEAD", "myprd", "/code-review", "")
+	for _, want := range []string{
+		"## Bugs you find",
+		"`fix: <what was wrong>` commit per bug",
+		"fails before the fix and passes after it",
+		"reaches into code from earlier runs",
+		"The refactor commit is a **pure refactor**",
+		"`/p/findings.md`",
+		"Chief puts this file into the pull request",
+		"coordinating subagent",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("consolidate prompt lacks %q", want)
+		}
+	}
+	if strings.Contains(prompt, "{{FINDINGS_PATH}}") {
+		t.Error("the findings path placeholder was left in the prompt")
 	}
 }

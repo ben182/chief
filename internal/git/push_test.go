@@ -1,7 +1,10 @@
 package git
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ben182/chief/internal/prd"
@@ -209,4 +212,29 @@ func searchString(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// What the consolidation pass leaves for a human belongs where the reviewer
+// reads: in the run that prompted this, a real bug it found sat in
+// progress.md, which nobody opens during a review.
+func TestPRBodyCarriesTheConsolidationFindings(t *testing.T) {
+	dir := t.TempDir()
+	prdPath := filepath.Join(dir, "prd.md")
+	p := &prd.PRD{Description: "Demo", UserStories: []prd.UserStory{{ID: "US-001", Title: "One", Passes: true}}}
+
+	if got := PRBody(p, prdPath); strings.Contains(got, "Open findings") {
+		t.Errorf("a PR body without a findings file has a findings section:\n%s", got)
+	}
+
+	findings := "- `app/Telegram.php:42` counts failed sends as sent"
+	if err := os.WriteFile(filepath.Join(dir, "findings.md"), []byte(findings+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := PRBody(p, prdPath)
+	if !strings.HasPrefix(got, PRBodyFromPRD(p)) {
+		t.Errorf("the findings replaced the summary instead of following it:\n%s", got)
+	}
+	if !strings.Contains(got, "## Open findings from consolidation\n\n"+findings) {
+		t.Errorf("the findings are not in the PR body:\n%s", got)
+	}
 }

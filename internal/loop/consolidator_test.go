@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ben182/chief/internal/prd"
 )
 
 // consolidateTestPRD is a two-story PRD used by the consolidation tests. The
@@ -457,5 +459,34 @@ func TestRunConsolidation_CancelledContextIsNoOp(t *testing.T) {
 			t.Fatal("a cancelled context must not start consolidating")
 		}
 	default:
+	}
+}
+
+// The findings file goes into the pull request. One left behind by an earlier
+// run's pass would turn up in this run's PR as if this pass had written it.
+func TestBuildConsolidatePrompt_ClearsAnEarlierRunsFindings(t *testing.T) {
+	repo := t.TempDir()
+	gitInit(t, repo)
+	prdPath := writeConsolidatePRD(t, repo, "myprd")
+	startRef := gitHead(t, repo)
+	gitCommitFile(t, repo, "b.txt", "b", "feat: myprd/US-002 - add b")
+
+	findings := prd.FindingsPath(prdPath)
+	if err := os.WriteFile(findings, []byte("- an old finding\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	l := NewLoopWithWorkDir(prdPath, repo, "", 1, testProvider)
+	l.SetConsolidate(true, "", "")
+	l.SetStartRef(startRef)
+	prompt, err := l.buildConsolidatePrompt()
+	if err != nil {
+		t.Fatalf("buildConsolidatePrompt: %v", err)
+	}
+	if _, err := os.Stat(findings); err == nil {
+		t.Error("an earlier run's findings file survived into this run's pass")
+	}
+	if !strings.Contains(prompt, findings) {
+		t.Errorf("the prompt does not name the findings file %s", findings)
 	}
 }

@@ -180,7 +180,8 @@ func createPR(log *logger, opts Options, name string, p *prd.PRD, res *Result) e
 	if opts.Config != nil {
 		base = opts.Config.OnComplete.PRBaseBranch
 	}
-	pr, err := git.EnsurePR(res.WorkDir, res.Branch, git.PRTitleFromPRD(name, p), git.PRBodyFromPRD(p), base)
+	pr, err := git.EnsurePR(res.WorkDir, res.Branch, git.PRTitleFromPRD(name, p),
+		git.PRBody(p, filepath.Join(summaryDir(opts.BaseDir, opts.PRDPath, res.WorkDir), "prd.md")), base)
 	if err != nil {
 		log.event("pr", "failed: %v", err)
 		return err

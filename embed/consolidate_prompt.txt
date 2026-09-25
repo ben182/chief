@@ -20,8 +20,8 @@ These are the commits this run landed — and the only ones you may consider:
 Earlier runs on this branch are **out of scope**. Do not refactor code this run
 didn't touch, even when you notice something wrong with it: that work was already
 reviewed, summarized and possibly shipped, and widening the blast radius makes this
-commit impossible to review. Note such findings in the progress file instead
-(see "Progress note").
+commit impossible to review. Write such findings down instead (see "Findings for
+the reviewer").
 
 Inspect the actual changes before forming any opinion:
 
@@ -53,23 +53,40 @@ Ranked by how much damage they do:
 Deliberately **out of scope** — leave these alone:
 
 - Anything the project's tooling already enforces (formatting, lint).
-- Bugs, missing features, unmet acceptance criteria. Not your job; if you find one,
-  write it down (see "Progress note") rather than fixing it here — a bugfix hidden
-  in a refactor commit is exactly what nobody can review.
+- Missing features and unmet acceptance criteria. Not your job; write them down
+  (see "Findings for the reviewer").
+- Bugs inside the refactor. A bug you find is handled on its own, never in the
+  refactor commit — see "Bugs you find" — because a fix hidden in a refactor is
+  exactly what nobody can review.
 - Speculative restructuring, "while I'm here" improvements, or an architecture you
   would have chosen from scratch. The run's design decisions stand.
 - Renaming or moving things across the whole repo to satisfy a preference.
 
-{{CONSOLIDATE_SKILL}}{{CONSOLIDATE_INSTRUCTIONS}}## The one hard rule: behavior must not change
+{{CONSOLIDATE_SKILL}}{{CONSOLIDATE_INSTRUCTIONS}}## Bugs you find
 
-This is a **pure refactor**. Observable behavior after your commit must be identical
-to before it.
+You are the only agent that reads the whole run, so you will find bugs the story
+agents missed. A **clear bug in code this run wrote** — a wrong result, a crash, an
+edge case you can demonstrate — gets fixed, in a commit of its own:
+
+- One `fix: <what was wrong>` commit per bug, separate from the refactor commit.
+- With a test that fails before the fix and passes after it. Run it red first.
+- Only small, local and unambiguous fixes. A bug whose fix needs a design decision,
+  reaches into code from earlier runs, or changes what a story was asked to do is
+  not yours to fix: it goes into the findings file.
+
+## The one hard rule: behavior must not change
+
+The refactor commit is a **pure refactor**. Observable behavior after it must be
+identical to before it. (The `fix:` commits above are the only place behavior
+changes, one demonstrated bug at a time.)
 
 - Never change a public interface without updating every caller in the same commit.
 - **Never weaken, skip, or "adjust" a test to make it pass.** If a test fails after
   your change, your change is wrong — not the test. Tests may only change where you
   moved or renamed the thing they cover, and then only mechanically.
-- Do not add features, and do not "improve" behavior you think is wrong.
+- Do not add features, and do not "improve" behavior you think is wrong — a
+  behavior that is demonstrably a bug gets a `fix:` commit; one you merely dislike
+  goes into the findings file.
 
 ## How to work
 
@@ -83,14 +100,23 @@ to before it.
 4. If you cannot get the checks green, **revert your changes** (`git checkout -- .`
    or reset the specific files) and commit nothing. Report what you attempted and why
    it failed. Leaving the run broken is far worse than leaving it unconsolidated.
-5. Commit your work as **one commit**, separate from the story commits, so it can be
-   reviewed and reverted on its own:
+5. Commit the refactoring as **one commit**, separate from the story commits and
+   from any `fix:` commits, so it can be reviewed and reverted on its own:
 
    `refactor: consolidate {{PRD_NAME}} run`
 
    Stage only the files you changed — **never** `git add -A` / `git add .`, and
    **never** stage `.chief/` files. Do NOT amend any story commit: the one-commit-per-story
    history must stay intact.
+
+## Findings for the reviewer
+
+Write every finding you leave for a human to `{{FINDINGS_PATH}}` — bugs you did not
+fix and why, problems in code from earlier runs, acceptance criteria that look
+unmet, `fix:` commits the reviewer should look at closely. One bullet each, with
+`file:line` and why it matters. Chief puts this file into the pull request, which
+is where the reviewer reads; the progress file is not. Do not stage it. With nothing
+to report, do not create it.
 
 ## Progress note
 
@@ -99,8 +125,7 @@ APPEND to `{{PROGRESS_PATH}}` (never replace, always append):
 ```
 ## [Date/Time] - consolidation
 - What you consolidated, and what you deliberately left alone (or "no changes needed")
-- **Out-of-scope findings:** bugs, or problems in code from earlier runs, that a
-  human or a later story should pick up
+- The `fix:` commits you made, and a pointer to the findings file if you wrote one
 - **Learnings for future iterations:** the pattern the run should have followed from
   the start, so future stories converge instead of diverging
 ---

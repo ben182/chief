@@ -1375,7 +1375,11 @@ func (l *Loop) buildConsolidatePrompt() (string, error) {
 	}
 
 	sinceSpec := startRef + "..HEAD"
-	return embed.GetConsolidatePrompt(prd.ProgressPath(l.prdPath), commits, sinceSpec, prdName, skill, instructions), nil
+	// A findings file left by an earlier run's pass would end up in this run's
+	// pull request as if this pass had written it.
+	findings := prd.FindingsPath(l.prdPath)
+	_ = os.Remove(findings)
+	return embed.GetConsolidatePrompt(prd.ProgressPath(l.prdPath), findings, commits, sinceSpec, prdName, skill, instructions), nil
 }
 
 // buildReviewPrompt loads the PRD and builds the review-agent prompt for the

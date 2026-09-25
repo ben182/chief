@@ -36,6 +36,13 @@ func ProgressPath(prdPath string) string {
 	return filepath.Join(filepath.Dir(prdPath), "progress.md")
 }
 
+// FindingsPath is where the consolidation pass writes what it leaves for a
+// human — bugs it did not fix, criteria that look unmet — for the pull request
+// to carry. Next to prd.md, like progress.md.
+func FindingsPath(prdPath string) string {
+	return filepath.Join(filepath.Dir(prdPath), "findings.md")
+}
+
 // storyHeaderRegex matches a progress section heading. The prompt asks for
 // "## [Date/Time] - [Story ID]" and leaves both halves free-form, so agents
 // write local date formats, append a time, or tag the section "(review)".

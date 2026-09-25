@@ -3,6 +3,7 @@ package git
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -171,6 +172,24 @@ func PRBodyFromPRD(p *prd.PRD) string {
 	}
 
 	return b.String()
+}
+
+// PRBody is the pull request description for a PRD: PRBodyFromPRD, followed by
+// what the consolidation pass left for the reviewer when it wrote anything.
+// Those findings — a bug it chose not to fix, a criterion that looks unmet —
+// were written for the person reviewing the branch, and the pull request is the
+// one place that person is sure to look.
+func PRBody(p *prd.PRD, prdPath string) string {
+	body := PRBodyFromPRD(p)
+	data, err := os.ReadFile(prd.FindingsPath(prdPath)) //nolint:gosec // the PRD's own findings file
+	if err != nil {
+		return body
+	}
+	findings := strings.TrimSpace(string(data))
+	if findings == "" {
+		return body
+	}
+	return body + "\n## Open findings from consolidation\n\n" + findings + "\n"
 }
 
 // DeleteBranch deletes a local branch.
