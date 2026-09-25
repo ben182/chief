@@ -251,6 +251,13 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	// behalf. Everything it committed is on the branch either way.
 	if ctx.Err() != nil {
 		log.event("run", "interrupted — skipping post-completion actions")
+		// The log is kept all the same. An interrupted run is exactly the one
+		// whose log somebody will want to read, and on a box the interruption is
+		// the deadline: the machine and its journal are gone minutes later, and
+		// the reaper's rescue push takes whatever is committed along.
+		if transcript != "" && res.Branch != "" {
+			_ = commitRunLog(log, opts, &res, transcript)
+		}
 		return res, nil //nolint:nilerr // an interrupted run reports what it got done; it did not fail
 	}
 

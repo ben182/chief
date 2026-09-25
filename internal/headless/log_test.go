@@ -330,6 +330,52 @@ func TestInterruptStopsTheRunAndSkipsPostCompletionActions(t *testing.T) {
 	}
 }
 
+// On a box an interruption is the deadline, and the machine is destroyed right
+// after it. The log has to be committed on the way out, or the reaper's rescue
+// push leaves without it and the journal dies with the box.
+func TestAnInterruptedRunStillCommitsItsLog(t *testing.T) {
+	dir, prdPath := project(t, "US-001", "Test Story")
+	runGit(t, dir, "checkout", "-b", "work")
+
+	script := filepath.Join(t.TempDir(), "mock-agent")
+	body := "#!/bin/bash\n" +
+		"echo impl >> impl.txt\n" +
+		"git add impl.txt >/dev/null 2>&1\n" +
+		"git commit -m 'feat: demo/US-001 - Test Story' >/dev/null 2>&1\n" +
+		`echo '{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}'` + "\n" +
+		"sleep 60\n"
+	if err := os.WriteFile(script, []byte(body), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(2 * time.Second)
+		cancel()
+	}()
+	var log bytes.Buffer
+	if _, err := Run(ctx, Options{
+		PRDPath:     prdPath,
+		BaseDir:     dir,
+		Provider:    &testProvider{script: script},
+		Config:      &config.Config{},
+		Out:         &log,
+		LogToBranch: true,
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	files := runGit(t, dir, "show", "--name-only", "--format=%s", "HEAD")
+	if !strings.HasPrefix(files, "docs: add run log") || !strings.Contains(files, ".chief/prds/demo/run-") {
+		t.Fatalf("the interrupted run did not commit its log; HEAD is:\n%s\nlog:\n%s", files, log.String())
+	}
+	name := strings.TrimSpace(files[strings.LastIndex(files, "\n")+1:])
+	committed := runGit(t, dir, "show", "HEAD:"+name)
+	if !strings.Contains(committed, "interrupted") {
+		t.Errorf("the committed log does not say the run was interrupted:\n%s", committed)
+	}
+}
+
 // chief box status reads the running total off these lines, so their shape is
 // what it parses: "cost", then "$<amount> so far".
 func TestReportSpentOnlyWhenAStoryEnds(t *testing.T) {
