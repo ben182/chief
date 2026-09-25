@@ -242,3 +242,20 @@ func TestParseLineToolUseFirst(t *testing.T) {
 		t.Errorf("event.Tool = %q, want %q", event.Tool, "Write")
 	}
 }
+
+// A subagent quoting the tag is not the agent saying it is done: the loop kills
+// the process group on <chief-done/>, and every subagent still running with it.
+func TestASubagentsDoneTagDoesNotEndTheIteration(t *testing.T) {
+	sub := `{"type":"assistant","parent_tool_use_id":"toolu_1","message":{"id":"m1","model":"claude-sonnet-5","content":[{"type":"text","text":"the prompt says to emit <chief-done/> when done"}],"usage":{"input_tokens":1,"output_tokens":1}}}`
+	ev := ParseLine(sub)
+	if ev == nil || ev.Type == EventStoryDone {
+		t.Fatalf("a subagent's text ended the story: %+v", ev)
+	}
+	if ev.Cost == 0 {
+		t.Error("a subagent's usage was dropped along with its tag — it is paid for all the same")
+	}
+	main := `{"type":"assistant","message":{"content":[{"type":"text","text":"all criteria met <chief-done/>"}]}}`
+	if ev := ParseLine(main); ev == nil || ev.Type != EventStoryDone {
+		t.Errorf("the agent's own tag no longer ends the story: %+v", ev)
+	}
+}

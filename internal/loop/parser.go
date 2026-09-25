@@ -162,10 +162,13 @@ type Event struct {
 
 // streamMessage represents the top-level structure of a stream-json line.
 type streamMessage struct {
-	Type         string          `json:"type"`
-	Subtype      string          `json:"subtype,omitempty"`
-	Message      json.RawMessage `json:"message,omitempty"`
-	TotalCostUSD float64         `json:"total_cost_usd,omitempty"`
+	Type string `json:"type"`
+	// ParentToolUseID is set on the lines a subagent produces: the Task/Agent
+	// call they belong to. Empty for the agent Chief started.
+	ParentToolUseID string          `json:"parent_tool_use_id,omitempty"`
+	Subtype         string          `json:"subtype,omitempty"`
+	Message         json.RawMessage `json:"message,omitempty"`
+	TotalCostUSD    float64         `json:"total_cost_usd,omitempty"`
 }
 
 // assistantMessage represents the structure of an assistant message.
@@ -221,7 +224,16 @@ func ParseLine(line string) *Event {
 		return nil
 
 	case "assistant":
-		return parseAssistantMessage(msg.Message)
+		ev := parseAssistantMessage(msg.Message)
+		// A subagent's message is not the agent's verdict. Its usage is paid for
+		// like any other, but a <chief-done/> in it — a reviewer quoting the
+		// prompt, say — must not end the iteration: the loop kills the process
+		// group on that tag, taking the agent and every subagent still running
+		// with it.
+		if msg.ParentToolUseID != "" && ev != nil && ev.Type == EventStoryDone {
+			ev.Type = EventAssistantText
+		}
+		return ev
 
 	case "user":
 		return parseUserMessage(msg.Message)

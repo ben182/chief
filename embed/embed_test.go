@@ -560,3 +560,18 @@ func TestGetPrompt_SubagentIsWaitedForAndTrusted(t *testing.T) {
 		t.Error("a provider without subagents is told how to wait for one")
 	}
 }
+
+// Consolidation is told to refactor only, and the skill it runs may flag bugs:
+// "address everything it flags" contradicted the scope. The skill is also
+// written for a person at the keyboard, and nobody answers in a box run.
+func TestReviewSkillBlockKeepsTheScopeAndRunsUnattended(t *testing.T) {
+	block := reviewSkillBlock("/code-review")
+	if strings.Contains(block, "address everything") {
+		t.Error("the skill block still overrides the scope with 'address everything it flags'")
+	}
+	for _, want := range []string{"as far as the rules above allow", "progress note", "nobody will answer"} {
+		if !strings.Contains(block, want) {
+			t.Errorf("skill block lacks %q:\n%s", want, block)
+		}
+	}
+}

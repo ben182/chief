@@ -97,7 +97,10 @@ func reviewSkillBlock(skill string) string {
 	if skill == "" {
 		return ""
 	}
-	return "- Run the `" + skill + "` skill and address everything it flags.\n"
+	return "- Run the `" + skill + "` skill. Act on what it flags as far as the rules above allow;\n" +
+		"  what they rule out goes into the progress note rather than unmentioned. This\n" +
+		"  runs unattended: where the skill asks for a scope, an approval or a choice,\n" +
+		"  nobody will answer — decide yourself, and take the commits above as the scope.\n"
 }
 
 // reviewInstructionsBlock renders the optional free-form review guidance as its
