@@ -736,6 +736,49 @@ func TestCreateWorktreeBaseBranch(t *testing.T) {
 	})
 }
 
+// The work of a box that is gone lives on origin only. A new box's clone has
+// no local branch for it, and cutting one from the base would build the PRD
+// from the start and then fail to push over the original.
+func TestCreateWorktreeResumesABranchOnlyOriginHas(t *testing.T) {
+	upstream := initTestRepo(t)
+	addBranchWithMarker(t, upstream, "chief/test-prd", "earlier-run.txt")
+	clone := filepath.Join(t.TempDir(), "clone")
+	runGitIn(t, upstream, "clone", upstream, clone)
+
+	wtPath := filepath.Join(clone, "worktrees", "test-prd")
+	res, err := CreateWorktree(CreateWorktreeOptions{RepoDir: clone, WorktreePath: wtPath, Branch: "chief/test-prd"})
+	if err != nil {
+		t.Fatalf("CreateWorktree() error = %v", err)
+	}
+	if !res.Resumed {
+		t.Error("a branch checked out from origin was not reported as resumed")
+	}
+	if res.Reused {
+		t.Error("a new worktree was reported as reused")
+	}
+	if _, err := os.Stat(filepath.Join(wtPath, "earlier-run.txt")); err != nil {
+		t.Errorf("worktree was cut from the base, not from origin's branch: %v", err)
+	}
+	// Tracking origin is what lets the run's push be a plain fast-forward.
+	out, err := exec.Command("git", "-C", clone, "rev-parse", "--abbrev-ref", "chief/test-prd@{upstream}").Output()
+	if err != nil || strings.TrimSpace(string(out)) != "origin/chief/test-prd" {
+		t.Errorf("upstream = %q (%v), want origin/chief/test-prd", strings.TrimSpace(string(out)), err)
+	}
+
+	// A branch that is nowhere yet is still cut from the base, and not resumed.
+	other := filepath.Join(clone, "worktrees", "other")
+	res, err = CreateWorktree(CreateWorktreeOptions{RepoDir: clone, WorktreePath: other, Branch: "chief/other"})
+	if err != nil {
+		t.Fatalf("CreateWorktree() for a new branch error = %v", err)
+	}
+	if res.Resumed {
+		t.Error("a freshly cut branch was reported as resumed")
+	}
+	if _, err := os.Stat(filepath.Join(other, "earlier-run.txt")); err == nil {
+		t.Error("a new branch carries the other branch's commit")
+	}
+}
+
 // Whether the worktree was created or picked up decides whether the caller
 // still has to set it up, so CreateWorktree has to say which of the two it did.
 func TestCreateWorktreeReportsReuse(t *testing.T) {

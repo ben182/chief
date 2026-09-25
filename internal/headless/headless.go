@@ -169,10 +169,6 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	if err != nil {
 		return res, fmt.Errorf("headless: reading %s: %w", prdPath, err)
 	}
-	res.Stories = len(p.UserStories)
-
-	log.event("run", "%s · %d stories, %d already passing", name, len(p.UserStories), p.CompletedCount())
-	log.event("run", "agent %s · project %s", opts.Provider.Name(), baseDir)
 
 	// Where the work happens is settled before the loop starts, because a
 	// headless run has no dialog to settle it in.
@@ -181,6 +177,17 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		return res, err
 	}
 	res.Branch, res.WorkDir = home.branch, home.workDir
+
+	// The workspace can hold a later PRD than the one read above: a branch
+	// picked up from origin carries an earlier run's finished stories, and those
+	// are what "already passing" and the iteration budget have to count.
+	if live, err := prd.LoadPRD(livePRDPath(baseDir, prdPath, home.worktree)); err == nil {
+		p = live
+	}
+	res.Stories = len(p.UserStories)
+
+	log.event("run", "%s · %d stories, %d already passing", name, len(p.UserStories), p.CompletedCount())
+	log.event("run", "agent %s · project %s", opts.Provider.Name(), baseDir)
 
 	// A headless run gets the same iteration budget an interactive one is given
 	// when none is named: enough for every unfinished story to use its attempts.
@@ -410,9 +417,12 @@ func prepareWorkspace(ctx context.Context, log *logger, opts Options, baseDir, p
 	if err != nil {
 		return workspace{}, fmt.Errorf("headless: creating the worktree: %w", err)
 	}
-	if created.Reused {
+	switch {
+	case created.Reused:
 		log.event("worktree", "reusing %s on %s", path, branch)
-	} else {
+	case created.Resumed:
+		log.event("worktree", "created %s on %s, picked up from origin", path, branch)
+	default:
 		log.event("worktree", "created %s on %s", path, branch)
 	}
 
@@ -426,7 +436,9 @@ func prepareWorkspace(ctx context.Context, log *logger, opts Options, baseDir, p
 		return workspace{}, err
 	}
 
-	if err := prd.SeedWorktree(baseDir, prdPath, path, created.Reused); err != nil {
+	// A branch picked up from origin carries the PRD as the earlier run left it,
+	// finished stories and all; the project's copy is the older one.
+	if err := prd.SeedWorktree(baseDir, prdPath, path, created.Reused || created.Resumed); err != nil {
 		return workspace{}, fmt.Errorf("headless: %w", err)
 	}
 

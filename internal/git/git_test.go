@@ -1,7 +1,9 @@
 package git
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 )
 
@@ -56,6 +58,25 @@ func TestCreateBranch(t *testing.T) {
 		branch, _ := GetCurrentBranch(dir)
 		if branch != "chief/foo" {
 			t.Errorf("current branch = %q, want %q", branch, "chief/foo")
+		}
+	})
+
+	// A box clones the project fresh, so the branch an earlier box pushed is
+	// only origin's. Cutting it again from main would start the PRD over.
+	t.Run("picks up a branch that only origin has", func(t *testing.T) {
+		upstream := initTestRepo(t)
+		addBranchWithMarker(t, upstream, "chief/foo", "earlier-run.txt")
+		clone := filepath.Join(t.TempDir(), "clone")
+		runGitIn(t, upstream, "clone", upstream, clone)
+
+		if err := CreateBranch(clone, "chief/foo"); err != nil {
+			t.Fatalf("CreateBranch() error = %v", err)
+		}
+		if branch, _ := GetCurrentBranch(clone); branch != "chief/foo" {
+			t.Errorf("current branch = %q, want %q", branch, "chief/foo")
+		}
+		if _, err := os.Stat(filepath.Join(clone, "earlier-run.txt")); err != nil {
+			t.Errorf("branch was not taken from origin: %v", err)
 		}
 	})
 }

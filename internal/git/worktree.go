@@ -80,9 +80,16 @@ type CreateWorktreeResult struct {
 	// either way the caller is looking at a fresh directory that has never been
 	// set up.
 	Reused bool
+	// Resumed is true when the branch did not exist here but origin had it, and
+	// the worktree was checked out from origin's copy instead of cut from the
+	// base branch. The branch then carries an earlier run's record — the PRD with
+	// its finished stories among it — which the caller must not write over with
+	// the project's older copy.
+	Resumed bool
 }
 
 // CreateWorktree creates a branch from the default branch and adds a worktree at the given path.
+// A branch that only origin has is checked out from there instead (see Resumed).
 // If the worktree path already exists and is a valid worktree on the expected branch, it is reused.
 // If the worktree path exists but is stale (wrong branch or invalid), it is removed and recreated.
 //
@@ -146,8 +153,17 @@ func CreateWorktree(opts CreateWorktreeOptions) (CreateWorktreeResult, error) {
 	if err != nil {
 		return CreateWorktreeResult{}, fmt.Errorf("failed to check branch existence: %w", err)
 	}
+	var res CreateWorktreeResult
 	if !exists {
-		if err := runGitChecked(opts.RepoDir, "failed to create branch "+opts.Branch, "branch", opts.Branch, baseRef); err != nil {
+		// A branch only origin knows is an earlier run's, pushed from another
+		// machine or a box that is gone. Cutting it again from the base would
+		// build the PRD from the start and then fail to push over the original.
+		args := []string{"branch", opts.Branch, baseRef}
+		if remoteRef, ok := OriginRef(opts.RepoDir, opts.Branch); ok {
+			args = []string{"branch", "--track", opts.Branch, remoteRef}
+			res.Resumed = true
+		}
+		if err := runGitChecked(opts.RepoDir, "failed to create branch "+opts.Branch, args...); err != nil {
 			return CreateWorktreeResult{}, err
 		}
 		// The branch a worktree branch was cut from is the branch a pull
@@ -164,7 +180,7 @@ func CreateWorktree(opts CreateWorktreeOptions) (CreateWorktreeResult, error) {
 	if err := runGitChecked(opts.RepoDir, "failed to add worktree", "worktree", "add", absWorktreePath, opts.Branch); err != nil {
 		return CreateWorktreeResult{}, err
 	}
-	return CreateWorktreeResult{}, nil
+	return res, nil
 }
 
 // resolveBaseBranch answers which branch a new worktree branch is cut from. It

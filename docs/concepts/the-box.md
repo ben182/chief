@@ -196,6 +196,8 @@ Both ask about commits that exist nowhere else before destroying anything — al
 
 **You want to see the machine.** `chief box ssh` lands you in the project directory. `chief box ssh 'php artisan test'` runs one command there and streams the output back.
 
+**The box ran out of time.** A run the outside limit stopped has pushed what it built to `chief/<prd>`, and the stories it did not get to are still open in the PRD on that branch. Start a new box for the same PRD — `chief box up <prd> --max-hours 16` — and it carries on from there: the fresh clone has the branch only on origin, and Chief checks it out from origin rather than cutting it again from `main`, so the run starts at the first open story and its push is a fast-forward. The PR that `onComplete.createPR` opens comes with the run that finishes.
+
 **The box is gone.** A box that destroyed itself leaves its record behind; `up`, `logs` and `status` notice the machine no longer exists, say so, and clear it, so the next run is not blocked by a machine that has not existed since three in the morning.
 
 ## Security

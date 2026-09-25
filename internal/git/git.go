@@ -72,6 +72,11 @@ func IsProtectedBranch(branch string) bool {
 // RecordBaseBranch) so a pull request for it later targets that branch — cutting
 // from develop and then opening the PR against main is the wrong merge. An
 // existing branch keeps whatever origin it was created with.
+//
+// A branch that exists only on origin is picked up from there rather than cut
+// anew: that is an earlier run's work — on a box, a fresh clone of a branch the
+// previous box pushed — and a branch cut from here would start the PRD over and
+// then fail to push over it.
 func CreateBranch(dir, branchName string) error {
 	exists, err := BranchExists(dir, branchName)
 	if err != nil {
@@ -81,11 +86,26 @@ func CreateBranch(dir, branchName string) error {
 		return runGitChecked(dir, "", "checkout", branchName)
 	}
 	base, _ := GetCurrentBranch(dir) // "" or "HEAD" (detached) is simply not recorded
-	if err := runGitChecked(dir, "", "checkout", "-b", branchName); err != nil {
+	args := []string{"checkout", "-b", branchName}
+	if remoteRef, ok := OriginRef(dir, branchName); ok {
+		args = []string{"checkout", "--track", "-b", branchName, remoteRef}
+	}
+	if err := runGitChecked(dir, "", args...); err != nil {
 		return err
 	}
 	RecordBaseBranch(dir, branchName, base)
 	return nil
+}
+
+// OriginRef returns the ref origin's copy of branch has in this repository, and
+// whether there is one. It only looks at what the last fetch brought: asking
+// origin itself costs a round trip, and a clone has just fetched everything.
+func OriginRef(dir, branch string) (string, bool) {
+	ref := "refs/remotes/origin/" + branch
+	if exists, err := BranchExists(dir, ref); err == nil && exists {
+		return ref, true
+	}
+	return "", false
 }
 
 // BranchExists returns true if a branch with the given name exists.

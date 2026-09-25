@@ -150,12 +150,16 @@ func copyFile(src, dst string) (err error) {
 // every edit since — so there the project's copy is written over it. A PRD
 // living outside the project has no counterpart in a worktree and is used where
 // it is.
-func SeedWorktree(baseDir, homePRDPath, worktreePath string, reused bool) error {
+//
+// keepOwn asks for the first case: the worktree was reused, or its branch was
+// picked up from origin with an earlier run's record on it. A worktree that
+// holds no copy at all is seeded either way.
+func SeedWorktree(baseDir, homePRDPath, worktreePath string, keepOwn bool) error {
 	mapped, ok := PathIn(baseDir, homePRDPath, worktreePath)
 	if !ok {
 		return nil
 	}
-	if reused {
+	if keepOwn {
 		if _, err := os.Stat(mapped); err == nil {
 			return nil
 		}

@@ -575,3 +575,70 @@ func TestAnOptedInPushHappensWhateverTheProjectConfigured(t *testing.T) {
 		t.Errorf("the log does not say why it pushed against the config:\n%s", log)
 	}
 }
+
+// A box is a fresh clone. When an earlier box ran out of time, its work is on
+// origin's chief/<prd> and nowhere else, and the next run has to carry on from
+// there: build what is still open, on top of what was pushed. Starting the PRD
+// over from main would redo hours of work and then fail to push over it.
+func TestRunPicksUpThePRDsBranchFromOrigin(t *testing.T) {
+	for _, worktree := range []bool{false, true} {
+		t.Run(fmt.Sprintf("worktree=%v", worktree), func(t *testing.T) {
+			upstream, prdPath := project(t, "US-001", "First Story")
+			md := "# Demo\n\nA demo project\n\n### US-001: First Story\n\n- [ ] It works\n\n### US-002: Second Story\n\n- [ ] It works too\n"
+			if err := os.WriteFile(prdPath, []byte(md), 0644); err != nil {
+				t.Fatal(err)
+			}
+			runGit(t, upstream, "add", "-f", ".chief")
+			runGit(t, upstream, "commit", "-m", "add the PRD")
+
+			// The earlier run: US-001 built and recorded on chief/demo.
+			runGit(t, upstream, "checkout", "-b", "chief/demo")
+			done := strings.Replace(md, "### US-001: First Story\n\n- [ ] It works\n", "### US-001: First Story\n**Status:** done\n\n- [x] It works\n", 1)
+			if err := os.WriteFile(prdPath, []byte(done), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(upstream, "earlier-run.txt"), []byte("x"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			runGit(t, upstream, "add", "-f", ".")
+			runGit(t, upstream, "commit", "-m", "feat: demo/US-001 - First Story")
+			runGit(t, upstream, "checkout", "main")
+
+			clone := filepath.Join(t.TempDir(), "clone")
+			runGit(t, upstream, "clone", upstream, clone)
+			runGit(t, clone, "config", "user.email", "t@t.com")
+			runGit(t, clone, "config", "user.name", "T")
+
+			res, log := run(t, Options{
+				PRDPath:  filepath.Join(clone, ".chief", "prds", "demo", "prd.md"),
+				BaseDir:  clone,
+				Provider: &testProvider{script: agentScript(t, clone, "feat: demo/US-002 - Second Story")},
+				Config:   &config.Config{},
+				Worktree: worktree,
+			})
+
+			if res.Branch != "chief/demo" {
+				t.Errorf("Branch = %q, want chief/demo\nlog:\n%s", res.Branch, log)
+			}
+			if !strings.Contains(log, "2 stories, 1 already passing") {
+				t.Errorf("the run does not count what origin's branch already has:\n%s", log)
+			}
+			if strings.Contains(log, "US-001 started") {
+				t.Errorf("the run built US-001 again, which origin's branch already has:\n%s", log)
+			}
+			if !strings.Contains(log, "US-002 started") {
+				t.Errorf("the run did not get to US-002:\n%s", log)
+			}
+			if res.Passing != 2 || res.Stories != 2 {
+				t.Errorf("expected 2/2 stories passing, got %d/%d\nlog:\n%s", res.Passing, res.Stories, log)
+			}
+			if _, err := os.Stat(filepath.Join(res.WorkDir, "earlier-run.txt")); err != nil {
+				t.Errorf("the run is not standing on origin's branch: %v", err)
+			}
+			// On top of origin's branch, so pushing it is a fast-forward.
+			if err := exec.Command("git", "-C", clone, "merge-base", "--is-ancestor", "origin/chief/demo", "chief/demo").Run(); err != nil {
+				t.Errorf("chief/demo does not build on origin/chief/demo: %v", err)
+			}
+		})
+	}
+}

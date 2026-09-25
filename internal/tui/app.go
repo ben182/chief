@@ -80,7 +80,12 @@ type App struct {
 	// works from: a reused worktree carries the state of an earlier run, a fresh
 	// one only has whatever its branch happens to hold.
 	pendingWorktreeReused bool
-	pendingSyncBranch     string // Branch awaiting reconciliation with origin, for DialogBranchBehindRemote
+	// pendingWorktreeResumed says the pending worktree's branch was picked up
+	// from origin. The directory is new and still needs its setup, but the PRD
+	// copy on the branch is an earlier run's record and is kept, as for a reused
+	// worktree.
+	pendingWorktreeResumed bool
+	pendingSyncBranch      string // Branch awaiting reconciliation with origin, for DialogBranchBehindRemote
 
 	// The box this project is paying for, as the dashboard's header line reads
 	// it, and when that record was last looked at. Nil means no box; see
@@ -946,6 +951,7 @@ func (a App) startWorktreeRun(prdName, branchName, worktreePath string) (tea.Mod
 	a.pendingStartPRD = prdName
 	a.pendingWorktreePath = worktreePath
 	a.pendingWorktreeReused = false
+	a.pendingWorktreeResumed = false
 	a.viewMode = ViewWorktreeSpinner
 
 	// Start the first async step (create worktree which includes branch creation)
@@ -973,6 +979,7 @@ func (a App) handleWorktreeSpinnerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.pendingStartPRD = ""
 		a.pendingWorktreePath = ""
 		a.pendingWorktreeReused = false
+		a.pendingWorktreeResumed = false
 		return a, nil
 	}
 	// Ignore all other keys during spinner
@@ -1306,7 +1313,7 @@ func (a *App) runWorktreeStep(step WorktreeSpinnerStep, baseDir, worktreePath, b
 			if err != nil {
 				return worktreeStepResultMsg{step: SpinnerStepCreateBranch, err: err}
 			}
-			return worktreeStepResultMsg{step: SpinnerStepCreateBranch, reused: res.Reused}
+			return worktreeStepResultMsg{step: SpinnerStepCreateBranch, reused: res.Reused, resumed: res.Resumed}
 		}
 
 	case SpinnerStepRunSetup:
@@ -1377,6 +1384,7 @@ func (a App) handleWorktreeStepResult(msg worktreeStepResultMsg) (tea.Model, tea
 	switch msg.step {
 	case SpinnerStepCreateBranch:
 		a.pendingWorktreeReused = msg.reused
+		a.pendingWorktreeResumed = msg.resumed
 		// Branch creation completed - advance through both branch and worktree steps
 		// (CreateWorktree does both in one call)
 		a.worktreeSpinner.AdvanceStep() // Complete "Creating branch"
@@ -1415,7 +1423,7 @@ func (a App) finishWorktreeSetup() (tea.Model, tea.Cmd) {
 	// direct-path layouts) is what the run is registered with; where it works
 	// from is the manager's answer, below.
 	homePath := a.homePRDPath(prdName)
-	if err := prd.SeedWorktree(a.baseDir, homePath, worktreePath, a.pendingWorktreeReused); err != nil {
+	if err := prd.SeedWorktree(a.baseDir, homePath, worktreePath, a.pendingWorktreeReused || a.pendingWorktreeResumed); err != nil {
 		a.worktreeSpinner.SetError(err.Error())
 		return a, nil
 	}
@@ -1440,6 +1448,7 @@ func (a App) finishWorktreeSetup() (tea.Model, tea.Cmd) {
 	a.pendingStartPRD = ""
 	a.pendingWorktreePath = ""
 	a.pendingWorktreeReused = false
+	a.pendingWorktreeResumed = false
 
 	// The loop start takes it from here, including pointing the dashboard at the
 	// copy of the PRD this run writes to.

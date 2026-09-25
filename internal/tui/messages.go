@@ -135,6 +135,9 @@ type worktreeStepResultMsg struct {
 	// there on the expected branch. It decides whether the setup step still has
 	// to run when worktree.setupOnReuse is off.
 	reused bool
+	// resumed reports that the branch was checked out from origin rather than
+	// cut, so the worktree's own copy of the PRD is the one to run from.
+	resumed bool
 }
 
 // worktreeSpinnerTickMsg is sent to animate the worktree setup spinner.
