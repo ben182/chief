@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -641,4 +642,93 @@ func TestRunPicksUpThePRDsBranchFromOrigin(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A box's run pushes after every story, not only at the end: a box that dies
+// at hour nine would otherwise take every story before it along. The proof is
+// taken from inside the run — when the agent starts the second story, origin
+// already has the first.
+func TestABoxRunPushesAfterEveryStory(t *testing.T) {
+	dir, prdPath := project(t, "US-001", "First Story")
+	md := "# Demo\n\nA demo project\n\n### US-001: First Story\n\n- [ ] It works\n\n### US-002: Second Story\n\n- [ ] It works too\n"
+	if err := os.WriteFile(prdPath, []byte(md), 0644); err != nil {
+		t.Fatal(err)
+	}
+	remote := filepath.Join(t.TempDir(), "origin.git")
+	runGit(t, dir, "init", "--bare", "-q", remote)
+	runGit(t, dir, "remote", "add", "origin", remote)
+	runGit(t, dir, "push", "-q", "origin", "main")
+
+	seen := filepath.Join(t.TempDir(), "origin-when-us002-started")
+	script := filepath.Join(t.TempDir(), "mock-agent")
+	body := "#!/bin/bash\n" +
+		"id=$(printf '%s' \"$1\" | grep -o 'demo/US-[0-9]*' | head -1)\n" +
+		"if [ \"$id\" = demo/US-002 ]; then sleep 2; git log --format=%s origin/chief/demo > " + shellQuote(seen) + " 2>&1; git fetch -q origin && git log --format=%s origin/chief/demo >> " + shellQuote(seen) + " 2>&1; fi\n" +
+		"echo \"$id\" >> impl.txt\n" +
+		"git add impl.txt >/dev/null 2>&1\n" +
+		"git commit -m \"feat: $id - story\" >/dev/null 2>&1\n" +
+		`echo '{"type":"assistant","message":{"content":[{"type":"text","text":"built it <chief-done/>"}]}}'` + "\n"
+	if err := os.WriteFile(script, []byte(body), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	res, log := run(t, Options{
+		PRDPath:  prdPath,
+		BaseDir:  dir,
+		Provider: &testProvider{script: script},
+		Config:   &config.Config{},
+		Push:     true,
+	})
+	if res.Passing != 2 {
+		t.Fatalf("expected both stories built, got %d\nlog:\n%s", res.Passing, log)
+	}
+	if !strings.Contains(log, "chief/demo pushed after US-001") {
+		t.Errorf("no push after the first story:\n%s", log)
+	}
+	got, _ := os.ReadFile(seen)
+	if !strings.Contains(string(got), "demo/US-001") {
+		t.Errorf("origin did not have US-001 when US-002 started:\n%s\nlog:\n%s", got, log)
+	}
+}
+
+// Stories that end while a push is under way are covered by one push after it,
+// and a push that fails does not stop the pusher.
+func TestTheStoryPusherCoalescesAndSurvivesFailures(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+	release := make(chan struct{})
+	push := func(dir, branch string) error {
+		mu.Lock()
+		calls++
+		n := calls
+		mu.Unlock()
+		if n == 1 {
+			<-release
+			return fmt.Errorf("remote hung up")
+		}
+		return nil
+	}
+	var out bytes.Buffer
+	p := startStoryPusher(newLogger(&out, false), "/dir", "chief/demo", push)
+
+	p.storyEnded("US-001") // taken at once, blocks in push
+	time.Sleep(50 * time.Millisecond)
+	p.storyEnded("US-002") // waits
+	p.storyEnded("US-003") // folded into the waiting one
+	close(release)
+	p.stop()
+
+	if calls != 2 {
+		t.Errorf("pushes = %d, want 2 — one per story that ended while none was waiting", calls)
+	}
+	log := out.String()
+	if !strings.Contains(log, "after US-001 failed: remote hung up") {
+		t.Errorf("the failed push was not reported:\n%s", log)
+	}
+	if !strings.Contains(log, "chief/demo pushed after US-002") {
+		t.Errorf("the pusher did not carry on after a failure:\n%s", log)
+	}
+	var nilPusher *storyPusher
+	nilPusher.storyEnded("US-001")
+	nilPusher.stop()
 }

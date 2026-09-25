@@ -27,7 +27,9 @@ const stateCheckInterval = time.Second
 // channel, so the last few events — the story that just landed, the final
 // result — are still in flight at that moment, and stopping on the state alone
 // would cut the log off just short of the ending.
-func drain(ctx context.Context, log *logger, manager *loop.Manager, name string) (loop.LoopState, float64) {
+//
+// pusher, when there is one, is told about every story that ends.
+func drain(ctx context.Context, log *logger, manager *loop.Manager, name string, pusher *storyPusher) (loop.LoopState, float64) {
 	ticker := time.NewTicker(stateCheckInterval)
 	defer ticker.Stop()
 
@@ -54,6 +56,9 @@ func drain(ctx context.Context, log *logger, manager *loop.Manager, name string)
 			cost += ev.Event.Cost
 			report(log, ev.Event, &story)
 			reportSpent(log, ev.Event, cost)
+			if storyEnded(ev.Event) {
+				pusher.storyEnded(orCurrent(ev.Event.StoryID, story))
+			}
 
 		case <-ticker.C:
 			state, _, err := manager.GetState(name)
@@ -92,12 +97,18 @@ func flush(log *logger, manager *loop.Manager, story *string, spent float64) flo
 	}
 }
 
+// storyEnded says whether ev closes a story, done or parked. Either way its
+// commits are final, which is what a push after it is for.
+func storyEnded(ev loop.Event) bool {
+	return ev.Type == loop.EventStoryDone || ev.Type == loop.EventStoryNeedsReview
+}
+
 // reportSpent writes what the run has cost so far each time a story ends. The
 // cost arrives a message at a time, so a line per event would bury the log;
 // once per story is often enough for `chief box status` to read a running total
 // off the journal while the run is still going.
 func reportSpent(log *logger, ev loop.Event, spent float64) {
-	if ev.Type == loop.EventStoryDone || ev.Type == loop.EventStoryNeedsReview {
+	if storyEnded(ev) {
 		log.event("cost", "$%.2f so far", spent)
 	}
 }

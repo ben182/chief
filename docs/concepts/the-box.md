@@ -117,7 +117,7 @@ The Hetzner token is also read from `CHIEF_BOX_HETZNER_TOKEN`, `HCLOUD_TOKEN`, o
 
 The box is temporary, so everything the run produces has to be somewhere else by the time it goes:
 
-- **The branch is pushed, always.** A box run sets `--push` and pushes whatever `onComplete.push` says, because that setting is about a laptop, where the commits are still there in the morning either way. The log says when it went against your config.
+- **The branch is pushed, always, and after every story.** A box run sets `--push` and pushes whatever `onComplete.push` says, because that setting is about a laptop, where the commits are still there in the morning either way. The log says when it went against your config. It does not wait for the end either: each story that is done or parked is pushed as the run moves on to the next, so a box that dies mid-run loses at most the story it was on.
 - **A pull request is opened** when `onComplete.createPR` is on, assigned to the account `gh` is authenticated as — so an unattended run lands in your "Assigned to you" list rather than among the branches.
 - **The run's log is committed next to the PRD** (`--log-to-branch`, always on for a box). The journal it would otherwise live in dies with the machine.
 - **The run summary** is written and committed when `onComplete.summary` is on, so it rides along in the push.

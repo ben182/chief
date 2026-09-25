@@ -223,7 +223,14 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	}
 	log.event("run", "started · up to %d iterations", maxIter)
 
-	state, cost := drain(ctx, log, manager, name)
+	// A run that has to push because its machine is about to go pushes after
+	// every story as well, not only at the end it may never reach.
+	var pusher *storyPusher
+	if opts.Push {
+		pusher = newStoryPusher(log, home.workDir, home.branch)
+	}
+	state, cost := drain(ctx, log, manager, name, pusher)
+	pusher.stop()
 	res.Duration = time.Since(started)
 	res.Cost = cost
 
