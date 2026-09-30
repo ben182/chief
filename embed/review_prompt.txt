@@ -36,6 +36,17 @@ Judge the diff against the story's acceptance criteria. Look hard for:
   did not intend.
 - Bugs, edge cases, and error paths the implementation missed.
 - **Scope creep** — changes in the diff the story never asked for.
+- Criteria met **only in form** (a column that stays empty, a function nobody
+  calls), and every/all/never criteria checked only in the touched code.
+- **Guessed contracts**: requests, fixtures or fakes for an external service
+  that are not backed by its docs and not listed under `Unverified:` in the
+  commit body; fakes that are tidier than the real service.
+- **Workarounds instead of causes** — a fake or test padded until it passes.
+- Missing production defaults: webhooks without authentication or
+  deduplication, short varchars for outside strings, local times stored instead
+  of UTC, scheduled or retried work that can overlap, access scoping that fails
+  open, plain-text secrets, paid calls made before the filters that make them
+  worthwhile.
 - Missing or weak tests for the new behavior — and tests that are wrong even when
   present: implementation-coupled (asserting private state or mocking internal
   collaborators, so they break on refactor) or tautological (the expected value is

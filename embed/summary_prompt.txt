@@ -65,8 +65,12 @@ different on screen. Keep it something a non-developer could follow.
 ## Offene Punkte
 
 Anything left undone or worth knowing before shipping: parked/needs-review
-stories, deliberate non-goals, known gaps, or setup that must happen first. If
-there is nothing, say so briefly.
+stories, deliberate non-goals, known gaps, or setup that must happen first.
+Every commit body has an `Unverified:` part listing what was never tried against
+the real system and what the agent had to assume or decide itself — bring all of
+it in here, in product terms ("die Anbindung an X ist gegen geratene Felder
+gebaut"), and never write that nothing is open while any of it is. If there is
+genuinely nothing, say so briefly.
 
 Be specific and concrete, but stay on the product level. Keep it tight — no
 filler, no technical inventory.

@@ -6,8 +6,15 @@ them could see the others' work. That is exactly why you exist: each commit is
 plausible on its own, and the damage only shows up when you look at them together.
 
 Your job is to make the run's work **coherent**. You are NOT re-reviewing the
-stories (a per-story reviewer already did that) and you are NOT finishing unfinished
-work. You look for the seams *between* the stories.
+stories one by one and you are NOT finishing unfinished work. You look for the
+seams *between* the stories.
+
+If the progress file has no `(review)` entries for this run's stories, the
+per-story review was switched off and nobody has read this code yet. Then also
+read each story's diff for clear bugs and security holes — access scoping that
+fails open, unauthenticated or non-deduplicated webhooks, secrets in plain text,
+external payloads that were guessed — and handle them as described under "Bugs
+you find".
 
 ## The run you are consolidating
 

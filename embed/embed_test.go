@@ -190,12 +190,13 @@ func TestPromptTemplateNotEmpty(t *testing.T) {
 func TestGetPrompt_ChiefExclusion(t *testing.T) {
 	prompt := GetPrompt("/path/progress.md", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
 
-	// The prompt must instruct Claude to never stage or commit .chief/ files
-	if !strings.Contains(prompt, ".chief/") {
-		t.Error("Expected prompt to contain .chief/ exclusion instruction")
+	// chief commits .chief/ itself; an agent that also staged, unstaged or reset
+	// those files fought chief over them (recap: git reset --soft to undo them).
+	if !strings.Contains(prompt, "Leave `.chief/` files alone") {
+		t.Error("Expected prompt to tell the agent to leave .chief/ files alone")
 	}
-	if !strings.Contains(prompt, "NEVER stage or commit") {
-		t.Error("Expected prompt to explicitly say NEVER stage or commit .chief/ files")
+	if !strings.Contains(prompt, "chief commits its own working files") {
+		t.Error("Expected prompt to say chief commits .chief/ itself")
 	}
 }
 
@@ -556,7 +557,7 @@ func TestGetPrompt_SubagentIsWaitedForAndTrusted(t *testing.T) {
 			t.Errorf("prompt lacks %q", want)
 		}
 	}
-	if other := GetPrompt("/path/progress.md", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", false); strings.Contains(other, "foreground") {
+	if other := GetPrompt("/path/progress.md", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", false); strings.Contains(other, "Wait for the subagent") {
 		t.Error("a provider without subagents is told how to wait for one")
 	}
 }
@@ -641,5 +642,61 @@ func TestGetPrompt_BlockedSignal(t *testing.T) {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt is missing %q", want)
 		}
+	}
+}
+
+// Rules drawn from two greenfield runs (recap, ghost-writing): guessed API
+// payloads, workarounds instead of causes, criteria ticked off in form only,
+// iterations that ended while a build still ran, commit signing switched off,
+// tests against the person's real microphone, and a "done" signal chief read out
+// of a sentence that said the opposite.
+func TestGetPrompt_RulesFromUnattendedRuns(t *testing.T) {
+	prompt := GetPrompt("/p/progress.md", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
+	for _, want := range []string{
+		"real contract, never a guessed one",
+		"Never invent a payload silently",
+		"`Unverified:`",
+		"Fakes behave like the real thing",
+		"Find the cause before you work around it",
+		"access scoping fails closed",
+		"Paid calls run only where their result is used",
+		"Leave the person's real machine alone",
+		"Never end your turn while a command you started is still running",
+		"Checks the PRD reserves for a person are not yours",
+		"Never disable commit signing or hooks",
+		"A criterion met only in form is not met",
+		"every, all or never",
+		"never quote them in a",
+		"date '+%Y-%m-%d %H:%M'",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("build prompt lacks %q", want)
+		}
+	}
+}
+
+// ghost-writing's PRD carried a wrong status code for an expired connection,
+// and recap's a team ID that did not exist; the implementer trusted both.
+func TestStoryWritingPromptsCheckFactsAndPrerequisites(t *testing.T) {
+	prompts := map[string]string{
+		"init":     GetInitPrompt("/p", "", false),
+		"edit":     GetEditPrompt("/p", false),
+		"followup": GetFollowupPrompt("/p", "/p/todos.md", false),
+	}
+	for name, prompt := range prompts {
+		for _, want := range []string{"checked, not remembered", "`(unverified)`", "Name what only the user can provide"} {
+			if !strings.Contains(prompt, want) {
+				t.Errorf("%s prompt lacks %q", name, want)
+			}
+		}
+	}
+	if !strings.Contains(GetReviewPrompt("/p.md", `{}`, "US-1", "x", "", ""), "Guessed contracts") {
+		t.Error("review prompt does not look for guessed contracts")
+	}
+	if !strings.Contains(GetConsolidatePrompt("/p.md", "/f.md", "abc x", "abc..HEAD", "p", "", ""), "no `(review)` entries") {
+		t.Error("consolidate prompt still assumes a per-story review ran")
+	}
+	if !strings.Contains(GetSummaryPrompt("/s.md", "abc x", nil), "`Unverified:`") {
+		t.Error("summary prompt does not carry the unverified parts into Offene Punkte")
 	}
 }

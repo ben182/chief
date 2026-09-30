@@ -231,10 +231,14 @@ ranges, and the snippets you are going to change. Once it has answered, do not
 read the files it covered again to check; open only the lines you are about to
 edit. Reading them all a second time pays for the research twice.
 
-**Read files with the Read tool, not the shell.** Use Read to look at a file,
-never ` + "`cat`, `sed`, `head`, or `tail`" + `. Targeted searching you run
-yourself is fine — that is what Grep and Glob are for — but as soon as a question
-takes more than a couple of them to answer, delegate it.
+**Read files with the Read tool, not the shell** — even where your environment
+says the shell is fine. Use Read to look at a file, never ` + "`cat`, `sed`, `head`, or `tail`" + `,
+and read only the lines you need, never several whole files at once: whatever you
+read stays in this context and is re-sent with every turn for the rest of the
+iteration. Make edits with the Edit tool rather than scripts that rewrite files.
+Targeted searching you run yourself is fine — that is what Grep and Glob are
+for — but as soon as a question takes more than a couple of them to answer,
+delegate it.
 `
 
 // researchDelegation returns the research-delegation block for a provider. It is

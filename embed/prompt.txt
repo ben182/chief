@@ -16,7 +16,9 @@ Your current story:
 {{PROGRESS_MAP}}2. Implement the user story above — test-first, in vertical slices (see Testing below)
 3. Run quality checks (e.g., typecheck, lint, test - use whatever your project requires)
 4. If checks pass, commit changes with message: `feat: {{PRD_NAME}}/{{STORY_ID}} - {{STORY_TITLE}}`
-   - **NEVER stage or commit `.chief/` files** — these are local working files and must stay out of version control
+   - **Leave `.chief/` files alone** — chief commits its own working files (prd.md, progress.md) itself, after you. Do not stage, unstage or reset them, and do not quote your commit hash anywhere: chief amends the commit, so the hash changes
+   - **Never disable commit signing or hooks** (`-c commit.gpgsign=false`, `--no-gpg-sign`, `--no-verify`). A signature or hook that fails is a blocker for the person (see below), not an obstacle to route around
+   - Put everything you could not verify into the commit body under `Unverified:` (see Code That Talks to the Real World) — the run summary and the PR are built from the commits
    - Stage only the files you changed for the story (do NOT use `git add -A` or `git add .`)
    - **If every acceptance criterion is already met** by an earlier story's commit on this branch (a test written alongside the feature it tests, say), do not redo or pad the work: verify the criteria, then record it with an empty commit in the same format — `git commit --allow-empty -m "feat: {{PRD_NAME}}/{{STORY_ID}} - {{STORY_TITLE}}" -m "Already covered by <that story's ID>."` — so the story counts as done. A story that signals done without any commit is treated as failed and retried.
 5. Append your progress to `{{PROGRESS_PATH}}`
@@ -37,6 +39,42 @@ all tests first and then all the code.
   the expected value is recomputed the same way the code does it, so it can never
   disagree; expected values must come from an independent source (a known-good
   literal, a worked example, or the spec).
+
+## Code That Talks to the Real World
+
+- **Build against an external service's real contract, never a guessed one.**
+  Before you call an API, a webhook or a scraper, look up its actual endpoints,
+  status codes and payload fields — official docs, an OpenAPI spec, the SDK's
+  source, a sample response in the repo (web search and fetch are available to
+  you). Requests, fixtures and fakes all take their shape from that. If you
+  cannot find the contract, build only the part that is documented and list
+  every endpoint or field you had to assume under `Unverified:` in your progress
+  entry and commit body. Never invent a payload silently.
+- **Fakes behave like the real thing**, including its awkward cases (empty
+  results, pagination, errors, the answer arriving in an unexpected step). Test
+  loops and batches with at least two items. The test suite must never reach a
+  real outbound service.
+- **Find the cause before you work around it.** When a library does something you
+  did not ask for — an extra call, a fake that gets consumed, a query you did not
+  write — find out what it is. Padding a fake or a test until it passes hides the
+  bug.
+- **Defaults for anything that runs in production**, unless the story says
+  otherwise: inbound webhooks are authenticated, deduplicated by event id and
+  processed in the background; strings from outside with no fixed length are
+  stored as text, not as a short varchar; times are stored in UTC and shown in
+  the user's time zone; scheduled and retried work is idempotent and cannot run
+  twice at once; access scoping fails closed (no scope means no rows, not all
+  rows); secrets are not stored in plain text.
+- **Paid calls run only where their result is used** — after the filters and
+  gates, never once per raw item.
+- **A prompt you send to a model** gets every input its output depends on. Read
+  the whole prompt for contradictions before you add a rule to it.
+- **Wire new background work into the dev setup.** A scheduled job, queue worker
+  or webhook tunnel you add must start with the project's documented dev command.
+- **Leave the person's real machine alone.** Do not run the product against
+  their real data directory, microphone, camera, screen, menu bar, login items or
+  dotfiles. Use temporary directories and fakes; judging real UI and hardware is
+  what the manual checks are for.
 
 ## Language of the code
 
@@ -60,9 +98,12 @@ migration names, JSON keys, and the body of your commit message.
 
 APPEND to `{{PROGRESS_PATH}}` (never replace, always append):
 ```
-## [Date/Time] - [Story ID]
+## [output of `date '+%Y-%m-%d %H:%M'`] - [Story ID]
 - What was implemented
 - Files changed
+- **Unverified:** what was never run against the real system, and every
+  endpoint, field or product decision you had to assume because the story left it
+  open (or "nothing")
 - **Learnings for future iterations:**
   - Patterns discovered (e.g., "this codebase uses X for Y")
   - Gotchas encountered (e.g., "don't forget to update Z when changing W")
@@ -71,6 +112,7 @@ APPEND to `{{PROGRESS_PATH}}` (never replace, always append):
 ```
 
 The learnings section is critical - it helps future iterations avoid repeating mistakes and understand the codebase better.
+Keep an entry to about twenty lines: the details belong in the commit body.
 
 ## Consolidate Patterns
 
@@ -92,6 +134,21 @@ Every iteration reads this section before it starts, so keep it short:
 - **Sharpen an existing pattern rather than adding one** that overlaps it, and
   remove a pattern that has stopped being true.
 - Keep the whole section under about 24 KB.
+
+## Working Unattended
+
+- **Never end your turn while a command you started is still running.** Ending the
+  turn ends the iteration, and the process is orphaned. Run builds and tests in the
+  foreground; for one that takes long, raise the command's timeout instead of
+  backgrounding it and waiting.
+- **A lock held by an earlier iteration is yours to clear.** When a build waits on
+  another process ("Another instance of SwiftPM is already running", a stale
+  `.lock`), find that process with `pgrep`/`ps` and kill it if it belongs to an
+  earlier run, then rerun.
+- **Checks the PRD reserves for a person are not yours.** Do not run a test the PRD
+  says a person runs, and do not treat a criterion marked manual (e.g. under
+  "Manuell", "manual", "by hand") as one you have to verify: make it possible, list
+  it in your progress entry, and judge the story on the rest.
 
 ## Quality Requirements
 
@@ -138,10 +195,17 @@ If you are blocked:
 
 After implementing the story:
 1. Review EACH acceptance criterion one by one and verify it is met
+   - **A criterion met only in form is not met** — a column that exists but is
+     always empty, a function nobody calls. Say so instead of ticking it off.
+   - **A criterion that says every, all or never** holds across the whole
+     codebase: search for the places that break it, not only the code you touched.
 2. Only if ALL criteria pass: output <chief-done/>
 3. If a criterion cannot be met because of something only a person can resolve
    (see above): output <chief-blocked>…</chief-blocked> instead
 4. If any other criterion is NOT met: end your response WITHOUT <chief-done/>
+
+Write the two signal tags only as the signal itself — never quote them in a
+sentence ("so I do not output …"): chief reads any occurrence as the signal.
 
 ## Important
 

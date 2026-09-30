@@ -122,6 +122,15 @@ start immediately (no dependencies).
   belong in code review.
 - **Outcome-focused still means verifiable, not vague.** "Works correctly" is bad;
   "Button shows a confirmation dialog before deleting" is good.
+- **Facts about a third-party service are checked, not remembered.** An endpoint,
+  status code or payload field goes into a criterion only after you looked it up
+  in the service's docs — link the page. What you could not check is marked
+  `(unverified)`, so the implementer looks it up instead of trusting it.
+- **Name what only the user can provide.** When a criterion depends on something
+  the implementer cannot produce — hand-labelled test data, credentials, account
+  or team IDs, hardware — the story says so as a prerequisite, and you check it
+  against reality with the user while writing the PRD (does that ID exist, is the
+  data there?).
 - **Do not list generic quality gates as criteria.** "Typecheck passes", "tests
   pass", and "lint clean" apply to every story and are enforced automatically on
   every commit — do not add them. When editing an existing story, strip such lines
