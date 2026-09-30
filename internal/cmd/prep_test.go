@@ -262,3 +262,29 @@ func TestEnsurePreparedWarnsAboutAnUnreadableNeedsLine(t *testing.T) {
 		t.Errorf("no warning:\n%s", out.String())
 	}
 }
+
+// A .chief/ in a subfolder of the repository, and the paths relative to where
+// chief runs: the prep's commit has to find them all the same. git took them
+// relative to the repository root and committed nothing.
+func TestCommitAndPushPrepFindsFilesInASubfolder(t *testing.T) {
+	repo := t.TempDir()
+	initGitRepoOnBranch(t, repo, "main")
+	project := filepath.Join(repo, "apps", "web")
+	prdPath := filepath.Join(project, ".chief", "prds", "app", "prd.md")
+	if err := os.MkdirAll(filepath.Dir(prdPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(prdPath, []byte("# App\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(project)
+
+	var out bytes.Buffer
+	commitAndPushPrep(&out, []string{filepath.Join(".chief", "prds", "app", "prd.md")}, "chore: prep app for macOS")
+	if got := gitIn(t, repo, "log", "-1", "--format=%s"); got != "chore: prep app for macOS" {
+		t.Fatalf("last commit = %q\n%s", got, out.String())
+	}
+	if files := gitIn(t, repo, "show", "--name-only", "--format=", "HEAD"); files != "apps/web/.chief/prds/app/prd.md" {
+		t.Errorf("committed %q", files)
+	}
+}

@@ -183,14 +183,25 @@ func commitAndPushPrep(out io.Writer, paths []string, message string) {
 	byRoot := map[string][]string{}
 	var roots []string
 	for _, p := range paths {
-		root, err := git.RepoRoot(filepath.Dir(p))
+		// git takes a relative path relative to the checkout it runs in, not to
+		// this process's directory: a .chief/ in a subfolder of the repository
+		// named a file that is not there. Relative to the checkout's root, it is.
+		abs, err := filepath.Abs(p)
 		if err != nil {
+			continue
+		}
+		root, err := git.RepoRoot(filepath.Dir(abs))
+		if err != nil {
+			continue
+		}
+		rel, ok := relativeToRoot(root, abs)
+		if !ok {
 			continue
 		}
 		if _, seen := byRoot[root]; !seen {
 			roots = append(roots, root)
 		}
-		byRoot[root] = append(byRoot[root], p)
+		byRoot[root] = append(byRoot[root], rel)
 	}
 	for _, root := range roots {
 		files := git.CommittablePaths(root, byRoot[root]...)
@@ -215,6 +226,24 @@ func commitAndPushPrep(out io.Writer, paths []string, message string) {
 		}
 		_, _ = fmt.Fprintf(out, "Pushed %s\n", branch)
 	}
+}
+
+// relativeToRoot expresses the absolute path abs relative to the checkout root,
+// following symlinks on both — git reports the root with them resolved, and a
+// temp dir on macOS is /var and /private/var at once. False when abs lies
+// outside root.
+func relativeToRoot(root, abs string) (string, bool) {
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		root = r
+	}
+	if d, err := filepath.EvalSymlinks(filepath.Dir(abs)); err == nil {
+		abs = filepath.Join(d, filepath.Base(abs))
+	}
+	rel, err := filepath.Rel(root, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return rel, true
 }
 
 // GateOptions describe a run about to start, for EnsurePrepared.
