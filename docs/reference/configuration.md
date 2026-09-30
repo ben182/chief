@@ -386,7 +386,7 @@ Icon fallbacks in ASCII mode:
 | `●` | `*` | In progress |
 | `○` | `.` | Pending |
 | `✗` | `x` | Failed |
-| `⚑` | `!` | Needs review |
+| `◆` | `!` | Needs review |
 | `📖 ✏️ 📝 🔨 🔍 🔎 🤖 🧐 🌐 ⚙️` | `[R] [E] [W] [$] [G] [/] [T] [S] [@] [*]` | Log tool cards (Read/Edit/Write/Bash/Glob/Grep/Task/Skill/Web/other) |
 
 ## Permission Handling

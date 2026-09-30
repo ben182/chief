@@ -211,7 +211,7 @@ Chief tracks attempts **per story**, not globally. If a story is attempted repea
 
 After `DefaultMaxAttemptsPerStory` (5) failed attempts on the same story, Chief:
 
-1. Marks the story `**Status:** needs-review` in `prd.md` (shown with a ⚑ "Needs Review" marker in the TUI)
+1. Marks the story `**Status:** needs-review` in `prd.md` (shown with a ◆ "Needs Review" marker in the TUI)
 2. Moves on to the next unblocked story
 
 A story the agent reports as **blocked** (`<chief-blocked>reason</chief-blocked>`, for things only a person can resolve) skips all of this: it is set to `blocked` with its reason on the first attempt, because another attempt would run into the same wall, and the stories depending on it wait for it.

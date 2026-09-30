@@ -64,7 +64,7 @@ Chief reads checkbox state to track progress. The agent checks boxes as it compl
 | `done` | `complete`, `completed`, `passed` | Story is complete — Chief skips it |
 | `in-progress` | `in progress`, `started` | Agent is actively working on this story |
 | `todo` | *(anything unrecognized falls back to this)* | Story is pending (also the default if Status is absent) |
-| `needs-review` | `needs review` | Chief parked the story (e.g. after repeated failed attempts). Skipped by the loop and flagged with ⚑ in the TUI until a human resets it. |
+| `needs-review` | `needs review` | Chief parked the story (e.g. after repeated failed attempts). Skipped by the loop and flagged with ◆ in the TUI until a human resets it. |
 | `blocked` | — | The agent stopped on something only a person can resolve and said why with `<chief-blocked>`. Chief writes the reason under the status as `**Blockiert (Ben):** …`. Skipped by the loop, and so is every story that depends on it, until a person sets it back to `todo` — [`chief prep`](/reference/cli#chief-prep) asks about each one. Flagged with ⊘ in the TUI. |
 
 Status matching is case-insensitive. Any value Chief doesn't recognize is treated as `todo` rather than raising an error.

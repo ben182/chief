@@ -153,7 +153,7 @@ A few things worth knowing:
 
 ## Story Parked for Review
 
-**Symptom:** A story is marked `needs-review` (⚑) and Chief moved on to other stories.
+**Symptom:** A story is marked `needs-review` (◆) and Chief moved on to other stories.
 
 **Cause:** The agent attempted the story 5 times without signalling `<chief-done/>`. Chief parks it so one stuck story doesn't block the rest.
 

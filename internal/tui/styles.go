@@ -234,10 +234,10 @@ const (
 	IconInProgress  = "●"
 	IconPending     = "○"
 	IconFailed      = "✗"
-	IconPaused      = "◐"
-	IconNeedsReview = "⚑"
+	IconPaused      = "◔"
+	IconNeedsReview = "◆"
 	IconBlocked     = "⊘"
-	IconReviewing   = "◍"
+	IconReviewing   = "◎"
 )
 
 // GetStatusIcon returns the appropriate icon for a story's status.
