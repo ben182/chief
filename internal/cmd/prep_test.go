@@ -245,3 +245,20 @@ func TestEnsurePreparedRefusesWhenNothingCanRunThere(t *testing.T) {
 		}
 	}
 }
+
+// A **Braucht:** line chief cannot read lets its story run here; the start
+// says so instead of running it without a word.
+func TestEnsurePreparedWarnsAboutAnUnreadableNeedsLine(t *testing.T) {
+	withTerminal(t, false)
+	dir, prdPath := writeAppPRD(t, "# App\n\n### US-001: Build\n**Braucht:** Xcode\n- [ ] Builds\n")
+	if err := prd.RecordPrep(prdPath, runtime.GOOS, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := EnsurePrepared(GateOptions{PRDPath: prdPath, BaseDir: dir, Out: &out}); err != nil {
+		t.Fatalf("EnsurePrepared: %v", err)
+	}
+	if !strings.Contains(out.String(), `Warning: US-001: **Braucht:** "Xcode" names no operating system`) {
+		t.Errorf("no warning:\n%s", out.String())
+	}
+}

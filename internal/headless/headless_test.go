@@ -882,7 +882,8 @@ func TestAStoryForAnotherSystemIsSkippedAndTheRunEnds(t *testing.T) {
 	dir, prdPath := project(t, "US-001", "First Story")
 	md := "# Demo\n\nA demo project\n\n" +
 		"### US-001: First Story\n\n- [ ] It works\n\n" +
-		"### US-002: Installer\n**Braucht:** " + other + " (installer)\n\n- [ ] Installs\n"
+		"### US-002: Installer\n**Braucht:** " + other + " (installer)\n\n- [ ] Installs\n\n" +
+		"### US-003: Notarize\n**Status:** blocked\n**Blockiert (Ben):** the key is locked\n**Braucht:** Xcode\n\n- [ ] Notarized\n"
 	if err := os.WriteFile(prdPath, []byte(md), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -904,5 +905,8 @@ func TestAStoryForAnotherSystemIsSkippedAndTheRunEnds(t *testing.T) {
 	}
 	if strings.Contains(log, "US-002 started") {
 		t.Errorf("US-002 needs %s and must not start here:\n%s", other, log)
+	}
+	if !strings.Contains(log, `US-003: **Braucht:** "Xcode" names no operating system`) {
+		t.Errorf("the log does not warn about US-003's unreadable Braucht line:\n%s", log)
 	}
 }

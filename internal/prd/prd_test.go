@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -672,10 +673,47 @@ func TestParseOS(t *testing.T) {
 		"":                       "",
 		"a GPU (CUDA)":           "",
 		"macOS-only":             "darwin",
+		// Written the way people write them; each ran on the box before.
+		"macOS 14+":         "darwin",
+		"macOS/Xcode":       "darwin",
+		"macOS und Xcode":   "darwin",
+		"Xcode (macOS)":     "darwin",
+		"Xcode auf dem Mac": "darwin",
+		"OS X 10.15":        "darwin",
+		"systemd (Ubuntu)":  "linux",
+		// Two systems, or a word that only contains one, are not a system.
+		"macOS or Linux": "",
+		"macintosh":      "",
+		"Linuxbrew":      "",
 	} {
 		if got := ParseOS(in); got != want {
 			t.Errorf("ParseOS(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// A **Braucht:** line chief cannot read is said out loud, not silently run
+// anywhere: the person wrote it to keep the story off a system.
+func TestNeedsWarnings(t *testing.T) {
+	md := "# P\n\n" +
+		"### US-001: Build\n**Braucht:** Xcode\n- [ ] Builds\n\n" +
+		"### US-002: Both\n**Braucht:** macOS or Linux\n- [ ] Runs\n\n" +
+		"### US-003: Fine\n**Braucht:** macOS (Xcode)\n- [ ] Signed\n\n" +
+		"### US-004: Done already\n**Status:** done\n**Braucht:** GPU\n- [x] Fast\n\n" +
+		"### US-005: Anywhere\n- [ ] Page\n"
+	p, err := ParseMarkdownPRDFromString(md)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := p.NeedsWarnings()
+	if len(got) != 2 {
+		t.Fatalf("warnings = %q, want one for US-001 and one for US-002", got)
+	}
+	if !strings.HasPrefix(got[0], "US-001:") || !strings.Contains(got[0], "no operating system") {
+		t.Errorf("warning[0] = %q", got[0])
+	}
+	if !strings.HasPrefix(got[1], "US-002:") || !strings.Contains(got[1], "more than one operating system (macOS, Linux)") {
+		t.Errorf("warning[1] = %q", got[1])
 	}
 }
 

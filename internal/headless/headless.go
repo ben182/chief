@@ -197,6 +197,11 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		}
 		log.event("run", "skipped here, they need another system: %s", strings.Join(ids, ", "))
 	}
+	// A **Braucht:** line chief cannot read lets its story run here; if that
+	// was not meant, the log is where it shows.
+	for _, w := range p.NeedsWarnings() {
+		log.event("warning", "%s", w)
+	}
 	log.event("run", "agent %s · project %s", opts.Provider.Name(), baseDir)
 
 	// A headless run gets the same iteration budget an interactive one is given

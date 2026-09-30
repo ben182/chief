@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
+	"unicode"
 )
 
 // UserStory represents a single user story in a PRD.
@@ -61,23 +62,85 @@ func (s *UserStory) RunsOn(goos string) bool {
 	return need == "" || need == goos
 }
 
-// ParseOS reads the operating system at the start of a "**Braucht:**" value —
-// "macOS (Xcode)", "Linux (systemd)", "windows" — and returns it as Go spells it
-// in runtime.GOOS. It returns "" for anything else.
+// ParseOS reads the operating system a "**Braucht:**" value names — "macOS
+// (Xcode)", "macOS 14+", "Xcode (macOS)", "macOS/Xcode", "Linux (systemd)" —
+// and returns it as Go spells it in runtime.GOOS. It returns "" when the value
+// names none, or more than one (see CheckNeeds for the reason).
 func ParseOS(needs string) string {
-	head := needs
-	if i := strings.IndexAny(head, "(,;:—-"); i >= 0 {
-		head = head[:i]
+	goos, _ := CheckNeeds(needs)
+	return goos
+}
+
+// CheckNeeds is ParseOS with the reason it came back empty: problem is "" for a
+// value that names exactly one system, and says what is wrong otherwise. An
+// empty value is no problem — the story runs anywhere.
+//
+// The system is found as a word anywhere in the value, case-insensitive:
+// macOS, Mac, Mac OS (X), OS X, OSX, darwin; Linux, Ubuntu, Debian; Windows.
+// A value naming two different systems is read as naming none, so the story
+// runs anywhere, like one that names none: a line chief cannot read must never
+// keep a story from running at all.
+func CheckNeeds(needs string) (goos, problem string) {
+	if strings.TrimSpace(needs) == "" {
+		return "", ""
 	}
-	switch strings.ToLower(strings.Join(strings.Fields(head), " ")) {
-	case "macos", "mac os", "mac", "osx", "os x", "mac os x", "darwin":
-		return "darwin"
-	case "linux", "ubuntu", "debian":
-		return "linux"
-	case "windows", "win":
-		return "windows"
+	words := strings.FieldsFunc(strings.ToLower(needs), func(r rune) bool {
+		return !unicode.IsLetter(r)
+	})
+	found := map[string]bool{}
+	var order []string
+	add := func(g string) {
+		if !found[g] {
+			found[g] = true
+			order = append(order, g)
+		}
 	}
-	return ""
+	for i, w := range words {
+		next := ""
+		if i+1 < len(words) {
+			next = words[i+1]
+		}
+		switch w {
+		case "macos", "mac", "osx", "darwin":
+			add("darwin")
+		case "os":
+			if next == "x" {
+				add("darwin")
+			}
+		case "linux", "ubuntu", "debian":
+			add("linux")
+		case "windows":
+			add("windows")
+		}
+	}
+	switch len(order) {
+	case 0:
+		return "", "names no operating system chief knows (macOS, Linux, Windows), so the story runs anywhere"
+	case 1:
+		return order[0], ""
+	}
+	names := make([]string, len(order))
+	for i, g := range order {
+		names[i] = OSName(g)
+	}
+	return "", fmt.Sprintf("names more than one operating system (%s), so the story runs anywhere", strings.Join(names, ", "))
+}
+
+// NeedsWarnings lists, one line per story, the open stories whose
+// "**Braucht:**" line chief cannot read — no system it knows, or several — so a
+// run can say why a story it was meant to skip is running after all.
+func (p *PRD) NeedsWarnings() []string {
+	var out []string
+	for i := range p.UserStories {
+		s := &p.UserStories[i]
+		if s.Passes {
+			continue
+		}
+		if _, problem := CheckNeeds(s.Needs); problem != "" {
+			out = append(out, fmt.Sprintf("%s: **Braucht:** %q %s", s.ID, s.Needs, problem))
+		}
+	}
+	return out
 }
 
 // OSName is how a person writes the operating system goos: "macOS" for

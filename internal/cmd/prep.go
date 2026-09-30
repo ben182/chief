@@ -271,6 +271,9 @@ func EnsurePrepared(opts GateOptions) error {
 	if err != nil {
 		return err
 	}
+	for _, w := range p.NeedsWarnings() {
+		_, _ = fmt.Fprintf(out, "Warning: %s.\n", w)
+	}
 	if len(p.ActionableOn(goos)) == 0 {
 		return fmt.Errorf("nothing in PRD %s can run on %s — %s.\n"+
 			"  Release blocked stories or split stories with '%s %s', or pass --skip-prep",
