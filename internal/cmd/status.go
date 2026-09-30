@@ -59,10 +59,18 @@ func RunStatus(opts StatusOptions) error {
 		fmt.Println("\nIncomplete stories:")
 		for _, story := range incomplete {
 			status := ""
-			if story.InProgress {
+			switch {
+			case story.Blocked:
+				status = " (blocked)"
+			case story.NeedsReview:
+				status = " (needs review)"
+			case story.InProgress:
 				status = " (in progress)"
 			}
 			fmt.Printf("  %s: %s%s\n", story.ID, story.Title, status)
+			if story.Blocked && story.BlockedReason != "" {
+				fmt.Printf("      %s\n", story.BlockedReason)
+			}
 		}
 	} else {
 		fmt.Println("\nAll stories complete!")

@@ -22,6 +22,11 @@ var descriptionLineRegex = regexp.MustCompile(`^\*\*Description:\*\*\s*(.+)$`)
 // blockedByLineRegex matches "**Blocked by:** value"
 var blockedByLineRegex = regexp.MustCompile(`^\*\*Blocked by:\*\*\s*(.+)$`)
 
+// blockedReasonLineRegex matches "**Blockiert (Ben):** reason", the block chief
+// writes into a story it set to blocked. The English spelling is read too, for
+// a PRD somebody edited by hand.
+var blockedReasonLineRegex = regexp.MustCompile(`^\*\*(?:Blockiert|Blocked) \(Ben\):\*\*\s*(.*)$`)
+
 // checkboxRegex matches "- [ ] text" or "- [x] text"
 var checkboxRegex = regexp.MustCompile(`^-\s+\[([ xX])\]\s+(.+)$`)
 
@@ -66,6 +71,11 @@ func ParseMarkdownPRDFromString(content string) (*PRD, error) {
 		// If no explicit Description, join collected prose lines
 		if current.story.Description == "" && len(current.descLines) > 0 {
 			current.story.Description = strings.Join(current.descLines, " ")
+		}
+		// A reason belongs to a blocked story only. A story set back to todo by
+		// hand, with the old line left standing, is not blocked on anything.
+		if !current.story.Blocked {
+			current.story.BlockedReason = ""
 		}
 		// Assign auto-priority if none was set
 		if current.story.Priority == 0 {
@@ -127,19 +137,34 @@ func ParseMarkdownPRDFromString(content string) (*PRD, error) {
 					current.story.Passes = true
 					current.story.InProgress = false
 					current.story.NeedsReview = false
+					current.story.Blocked = false
 				case "in-progress", "in progress", "started":
 					current.story.InProgress = true
 					current.story.Passes = false
 					current.story.NeedsReview = false
-				case "needs-review", "needs review", "blocked":
+					current.story.Blocked = false
+				case "needs-review", "needs review":
 					current.story.NeedsReview = true
 					current.story.Passes = false
 					current.story.InProgress = false
+					current.story.Blocked = false
+				case "blocked":
+					current.story.Blocked = true
+					current.story.Passes = false
+					current.story.InProgress = false
+					current.story.NeedsReview = false
 				default:
 					current.story.Passes = false
 					current.story.InProgress = false
 					current.story.NeedsReview = false
+					current.story.Blocked = false
 				}
+				continue
+			}
+
+			// **Blockiert (Ben):** line — why a blocked story is blocked.
+			if m := blockedReasonLineRegex.FindStringSubmatch(trimmed); m != nil {
+				current.story.BlockedReason = strings.TrimSpace(m[1])
 				continue
 			}
 

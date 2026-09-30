@@ -82,9 +82,49 @@ func TestStatusWhileRunning(t *testing.T) {
 
   Recent     US-2        20m   parked 14:40
              US-1        20m   done 14:20
+
+  Review     US-2
 `
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// A blocked story is listed with what has to happen before it can go on, apart
+// from the ones parked for review, and neither counts as a story left to run —
+// nor does one that waits on the blocked story.
+func TestStatusListsBlockedStoriesWithTheirReason(t *testing.T) {
+	p := &prd.PRD{UserStories: []prd.UserStory{
+		{ID: "US-1", Passes: true},
+		{ID: "US-2", Title: "Sign the app", Blocked: true,
+			BlockedReason: "codesign waits on a keychain prompt · allow the key in Keychain Access, then set the story back to todo"},
+		{ID: "US-3", Title: "Notarize", BlockedBy: []string{"US-2"}},
+		{ID: "US-4", Title: "Flaky import", NeedsReview: true},
+		{ID: "US-5", Title: "Settings page"},
+	}}
+	log := parseRunLog(journalAt(45,
+		"0 story      US-1 started (iteration 1)",
+		"20 story      US-1 done",
+		"20 story      US-2 started (iteration 2)",
+		"40 story      US-2 blocked — codesign waits on a keychain prompt",
+		"40 story      US-5 started (iteration 3)",
+	))
+	got := render(statusView{
+		Box: demoBox(), Running: true, Unit: "activating", PRD: p, Log: log,
+		Now: time.Date(2026, 9, 24, 12, 45, 0, 0, time.UTC).In(berlin),
+	})
+	for _, want := range []string{
+		"1/5 stories · 20% · 1 parked for review · 1 blocked",
+		"≈20m per story, 1 story to go",
+		"Recent     US-2        20m   blocked 14:40",
+		"  Blocked    US-2       Sign the app\n" +
+			"                        codesign waits on a keychain prompt · allow the key in Keychain Access,\n" +
+			"                        then set the story back to todo\n",
+		"  Review     US-4       Flaky import\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
 	}
 }
 

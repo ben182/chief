@@ -632,3 +632,30 @@ func TestPRD_ExtractIDPrefix_SingleChar(t *testing.T) {
 		t.Errorf("ExtractIDPrefix() = %q, want %q", got, "T")
 	}
 }
+
+// A blocked story is skipped, and so is every story that depends on it, however
+// indirectly — the fallback that runs the dependents of a story parked for
+// review does not apply: their work would stand on something a person has yet
+// to provide.
+func TestPRD_NextStory_BlockedStoryHoldsBackItsDependents(t *testing.T) {
+	p := &PRD{UserStories: []UserStory{
+		{ID: "US-001", Priority: 1, Blocked: true},
+		{ID: "US-002", Priority: 2, BlockedBy: []string{"US-001"}},
+		{ID: "US-003", Priority: 3, BlockedBy: []string{"US-002"}, InProgress: true},
+		{ID: "US-004", Priority: 4},
+	}}
+	if next := p.NextStory(); next == nil || next.ID != "US-004" {
+		t.Fatalf("NextStory = %v, want US-004", next)
+	}
+	if p.AllResolved() {
+		t.Error("US-004 is still actionable")
+	}
+
+	p.UserStories[3].Passes = true
+	if next := p.NextStory(); next != nil {
+		t.Errorf("NextStory = %s, want nil: everything left waits on the blocked story", next.ID)
+	}
+	if !p.AllResolved() {
+		t.Error("with only the blocked story and its dependents left, the run has nothing to do")
+	}
+}

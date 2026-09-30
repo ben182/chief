@@ -360,3 +360,46 @@ func TestWriteFileAtomic(t *testing.T) {
 		}
 	}
 }
+
+// A blocked story carries its reason under the status line, and blocking it
+// again replaces the reason rather than adding a second one. Any other status
+// takes the reason away, because it no longer applies.
+func TestSetStoryBlocked_WritesReplacesAndClearsTheReason(t *testing.T) {
+	md := "# P\n\n### US-001: Sign\n**Status:** in-progress\n- [ ] Signed\n\n### US-002: Other\n**Status:** todo\n"
+
+	once, err := setStoryBlockedInString(md, "US-001", "keychain prompt\n  · allow the key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "### US-001: Sign\n**Status:** blocked\n**Blockiert (Ben):** keychain prompt · allow the key\n- [ ] Signed\n"
+	if !strings.Contains(once, want) {
+		t.Fatalf("got:\n%s\nwant it to contain:\n%s", once, want)
+	}
+
+	twice, err := setStoryBlockedInString(once, "US-001", "1Password is locked")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(twice, "**Blockiert (Ben):**") != 1 || !strings.Contains(twice, "**Blockiert (Ben):** 1Password is locked") {
+		t.Errorf("expected exactly the new reason:\n%s", twice)
+	}
+
+	p, err := ParseMarkdownPRDFromString(twice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := p.UserStories[0]; !s.Blocked || s.NeedsReview || s.BlockedReason != "1Password is locked" {
+		t.Errorf("parsed story = %+v", s)
+	}
+
+	released, err := setStoryStatusInString(twice, "US-001", "todo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(released, "Blockiert") {
+		t.Errorf("the reason survived setting the story back to todo:\n%s", released)
+	}
+	if released != strings.Replace(md, "**Status:** in-progress", "**Status:** todo", 1) {
+		t.Errorf("releasing the story left more than its status changed:\n%s", released)
+	}
+}

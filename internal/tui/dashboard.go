@@ -472,7 +472,7 @@ func (a *App) renderStoriesPanel(width, height int) string {
 	visibleCount := 0
 	for i := a.storiesScrollOffset; i < endIdx; i++ {
 		story := a.prd.UserStories[i]
-		icon := GetStatusIcon(story.Passes, story.InProgress, story.NeedsReview)
+		icon := GetStatusIcon(story)
 		if a.isReviewing(story.ID) {
 			icon = ReviewingIcon()
 		}
@@ -537,7 +537,7 @@ func (a *App) renderDetailsPanel(width, height int) string {
 	content.WriteString("\n\n")
 
 	// Status and Priority with proper styling
-	statusIcon := GetStatusIcon(story.Passes, story.InProgress, story.NeedsReview)
+	statusIcon := GetStatusIcon(*story)
 	var statusText string
 	var statusStyle lipgloss.Style
 	switch {
@@ -548,6 +548,9 @@ func (a *App) renderDetailsPanel(width, height int) string {
 	case story.Passes:
 		statusText = "Passed"
 		statusStyle = statusPassedStyle
+	case story.Blocked:
+		statusText = "Blocked — needs you"
+		statusStyle = statusFailedStyle
 	case story.NeedsReview:
 		statusText = "Needs Review"
 		statusStyle = statusPausedStyle
@@ -563,6 +566,12 @@ func (a *App) renderDetailsPanel(width, height int) string {
 	// Cost & tokens for this story (live while in progress, final once done).
 	if cost, tokens, ok := a.storyUsage(story.ID); ok {
 		content.WriteString(renderStoryUsageLine(cost, tokens))
+		content.WriteString("\n")
+	}
+
+	// What a blocked story waits for, where it is seen first.
+	if story.Blocked && story.BlockedReason != "" {
+		content.WriteString(statusFailedStyle.Render(wrapText(story.BlockedReason, width-4)))
 		content.WriteString("\n")
 	}
 

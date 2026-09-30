@@ -117,7 +117,7 @@ The Hetzner token is also read from `CHIEF_BOX_HETZNER_TOKEN`, `HCLOUD_TOKEN`, o
 
 The box is temporary, so everything the run produces has to be somewhere else by the time it goes:
 
-- **The branch is pushed, always, and after every story.** A box run sets `--push` and pushes whatever `onComplete.push` says, because that setting is about a laptop, where the commits are still there in the morning either way. The log says when it went against your config. It does not wait for the end either: each story that is done or parked is pushed as the run moves on to the next, so a box that dies mid-run loses at most the story it was on.
+- **The branch is pushed, always, and after every story.** A box run sets `--push` and pushes whatever `onComplete.push` says, because that setting is about a laptop, where the commits are still there in the morning either way. The log says when it went against your config. It does not wait for the end either: each story that is done, parked or blocked is pushed as the run moves on to the next, so a box that dies mid-run loses at most the story it was on — and a story that is blocked on you reaches origin with its reason while the run goes on.
 - **A pull request is opened** when `onComplete.createPR` is on, assigned to the account `gh` is authenticated as — so an unattended run lands in your "Assigned to you" list rather than among the branches.
 - **The run's log is committed next to the PRD** (`--log-to-branch`, always on for a box). The journal it would otherwise live in dies with the machine.
 - **The run summary** is written and committed when `onComplete.summary` is on, so it rides along in the push.
@@ -163,7 +163,7 @@ The box starts the run itself, from a systemd timer, so your laptop can be off b
 | `chief box up <prd>` | create the box and start the run, then hand the terminal back |
 | `chief box run <prd>` | the same, then follow the log until the run *ends* and say how it went |
 | `chief box logs` | follow the log of a box that is already running |
-| `chief box status` | what the unit is doing, plus the last fifteen lines |
+| `chief box status` | what the unit is doing, the stories blocked on you with their reasons, the ones parked for review, plus the last fifteen lines |
 | `chief box ssh [cmd]` | a shell on the box in the project directory, or one command there |
 
 `run` waits for the run rather than for the reader: `journalctl` keeps following a unit that has ended, so a finished run would otherwise look exactly like a quiet one. When it ends, `run` reports the outcome — *done — every story resolved*, *ended with work left*, *killed*, *timed out* — and sends a desktop notification if `onComplete.notify` is on. That notification comes from your machine, not the box: a server with no display is not somewhere a banner reaches anyone.

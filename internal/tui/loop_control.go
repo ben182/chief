@@ -456,6 +456,11 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 			a.lastActivity = event.Text
 		}
 		a.finalizeStoryTiming(prdName)
+	case loop.EventStoryBlocked:
+		if isCurrentPRD {
+			a.lastActivity = "Story " + event.StoryID + " blocked: " + event.Text
+		}
+		a.finalizeStoryTiming(prdName)
 	case loop.EventReviewStart:
 		if isCurrentPRD {
 			a.lastActivity = event.Text
@@ -562,7 +567,7 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 	// Reload PRD from disk only on meaningful state changes (not every event)
 	if isCurrentPRD {
 		switch event.Type {
-		case loop.EventStoryDone, loop.EventStoryNeedsReview, loop.EventComplete, loop.EventError, loop.EventMaxIterationsReached:
+		case loop.EventStoryDone, loop.EventStoryNeedsReview, loop.EventStoryBlocked, loop.EventComplete, loop.EventError, loop.EventMaxIterationsReached:
 			if p, err := prd.LoadPRD(a.prdPath); err == nil {
 				a.prd = p
 			}
@@ -581,7 +586,7 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 	// those chunks turned every token into a full directory scan.
 	if a.tabBar != nil {
 		switch event.Type {
-		case loop.EventIterationStart, loop.EventStoryDone, loop.EventStoryNeedsReview,
+		case loop.EventIterationStart, loop.EventStoryDone, loop.EventStoryNeedsReview, loop.EventStoryBlocked,
 			loop.EventComplete, loop.EventError, loop.EventMaxIterationsReached:
 			a.tabBar.Refresh()
 		}

@@ -342,8 +342,9 @@ func GetDetectSetupPrompt() string {
 func GetSummaryPrompt(summaryPath, commits string, parked []string) string {
 	parkedBlock := ""
 	if len(parked) > 0 {
-		parkedBlock = "\nThe following stories were parked for human review (they could not be" +
-			" completed automatically) — call these out under \"Offene Punkte\":\n"
+		parkedBlock = "\nThe following stories were left for a human — parked for human review, or" +
+			" blocked on something only a person can resolve (the reason is in brackets)." +
+			" They could not be completed automatically — call these out under \"Offene Punkte\":\n"
 		for _, s := range parked {
 			parkedBlock += "- " + s + "\n"
 		}

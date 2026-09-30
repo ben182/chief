@@ -100,12 +100,48 @@ Every iteration reads this section before it starts, so keep it short:
 - Keep changes focused and minimal
 - Follow existing code patterns
 
+## When Only a Person Can Unblock the Story
+
+Nobody is watching this run. Some things stop a story that no amount of work on
+the code can get past, and trying again only burns the night. For those — and
+ONLY those — report the story blocked instead of done:
+
+- a system dialog that nobody will answer (a keychain prompt from `codesign`, a
+  "wants to access" prompt) or a command that hangs waiting on one
+- a locked password manager or signing agent (1Password, gpg, an SSH key that
+  needs unlocking to sign commits)
+- a missing OS permission (macOS privacy/TCC, accessibility, full disk access)
+- a missing account, credential, access right, or piece of hardware
+- a decision, or a contradiction in the PRD, that only the person who wrote it
+  can settle (two criteria that exclude each other, a team ID that does not match
+  the project)
+
+Failing tests, build errors, lint errors, a missing dependency you can install,
+and bugs in your own code are **never** blocked — fix them. When in doubt, it is
+not blocked.
+
+If you are blocked:
+1. Commit the finished, working part of the story as usual, with the same
+   message as above (`feat: {{PRD_NAME}}/{{STORY_ID}} - {{STORY_TITLE}}`). Skip
+   this if nothing is finished or it does not pass the quality checks.
+2. Append a progress entry saying what is done, what is left, and exactly where
+   it stopped.
+3. Output `<chief-blocked>what blocks the story · what the person has to do</chief-blocked>`
+   — one or two sentences, concrete enough to act on without reading the log,
+   e.g. `<chief-blocked>codesign waits on a keychain prompt for the "Developer ID"
+   certificate · allow codesign to use the key in Keychain Access, then set the
+   story back to todo</chief-blocked>`.
+4. Stop. Do NOT output <chief-done/>, and do not try again: the story is set
+   aside until the person has acted, and the run moves on to other stories.
+
 ## Stop Condition
 
 After implementing the story:
 1. Review EACH acceptance criterion one by one and verify it is met
 2. Only if ALL criteria pass: output <chief-done/>
-3. If any criterion is NOT met: end your response WITHOUT <chief-done/>
+3. If a criterion cannot be met because of something only a person can resolve
+   (see above): output <chief-blocked>…</chief-blocked> instead
+4. If any other criterion is NOT met: end your response WITHOUT <chief-done/>
 
 ## Important
 

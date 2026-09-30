@@ -33,21 +33,46 @@ func (l *Loop) openRunLog() error {
 
 // finalizeStory resolves the outcome of the story attempted in this iteration.
 //
-// If the agent emitted <chief-done/> and a matching commit actually landed, the
-// story is marked done in prd.md (after an optional review pass). Otherwise the
-// story did not complete: the attempt is counted and, once the per-story limit is
-// hit, the story is parked for human review so the loop can move on to other
-// unblocked stories instead of retrying forever.
+// If the agent emitted <chief-blocked>, the story is marked blocked in prd.md at
+// once, with its reason, and not attempted again: what stopped it is outside the
+// code, and another attempt would hit the same wall. If it emitted <chief-done/>
+// and a matching commit actually landed, the story is marked done in prd.md
+// (after an optional review pass). Otherwise the story did not complete: the
+// attempt is counted and, once the per-story limit is hit, the story is parked
+// for human review so the loop can move on to other unblocked stories instead of
+// retrying forever.
+//
+// Every one of those outcomes is committed (see commitStoryProgress), so a run
+// that pushes after each story — a box run — pushes the new status along.
 //
 // It returns a non-nil error only when a source-of-truth write to prd.md fails,
 // which the caller uses to stop the whole run (see setStatusOrFail).
 func (l *Loop) finalizeStory(ctx context.Context, currentIter int) error {
 	l.mu.Lock()
 	saw := l.sawStoryDone
+	blocked, reason := l.sawStoryBlocked, l.blockedReason
 	storyID := l.currentStoryID
 	storyTitle := l.currentStoryTitle
 	l.sawStoryDone = false
+	l.sawStoryBlocked, l.blockedReason = false, ""
 	l.mu.Unlock()
+
+	if blocked && storyID != "" {
+		if err := prd.SetStoryBlocked(l.prdPath, storyID, reason); err != nil {
+			werr := fmt.Errorf("failed to mark story %s blocked in prd.md: %w", storyID, err)
+			l.logLine("[chief] " + werr.Error())
+			l.events <- Event{Type: EventError, Iteration: currentIter, StoryID: storyID, Err: werr}
+			return werr
+		}
+		l.commitStoryProgress(storyID, storyTitle)
+		l.events <- Event{
+			Type:      EventStoryBlocked,
+			Iteration: currentIter,
+			StoryID:   storyID,
+			Text:      reason,
+		}
+		return nil
+	}
 
 	// A <chief-done/> signal is only trusted if a matching commit actually landed.
 	// Otherwise the agent claimed done but produced no committed work (forgot to
@@ -90,6 +115,7 @@ func (l *Loop) finalizeStory(ctx context.Context, currentIter int) error {
 				fmt.Sprintf("failed to park story %s for review in prd.md", storyID)); err != nil {
 				return err
 			}
+			l.commitStoryProgress(storyID, storyTitle)
 			l.events <- Event{
 				Type:      EventStoryNeedsReview,
 				Iteration: currentIter,

@@ -259,3 +259,21 @@ func TestASubagentsDoneTagDoesNotEndTheIteration(t *testing.T) {
 		t.Errorf("the agent's own tag no longer ends the story: %+v", ev)
 	}
 }
+
+// <chief-blocked> ends the story with a reason; in a subagent's message it is
+// only text, like <chief-done/>.
+func TestParseLine_ChiefBlocked(t *testing.T) {
+	line := `{"type":"assistant","message":{"content":[{"type":"text","text":"Committed the UI.\n<chief-blocked> codesign waits on a keychain prompt · allow the key </chief-blocked>\n<chief-done/>"}]}}`
+	ev := ParseLine(line)
+	if ev == nil || ev.Type != EventStoryBlocked {
+		t.Fatalf("got %+v, want EventStoryBlocked (blocked wins over done)", ev)
+	}
+	if ev.Text != "codesign waits on a keychain prompt · allow the key" {
+		t.Errorf("Text = %q", ev.Text)
+	}
+
+	sub := `{"type":"assistant","parent_tool_use_id":"toolu_1","message":{"content":[{"type":"text","text":"<chief-blocked>x</chief-blocked>"}]}}`
+	if ev := ParseLine(sub); ev == nil || ev.Type != EventAssistantText {
+		t.Errorf("a subagent's <chief-blocked> became %+v", ev)
+	}
+}

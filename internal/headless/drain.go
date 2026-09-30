@@ -97,10 +97,12 @@ func flush(log *logger, manager *loop.Manager, story *string, spent float64) flo
 	}
 }
 
-// storyEnded says whether ev closes a story, done or parked. Either way its
-// commits are final, which is what a push after it is for.
+// storyEnded says whether ev closes a story, done, parked or blocked. Either way
+// its commits are final, which is what a push after it is for — for a blocked
+// story, the push is also what gets its reason to the person who has to act.
 func storyEnded(ev loop.Event) bool {
-	return ev.Type == loop.EventStoryDone || ev.Type == loop.EventStoryNeedsReview
+	return ev.Type == loop.EventStoryDone || ev.Type == loop.EventStoryNeedsReview ||
+		ev.Type == loop.EventStoryBlocked
 }
 
 // reportSpent writes what the run has cost so far each time a story ends. The
@@ -137,6 +139,15 @@ func report(log *logger, ev loop.Event, story *string) {
 	case loop.EventStoryNeedsReview:
 		log.event("story", "%s parked for human review after too many failed attempts",
 			orCurrent(ev.StoryID, *story))
+
+	case loop.EventStoryBlocked:
+		// "blocked" is the word `chief box status` reads off the journal; the
+		// reason follows it so the log alone says what to do.
+		reason := collapse(ev.Text)
+		if reason == "" {
+			reason = "no reason given"
+		}
+		log.event("story", "%s blocked — %s", orCurrent(ev.StoryID, *story), reason)
 
 	case loop.EventStoryNoCommit:
 		log.event("story", "%s claimed done but committed nothing — retrying",

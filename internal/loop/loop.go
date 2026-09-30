@@ -91,25 +91,30 @@ func timestampedLogName(base string, t time.Time) string {
 
 // Loop manages the core agent loop that invokes the configured agent repeatedly until all stories are complete.
 type Loop struct {
-	prdPath           string
-	workDir           string
-	prompt            string
-	buildPrompt       func() (string, string, string, error) // optional: rebuild prompt each iteration; returns (prompt, storyID, storyTitle, error)
-	maxIter           int
-	iteration         int
-	events            chan Event
-	provider          Provider
-	agentCmd          *exec.Cmd
-	logFile           *os.File
-	logPath           string
-	logMu             sync.Mutex // serializes logFile writes across the stdout/stderr goroutines
-	mu                sync.Mutex
-	stopped           bool
-	paused            bool
-	retryConfig       RetryConfig
-	lastOutputTime    atomic.Int64 // last stdout activity as Unix nanos; read/written lock-free by the watchdog and per-line hot path
-	watchdogTimeout   time.Duration
-	sawStoryDone      bool
+	prdPath         string
+	workDir         string
+	prompt          string
+	buildPrompt     func() (string, string, string, error) // optional: rebuild prompt each iteration; returns (prompt, storyID, storyTitle, error)
+	maxIter         int
+	iteration       int
+	events          chan Event
+	provider        Provider
+	agentCmd        *exec.Cmd
+	logFile         *os.File
+	logPath         string
+	logMu           sync.Mutex // serializes logFile writes across the stdout/stderr goroutines
+	mu              sync.Mutex
+	stopped         bool
+	paused          bool
+	retryConfig     RetryConfig
+	lastOutputTime  atomic.Int64 // last stdout activity as Unix nanos; read/written lock-free by the watchdog and per-line hot path
+	watchdogTimeout time.Duration
+	sawStoryDone    bool
+	// blockedReason is what the build agent gave as the reason the story cannot
+	// be finished without a person, from <chief-blocked>. Empty when it gave
+	// none; sawStoryBlocked says whether it did.
+	sawStoryBlocked   bool
+	blockedReason     string
 	currentStoryID    string
 	currentStoryTitle string
 	stderrTail        []string       // last few stderr lines from the current iteration, for crash diagnostics
@@ -541,6 +546,8 @@ func (l *Loop) Run(ctx context.Context) error {
 			l.currentStoryID = storyID
 			l.currentStoryTitle = storyTitle
 			l.sawStoryDone = false
+			l.sawStoryBlocked = false
+			l.blockedReason = ""
 			l.mu.Unlock()
 		}
 
@@ -786,10 +793,12 @@ func (l *Loop) runIteration(ctx context.Context, mode iterationMode) error {
 		}
 		// Check if we killed the process ourselves after <chief-done/>.
 		// That's a graceful end of the iteration, not a crash, so don't retry.
-		// Covers the build agent (sawStoryDone), the review agent (sawReviewDone)
-		// and the end-of-run consolidation pass (sawConsolidateDone).
+		// Covers the build agent (sawStoryDone, or sawStoryBlocked when it gave
+		// up on something only a person can resolve), the review agent
+		// (sawReviewDone) and the end-of-run consolidation pass
+		// (sawConsolidateDone).
 		l.mu.Lock()
-		saw := l.sawStoryDone || l.sawReviewDone || l.sawConsolidateDone
+		saw := l.sawStoryDone || l.sawStoryBlocked || l.sawReviewDone || l.sawConsolidateDone
 		l.mu.Unlock()
 		if saw {
 			return nil
@@ -910,6 +919,27 @@ func (l *Loop) processOutput(r io.Reader, mode iterationMode) {
 				if surface {
 					l.events <- *event
 				}
+				continue
+			}
+			if event.Type == EventStoryBlocked {
+				if mode != modeBuild {
+					// Only the build agent may declare its story blocked. The
+					// reviewer and the consolidation pass have no story of their
+					// own to give up on; the tag in their text is just text.
+					event.Type = EventAssistantText
+					l.mu.Unlock()
+					l.events <- *event
+					continue
+				}
+				// Ends the iteration exactly like <chief-done/>, but the event is
+				// held back: finalizeStory reports the story blocked once prd.md
+				// says so, which is when the UI can show it.
+				l.sawStoryBlocked = true
+				l.blockedReason = event.Text
+				if l.agentCmd != nil {
+					killProcessGroup(l.agentCmd.Process)
+				}
+				l.mu.Unlock()
 				continue
 			}
 			if event.Type == EventStoryDone {
@@ -1113,7 +1143,10 @@ func (l *Loop) commitStoryProgress(storyID, storyTitle string) {
 		return
 	}
 	expected := fmt.Sprintf("feat: %s/%s - %s", prdNameFromPath(l.prdPath), storyID, storyTitle)
-	if subj, err := git.HeadSubject(dir); err == nil && subj == expected {
+	// Never into a commit that is already on origin: a story blocked in an
+	// earlier run and blocked again in this one finds its old, pushed commit at
+	// HEAD, and amending that would get every push after it refused.
+	if subj, err := git.HeadSubject(dir); err == nil && subj == expected && !git.HeadIsPushed(dir) {
 		_ = git.AmendPaths(dir, paths...)
 		return
 	}

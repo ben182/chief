@@ -48,7 +48,8 @@ The top of the file is your chance to give the agent context that doesn't fit in
 Below the freeform context, define your user stories using structured markdown headings that Chief parses:
 
 - `### US-001: Story Title` — story heading (ID + title)
-- `**Status:** done|in-progress|todo|needs-review` — tracked by Chief
+- `**Status:** done|in-progress|todo|needs-review|blocked` — tracked by Chief
+- `**Blockiert (Ben):** ...` — written by Chief under a `blocked` status: what blocks the story and what to do
 - `**Priority:** N` — execution order (optional; defaults to document order)
 - `**Blocked by:** US-001, US-002` — story IDs that must be `done` first (optional; omit for stories with no dependencies)
 - `**Description:** ...` — story description (or freeform prose after heading)
@@ -128,8 +129,9 @@ Chief picks the next story to work on by following the **dependency frontier** �
 
 ```
 1. If a story is **Status:** in-progress (and not parked), resume it first
-2. Otherwise compute the frontier: every story that is
-   not done, not needs-review, and whose Blocked by IDs are all done
+2. Otherwise compute the frontier: every story that is not done, not
+   needs-review, not blocked, not waiting on a blocked story, and whose
+   Blocked by IDs are all done
 3. From the frontier, pick the lowest **Priority:** (ties break by document order)
 4. Fallback: if the frontier is empty but unfinished, non-parked work remains
    (a dependency cycle, or everything left is blocked by a parked story),
@@ -138,7 +140,7 @@ Chief picks the next story to work on by following the **dependency frontier** �
 6. Nothing left → the loop ends
 ```
 
-Stories parked as `needs-review` are skipped by selection just like `done` stories, so one stuck story never blocks the rest. The loop ends once no actionable stories remain (everything is either `done` or `needs-review`).
+Stories parked as `needs-review` are skipped by selection just like `done` stories, so one stuck story never blocks the rest. A `blocked` story is skipped the same way, and so is every story that depends on it, even through the fallback — their work would stand on something a person has yet to provide. The loop ends once no actionable stories remain (everything is `done`, `needs-review`, `blocked`, or waiting on a blocked story).
 
 The fallback in step 4 is what makes the loop deadlock-proof: even if you write a dependency cycle, or every remaining story is blocked by a story that got parked, Chief still makes progress instead of stalling.
 
@@ -172,6 +174,8 @@ If Chief is interrupted mid-iteration, the status may remain `in-progress`. On t
 ### Completion Signal
 
 When the agent finishes a story, it outputs `<chief-done/>` to signal that the current story is complete. Chief then marks the story as done in `prd.md` and selects the next one. When no incomplete stories remain, the loop ends naturally.
+
+When the agent hits something that only a person can resolve — a keychain dialog nobody answers, a locked password manager, a missing permission or account, a contradiction in the PRD — it commits whatever is finished and outputs `<chief-blocked>what blocks it · what to do</chief-blocked>` instead. Chief sets the story to `blocked` at once, without counting it as a failed attempt or trying again, writes the reason into the story as `**Blockiert (Ben):** …`, commits the change and moves on. Failing tests and build errors are never a reason to block.
 
 ## Annotated Example PRD
 

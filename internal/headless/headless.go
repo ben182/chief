@@ -313,13 +313,7 @@ func verdict(state loop.LoopState) string {
 // parkedLabels names the stories that ended up needing a human, the way the
 // completion screen lists them.
 func parkedLabels(p *prd.PRD) []string {
-	var out []string
-	for _, s := range p.UserStories {
-		if s.NeedsReview {
-			out = append(out, s.ID+" - "+s.Title)
-		}
-	}
-	return out
+	return p.ParkedLabels()
 }
 
 // livePRDPath is the copy of the PRD the run wrote its progress into: the

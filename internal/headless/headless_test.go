@@ -732,3 +732,79 @@ func TestTheStoryPusherCoalescesAndSurvivesFailures(t *testing.T) {
 	nilPusher.storyEnded("US-001")
 	nilPusher.stop()
 }
+
+// A story the agent reports blocked is set aside at once, with its reason, and
+// never tried again; the story that depends on it waits, the independent one
+// still runs; and the new status reaches origin, which is the only place a box
+// run's morning reader will see it.
+func TestABlockedStoryIsSetAsideWithItsReasonAndPushed(t *testing.T) {
+	dir, prdPath := project(t, "US-001", "Sign")
+	md := "# Demo\n\nA demo project\n\n" +
+		"### US-001: Sign\n\n- [ ] Signed\n\n" +
+		"### US-002: Notarize\n**Blocked by:** US-001\n\n- [ ] Notarized\n\n" +
+		"### US-003: Settings\n\n- [ ] Settings page\n"
+	if err := os.WriteFile(prdPath, []byte(md), 0644); err != nil {
+		t.Fatal(err)
+	}
+	remote := filepath.Join(t.TempDir(), "origin.git")
+	runGit(t, dir, "init", "--bare", "-q", remote)
+	runGit(t, dir, "remote", "add", "origin", remote)
+	runGit(t, dir, "push", "-q", "origin", "main")
+
+	attempts := filepath.Join(t.TempDir(), "attempts")
+	script := filepath.Join(t.TempDir(), "mock-agent")
+	body := "#!/bin/bash\n" +
+		"id=$(printf '%s' \"$1\" | grep -o 'demo/US-[0-9]*' | head -1)\n" +
+		"echo \"$id\" >> " + shellQuote(attempts) + "\n" +
+		"echo \"$id\" >> impl.txt\n" +
+		"git add impl.txt >/dev/null 2>&1\n" +
+		"git commit -m \"feat: $id - story\" >/dev/null 2>&1\n" +
+		"if [ \"$id\" = demo/US-001 ]; then\n" +
+		`  echo '{"type":"assistant","message":{"content":[{"type":"text","text":"<chief-blocked>codesign waits on a keychain prompt · allow the key in Keychain Access</chief-blocked>"}]}}'` + "\n" +
+		"else\n" +
+		`  echo '{"type":"assistant","message":{"content":[{"type":"text","text":"built it <chief-done/>"}]}}'` + "\n" +
+		"fi\n"
+	if err := os.WriteFile(script, []byte(body), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// The review and consolidation agents would run the same script; only the
+	// build attempts are being counted here.
+	off := false
+	cfg := &config.Config{}
+	cfg.Review.Enabled, cfg.Consolidate.Enabled = &off, &off
+	res, log := run(t, Options{
+		PRDPath:  prdPath,
+		BaseDir:  dir,
+		Provider: &testProvider{script: script},
+		Config:   cfg,
+		Push:     true,
+	})
+
+	got, _ := os.ReadFile(attempts)
+	if string(got) != "demo/US-001\ndemo/US-003\n" {
+		t.Errorf("stories attempted:\n%s\nwant US-001 once, US-002 never, US-003 once\nlog:\n%s", got, log)
+	}
+	if !strings.Contains(log, "US-001 blocked — codesign waits on a keychain prompt · allow the key in Keychain Access") {
+		t.Errorf("the log does not say US-001 is blocked and why:\n%s", log)
+	}
+	if !res.Completed {
+		t.Errorf("a run with nothing left it can do should end complete\nlog:\n%s", log)
+	}
+	if len(res.Parked) != 1 || !strings.Contains(res.Parked[0], "US-001 - Sign (blocked: codesign waits") {
+		t.Errorf("Parked = %q", res.Parked)
+	}
+
+	pushed := runGit(t, dir, "show", "origin/chief/demo:.chief/prds/demo/prd.md")
+	for _, want := range []string{
+		"### US-001: Sign\n**Status:** blocked\n**Blockiert (Ben):** codesign waits on a keychain prompt · allow the key in Keychain Access\n",
+		"### US-003: Settings\n**Status:** done",
+	} {
+		if !strings.Contains(pushed, want) {
+			t.Errorf("origin's prd.md is missing %q:\n%s", want, pushed)
+		}
+	}
+	if strings.Contains(pushed, "### US-002: Notarize\n**Status:**") {
+		t.Errorf("US-002 waits on a blocked story and must not have been started:\n%s", pushed)
+	}
+}

@@ -68,6 +68,12 @@ const (
 	// rate limit window resets, instead of burning its crash retries against a
 	// limit that has hours left to run.
 	EventRateLimitWait
+	// EventStoryBlocked is the agent reporting, via
+	// <chief-blocked>reason</chief-blocked>, that the story cannot be finished
+	// without a person. Its Text is the reason. The loop takes the parser's event
+	// in and emits its own once the story is marked blocked in prd.md, carrying
+	// the story ID.
+	EventStoryBlocked
 )
 
 // String returns the string representation of an EventType.
@@ -115,6 +121,8 @@ func (e EventType) String() string {
 		return "RateLimit"
 	case EventRateLimitWait:
 		return "RateLimitWait"
+	case EventStoryBlocked:
+		return "StoryBlocked"
 	default:
 		return "Unknown"
 	}
@@ -226,11 +234,11 @@ func ParseLine(line string) *Event {
 	case "assistant":
 		ev := parseAssistantMessage(msg.Message)
 		// A subagent's message is not the agent's verdict. Its usage is paid for
-		// like any other, but a <chief-done/> in it — a reviewer quoting the
-		// prompt, say — must not end the iteration: the loop kills the process
-		// group on that tag, taking the agent and every subagent still running
-		// with it.
-		if msg.ParentToolUseID != "" && ev != nil && ev.Type == EventStoryDone {
+		// like any other, but a <chief-done/> or <chief-blocked> in it — a
+		// reviewer quoting the prompt, say — must not end the iteration: the loop
+		// kills the process group on that tag, taking the agent and every
+		// subagent still running with it.
+		if msg.ParentToolUseID != "" && ev != nil && (ev.Type == EventStoryDone || ev.Type == EventStoryBlocked) {
 			ev.Type = EventAssistantText
 		}
 		return ev

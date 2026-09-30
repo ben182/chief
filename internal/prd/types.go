@@ -19,10 +19,25 @@ type UserStory struct {
 	Passes             bool     `json:"passes"`
 	InProgress         bool     `json:"inProgress,omitempty"`
 	NeedsReview        bool     `json:"needsReview,omitempty"` // parked after repeated failures; skipped by NextStory
+	// Blocked marks a story the agent could not finish for a reason only a
+	// person can resolve — a system dialog nobody answers, a locked password
+	// manager, a contradiction in the PRD. BlockedReason says what it is and what
+	// to do about it. Unlike NeedsReview, the stories that depend on it wait for
+	// it instead of running anyway: their work would stand on something missing.
+	// Not to be confused with BlockedBy, which is about other stories.
+	Blocked       bool   `json:"blocked,omitempty"`
+	BlockedReason string `json:"blockedReason,omitempty"`
 	// BlockedBy lists the IDs of stories that must have Passes==true before this
 	// story becomes eligible (see Frontier). Empty means the story can start
 	// immediately. Unknown/typo IDs are ignored so they can never deadlock the loop.
 	BlockedBy []string `json:"blockedBy,omitempty"`
+}
+
+// Parked reports whether the loop has set the story aside for a person: parked
+// for review after repeated failures, or blocked on something only a person can
+// resolve.
+func (s *UserStory) Parked() bool {
+	return s.NeedsReview || s.Blocked
 }
 
 // PRD represents a Product Requirements Document.
@@ -91,7 +106,7 @@ func (p *PRD) Incomplete() []UserStory {
 }
 
 // Frontier returns, in PRD order, every story that is eligible to be worked on
-// next: not passed, not parked (NeedsReview), and with every blocker satisfied.
+// next: actionable (see Actionable), and with every blocker satisfied.
 //
 // A blocker ID (from BlockedBy) is "satisfied" when it either refers to a story
 // in this PRD that has Passes==true, or refers to no story at all. Robustness
@@ -110,16 +125,63 @@ func (p *PRD) Frontier() []*UserStory {
 	}
 
 	var out []*UserStory
-	for i := range p.UserStories {
-		story := &p.UserStories[i]
-		if story.Passes || story.NeedsReview {
-			continue
-		}
+	for _, story := range p.Actionable() {
 		if blockersSatisfied(story, exists, passed) {
 			out = append(out, story)
 		}
 	}
 	return out
+}
+
+// Actionable returns, in PRD order, every story the loop may still work on:
+// not passed, not parked, and not waiting on a blocked story. A story waits
+// when it depends — directly or through other stories — on a blocked story that
+// has not passed; its work would stand on something a person has yet to
+// provide. A story parked for review holds nothing back, since its dependents
+// may well still be doable (see NextStory's fallback).
+func (p *PRD) Actionable() []*UserStory {
+	waiting := p.waiting()
+	var out []*UserStory
+	for i := range p.UserStories {
+		story := &p.UserStories[i]
+		if story.Passes || story.Parked() || waiting[story.ID] {
+			continue
+		}
+		out = append(out, story)
+	}
+	return out
+}
+
+// waiting returns the IDs of the stories that cannot start before a person has
+// acted: the blocked stories themselves, and every unpassed story that depends
+// on one of them, however indirectly. Unknown and self-referencing blocker IDs
+// are ignored exactly as in Frontier.
+func (p *PRD) waiting() map[string]bool {
+	waiting := make(map[string]bool)
+	for i := range p.UserStories {
+		if s := &p.UserStories[i]; s.Blocked && !s.Passes {
+			waiting[s.ID] = true
+		}
+	}
+	// Spread to dependents until nothing changes. PRDs have tens of stories, so
+	// the repeated passes cost nothing, and a cycle simply stops spreading.
+	for changed := len(waiting) > 0; changed; {
+		changed = false
+		for i := range p.UserStories {
+			s := &p.UserStories[i]
+			if s.Passes || waiting[s.ID] {
+				continue
+			}
+			for _, dep := range s.BlockedBy {
+				if dep != s.ID && waiting[dep] {
+					waiting[s.ID] = true
+					changed = true
+					break
+				}
+			}
+		}
+	}
+	return waiting
 }
 
 // blockersSatisfied reports whether every blocker of story is satisfied given
@@ -154,23 +216,25 @@ func lowestPriority(stories []*UserStory) *UserStory {
 
 // NextStory returns the next story to work on:
 //
-//  1. The first in-progress, non-parked story (interrupted work resumes), or
+//  1. The first in-progress, actionable story (interrupted work resumes), or
 //  2. the lowest-priority eligible frontier story — one whose blockers are all
 //     satisfied (see Frontier); ties break by PRD order, or
 //  3. as a graceful fallback when nothing on the frontier is eligible but
-//     unpassed, non-parked work still remains (a dependency cycle, or every
-//     remaining story is blocked by a parked story), the lowest-priority
-//     unpassed, non-parked story — so the loop can never hang on an authoring
-//     bug, or
-//  4. nil when there are no unpassed, non-parked stories left at all.
+//     actionable work still remains (a dependency cycle, or every remaining
+//     story is blocked by a story parked for review), the lowest-priority
+//     actionable story — so the loop can never hang on an authoring bug, or
+//  4. nil when there are no actionable stories left at all.
 //
-// Stories parked for human review (NeedsReview) are always skipped so the loop
-// moves on instead of retrying a stuck one forever.
+// Parked stories (NeedsReview, Blocked) are always skipped so the loop moves on
+// instead of retrying a stuck one forever, and so are the stories waiting on a
+// blocked one (see Actionable) — the fallback included.
 func (p *PRD) NextStory() *UserStory {
+	actionable := p.Actionable()
+
 	// 1. In-progress (interrupted) story resumes first.
-	for i := range p.UserStories {
-		if p.UserStories[i].InProgress && !p.UserStories[i].NeedsReview {
-			return &p.UserStories[i]
+	for _, story := range actionable {
+		if story.InProgress {
+			return story
 		}
 	}
 
@@ -180,27 +244,34 @@ func (p *PRD) NextStory() *UserStory {
 	}
 
 	// 3. Graceful fallback: no eligible frontier story, but actionable work
-	//    remains. Pick the lowest-priority unpassed, non-parked story.
-	var remaining []*UserStory
-	for i := range p.UserStories {
-		story := &p.UserStories[i]
-		if !story.Passes && !story.NeedsReview {
-			remaining = append(remaining, story)
-		}
-	}
-	// 4. lowestPriority returns nil when nothing remains.
-	return lowestPriority(remaining)
+	//    remains. 4. lowestPriority returns nil when nothing remains.
+	return lowestPriority(actionable)
 }
 
-// AllResolved returns true when every story is either done (passes) or parked
-// for human review (NeedsReview) — i.e. the loop has no more actionable work.
+// AllResolved returns true when the loop has no more actionable work: every
+// story is done, parked, or waiting on a blocked story.
 func (p *PRD) AllResolved() bool {
-	for _, story := range p.UserStories {
-		if !story.Passes && !story.NeedsReview {
-			return false
+	return len(p.Actionable()) == 0
+}
+
+// ParkedLabels names every story the loop set aside for a person, in PRD order:
+// "ID - Title" for one parked for review, and "ID - Title (blocked: reason)" for
+// a blocked one, since the reason is what the person has to act on.
+func (p *PRD) ParkedLabels() []string {
+	var out []string
+	for _, s := range p.UserStories {
+		switch {
+		case s.Blocked:
+			label := s.ID + " - " + s.Title + " (blocked"
+			if s.BlockedReason != "" {
+				label += ": " + s.BlockedReason
+			}
+			out = append(out, label+")")
+		case s.NeedsReview:
+			out = append(out, s.ID+" - "+s.Title)
 		}
 	}
-	return true
+	return out
 }
 
 // NextStoryContext returns the next story to work on as a formatted string

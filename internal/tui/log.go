@@ -96,7 +96,7 @@ func (l *LogViewer) AddEvent(event loop.Event) {
 	// Filter out events we don't want to display
 	switch event.Type {
 	case loop.EventAssistantText, loop.EventToolStart, loop.EventToolResult,
-		loop.EventStoryDone, loop.EventStoryNeedsReview, loop.EventStoryNoCommit, loop.EventComplete, loop.EventError, loop.EventRetrying,
+		loop.EventStoryDone, loop.EventStoryNeedsReview, loop.EventStoryBlocked, loop.EventStoryNoCommit, loop.EventComplete, loop.EventError, loop.EventRetrying,
 		loop.EventWatchdogTimeout, loop.EventNoGitRepo, loop.EventReviewStart, loop.EventReviewDone,
 		loop.EventConsolidateStart, loop.EventConsolidateDone,
 		loop.EventRateLimit, loop.EventRateLimitWait:
@@ -382,6 +382,8 @@ func (l *LogViewer) renderEntry(entry LogEntry) []string {
 		return l.renderToolResult(entry)
 	case loop.EventStoryDone:
 		return l.renderStoryDone(entry)
+	case loop.EventStoryBlocked:
+		return l.renderStoryBlocked(entry)
 	case loop.EventReviewStart, loop.EventReviewDone:
 		return l.renderReview(entry)
 	case loop.EventConsolidateStart, loop.EventConsolidateDone:
@@ -611,6 +613,24 @@ func (l *LogViewer) renderStoryDone(entry LogEntry) []string {
 		divider,
 		"",
 	}
+}
+
+// renderStoryBlocked renders the marker for a story the agent gave up on because
+// only a person can unblock it, with the reason under it: the reason is what the
+// person has to act on, and the log is where they will look first.
+func (l *LogViewer) renderStoryBlocked(entry LogEntry) []string {
+	label := glyph("⊘ Story blocked — needs you", "[!] Story blocked - needs you")
+	storyStyle := lipgloss.NewStyle().Foreground(ErrorColor).Bold(true).Padding(0, 1)
+	divider := lipgloss.NewStyle().Foreground(ErrorColor).Render(strings.Repeat("─", l.width-4))
+
+	lines := []string{"", divider, storyStyle.Render(label)}
+	if entry.Text != "" {
+		textStyle := lipgloss.NewStyle().Foreground(TextColor).Padding(0, 1)
+		for _, line := range strings.Split(wrapText(entry.Text, l.width-6), "\n") {
+			lines = append(lines, textStyle.Render(line))
+		}
+	}
+	return append(lines, divider, "")
 }
 
 // renderReview renders the separate review agent's start/finish markers so the

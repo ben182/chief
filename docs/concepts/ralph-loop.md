@@ -212,6 +212,8 @@ After `DefaultMaxAttemptsPerStory` (5) failed attempts on the same story, Chief:
 1. Marks the story `**Status:** needs-review` in `prd.md` (shown with a ⚑ "Needs Review" marker in the TUI)
 2. Moves on to the next unblocked story
 
+A story the agent reports as **blocked** (`<chief-blocked>reason</chief-blocked>`, for things only a person can resolve) skips all of this: it is set to `blocked` with its reason on the first attempt, because another attempt would run into the same wall, and the stories depending on it wait for it.
+
 This matters because stories are usually independent — one stuck story shouldn't block the other 200. The loop keeps making progress and only ends once **no actionable stories remain** (every story is either done or parked for review). Parked stories are left for a human to inspect: break them down, fix the PRD, or resolve whatever the agent got stuck on, then reset the status.
 
 ## Rate Limits Are Not Crashes
@@ -233,6 +235,7 @@ Beyond per-story retries, Chief keeps a global iteration cap purely as a runaway
 | Story completes normally | Iteration counter goes up by 1, loop continues |
 | Story takes multiple agent sessions | Each agent invocation is 1 iteration |
 | Story fails 5× | Parked as `needs-review`, loop continues with other stories |
+| Agent reports the story blocked | Set to `blocked` with its reason at once, loop continues with stories that don't depend on it |
 | Global backstop reached | Chief stops and displays a message |
 
 ## Post-Completion Actions

@@ -137,7 +137,8 @@ func (w *Watcher) hasStatusChanged(newPRD *PRD) bool {
 		// Check if status fields changed
 		if oldStory.Passes != newStory.Passes ||
 			oldStory.InProgress != newStory.InProgress ||
-			oldStory.NeedsReview != newStory.NeedsReview {
+			oldStory.NeedsReview != newStory.NeedsReview ||
+			oldStory.Blocked != newStory.Blocked {
 			return true
 		}
 	}

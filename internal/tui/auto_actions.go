@@ -284,18 +284,13 @@ func (a *App) summaryDir(prdName, gitDir string) string {
 }
 
 // parkedStoryLabels returns "ID - Title" for every story parked for human
-// review, so the summary can call them out under its open-points section.
+// review, and the reason with it for every blocked one, so the summary can call
+// them out under its open-points section.
 func parkedStoryLabels(p *prd.PRD) []string {
 	if p == nil {
 		return nil
 	}
-	var out []string
-	for _, s := range p.UserStories {
-		if s.NeedsReview {
-			out = append(out, s.ID+" - "+s.Title)
-		}
-	}
-	return out
+	return p.ParkedLabels()
 }
 
 // storyRefs maps a PRD's stories to git.StoryRef, in PRD order, so the summary

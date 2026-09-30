@@ -623,3 +623,23 @@ func TestCodeIsWrittenInEnglish(t *testing.T) {
 		t.Error("build prompt does not pin one English name per glossary term")
 	}
 }
+
+// The blocked signal is for what only a person can resolve. The prompt has to
+// say that red tests and build errors never qualify — an agent that may give up
+// on a failing test will — and that finished work is committed first, in the
+// story's own commit format, so the morning starts from it.
+func TestGetPrompt_BlockedSignal(t *testing.T) {
+	prompt := GetPrompt("/p/progress.md", "", `{"id":"US-004"}`, "app", "US-004", "Sign the app", true)
+	for _, want := range []string{
+		"<chief-blocked>",
+		"keychain",
+		"Failing tests, build errors, lint errors",
+		"**never** blocked",
+		"`feat: app/US-004 - Sign the app`",
+		"Do NOT output <chief-done/>, and do not try again",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt is missing %q", want)
+		}
+	}
+}

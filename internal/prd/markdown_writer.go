@@ -53,35 +53,71 @@ func writeFileAtomic(path string, data []byte) error {
 	return os.Rename(tmpName, path)
 }
 
-// setStoryStatusInString performs the status update on a string and returns the modified string.
-func setStoryStatusInString(content, storyID, status string) (string, error) {
-	lines := strings.Split(content, "\n")
+// SetStoryBlocked marks a story blocked in a prd.md file and writes why into it,
+// as a "**Blockiert (Ben):** reason" line under its status. A block left from an
+// earlier time the story was blocked is replaced, not added to.
+func SetStoryBlocked(path, storyID, reason string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read PRD file: %w", err)
+	}
 
-	// Find the story block
-	storyStart := -1
-	storyEnd := len(lines) // default to end of file
+	result, err := setStoryBlockedInString(string(data), storyID, reason)
+	if err != nil {
+		return err
+	}
 
+	return writeFileAtomic(path, []byte(result))
+}
+
+// blockedReasonLine is the line SetStoryBlocked writes. The reason is folded
+// onto one line: the parser reads the block as a single line, and an agent's
+// explanation arrives with whatever line breaks it happened to write.
+func blockedReasonLine(reason string) string {
+	reason = strings.Join(strings.Fields(reason), " ")
+	if reason == "" {
+		reason = "no reason given"
+	}
+	return "**Blockiert (Ben):** " + reason
+}
+
+// storyBounds finds a story's block: the index of its heading line and the index
+// of the first line after it (the next ##/###/#### heading, or len(lines)).
+func storyBounds(lines []string, storyID string) (start, end int, err error) {
+	start, end = -1, len(lines)
 	for i, line := range lines {
-		if storyStart == -1 {
+		if start == -1 {
 			// Looking for the story heading. Reuse the package-level parser regex
 			// (compiled once) and compare its captured ID to the target, instead
 			// of compiling a QuoteMeta'd regex on every call. Matching the exact
 			// same heading pattern the parser uses keeps the two in lockstep.
 			if m := storyHeadingRegex.FindStringSubmatch(strings.TrimSpace(line)); m != nil && m[1] == storyID {
-				storyStart = i
+				start = i
 			}
 		} else {
 			// Looking for the end of the story block (next ## or ### heading)
 			trimmed := strings.TrimSpace(line)
 			if strings.HasPrefix(trimmed, "## ") || strings.HasPrefix(trimmed, "### ") || strings.HasPrefix(trimmed, "#### ") {
-				storyEnd = i
+				end = i
 				break
 			}
 		}
 	}
+	if start == -1 {
+		return 0, 0, fmt.Errorf("story %s not found in PRD", storyID)
+	}
+	return start, end, nil
+}
 
-	if storyStart == -1 {
-		return "", fmt.Errorf("story %s not found in PRD", storyID)
+// setStoryStatusInString performs the status update on a string and returns the modified string.
+// Any status but "blocked" also removes the story's "**Blockiert (Ben):**" block:
+// whatever it said no longer applies.
+func setStoryStatusInString(content, storyID, status string) (string, error) {
+	lines := strings.Split(content, "\n")
+
+	storyStart, storyEnd, err := storyBounds(lines, storyID)
+	if err != nil {
+		return "", err
 	}
 
 	// Process the story block
@@ -115,5 +151,51 @@ func setStoryStatusInString(content, storyID, status string) (string, error) {
 		}
 	}
 
+	if status != "blocked" {
+		lines = removeBlockedReason(lines, storyStart, storyEnd)
+	}
+
 	return strings.Join(lines, "\n"), nil
+}
+
+// setStoryBlockedInString sets the story's status to blocked and puts the reason
+// directly under the status line, replacing any reason already there.
+func setStoryBlockedInString(content, storyID, reason string) (string, error) {
+	content, err := setStoryStatusInString(content, storyID, "blocked")
+	if err != nil {
+		return "", err
+	}
+	lines := strings.Split(content, "\n")
+	storyStart, storyEnd, err := storyBounds(lines, storyID)
+	if err != nil {
+		return "", err
+	}
+	lines = removeBlockedReason(lines, storyStart, storyEnd)
+
+	// The status line exists: setStoryStatusInString just wrote it.
+	statusLineIdx := storyStart + 1
+	for i := storyStart + 1; i < storyEnd; i++ {
+		if statusLineRegex.MatchString(strings.TrimSpace(lines[i])) {
+			statusLineIdx = i
+			break
+		}
+	}
+	out := make([]string, 0, len(lines)+1)
+	out = append(out, lines[:statusLineIdx+1]...)
+	out = append(out, blockedReasonLine(reason))
+	out = append(out, lines[statusLineIdx+1:]...)
+	return strings.Join(out, "\n"), nil
+}
+
+// removeBlockedReason drops every "**Blockiert (Ben):**" line between start and
+// end (a story's bounds) and returns the lines that are left.
+func removeBlockedReason(lines []string, start, end int) []string {
+	out := make([]string, 0, len(lines))
+	for i, line := range lines {
+		if i > start && i < end && blockedReasonLineRegex.MatchString(strings.TrimSpace(line)) {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out
 }

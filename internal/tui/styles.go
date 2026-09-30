@@ -6,6 +6,7 @@ package tui
 import (
 	"strings"
 
+	"github.com/ben182/chief/internal/prd"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -235,18 +236,22 @@ const (
 	IconFailed      = "✗"
 	IconPaused      = "◐"
 	IconNeedsReview = "⚑"
+	IconBlocked     = "⊘"
 	IconReviewing   = "◍"
 )
 
 // GetStatusIcon returns the appropriate icon for a story's status.
-func GetStatusIcon(passed, inProgress, needsReview bool) string {
-	if passed {
+func GetStatusIcon(story prd.UserStory) string {
+	if story.Passes {
 		return statusPassedStyle.Render(glyph(IconPassed, "v"))
 	}
-	if needsReview {
+	if story.Blocked {
+		return statusFailedStyle.Render(glyph(IconBlocked, "x"))
+	}
+	if story.NeedsReview {
 		return statusPausedStyle.Render(glyph(IconNeedsReview, "!"))
 	}
-	if inProgress {
+	if story.InProgress {
 		return statusInProgressStyle.Render(glyph(IconInProgress, "*"))
 	}
 	return statusPendingStyle.Render(glyph(IconPending, "."))

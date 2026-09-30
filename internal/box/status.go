@@ -31,7 +31,7 @@ type statusView struct {
 type storyEvent struct {
 	At   time.Time
 	ID   string
-	Kind string // "started", "done" or "parked"
+	Kind string // "started", "done", "parked" or "blocked"
 }
 
 // runLog is what the journal says about the run's stories and its spending.
@@ -53,12 +53,12 @@ type runLog struct {
 // run on the same box starts its own clock.
 func storyEventsProbe(unit string) string {
 	return "date +%s; journalctl _SYSTEMD_INVOCATION_ID=$(systemctl show " + unit + " -p InvocationID --value)" +
-		" --no-hostname -o short-unix | grep -E ' (story +[^ ]+ (started|done|parked)|cost +\\$|run +.* stories, \\$)'"
+		" --no-hostname -o short-unix | grep -E ' (story +[^ ]+ (started|done|parked|blocked)|cost +\\$|run +.* stories, \\$)'"
 }
 
 // storyEventRegex reads one line of storyEventsProbe: the journal's unix time,
 // then chief's own stamp and "story", then the ID and what happened to it.
-var storyEventRegex = regexp.MustCompile(`^(\d+)(?:\.\d+)?\s.*\sstory\s+(\S+) (started|done|parked)\b`)
+var storyEventRegex = regexp.MustCompile(`^(\d+)(?:\.\d+)?\s.*\sstory\s+(\S+) (started|done|parked|blocked)\b`)
 
 // agentSpentRegex finds the agent's running total in a journal line: the
 // "cost" line written each time a story ends, or the run's closing line.
@@ -85,10 +85,11 @@ func parseRunLog(journal string) runLog {
 
 // finishedStory is a story the run is done with, and how long it took.
 type finishedStory struct {
-	ID     string
-	Took   time.Duration
-	Ended  time.Time
-	Parked bool
+	ID    string
+	Took  time.Duration
+	Ended time.Time
+	// How is how it ended: "done", "parked" or "blocked".
+	How string
 }
 
 // finished lists the stories the run has ended, oldest first. A story's time
@@ -108,7 +109,7 @@ func (l runLog) finished() []finishedStory {
 		if !ok {
 			from = prev
 		}
-		out = append(out, finishedStory{ID: e.ID, Took: e.At.Sub(from), Ended: e.At, Parked: e.Kind == "parked"})
+		out = append(out, finishedStory{ID: e.ID, Took: e.At.Sub(from), Ended: e.At, How: e.Kind})
 		delete(started, e.ID)
 		prev = e.At
 	}
@@ -147,15 +148,10 @@ func (l runLog) estimate(left int) (remaining, per time.Duration, ok bool) {
 }
 
 // storiesLeft is how many stories the run still has to work through. A parked
-// story is not one of them: the loop skips it until a person has looked.
+// or blocked story is not one of them, and neither is one waiting on a blocked
+// story: the loop skips them until a person has looked.
 func storiesLeft(p *prd.PRD) int {
-	n := 0
-	for _, st := range p.UserStories {
-		if !st.Passes && !st.NeedsReview {
-			n++
-		}
-	}
-	return n
+	return len(p.Actionable())
 }
 
 // progressWidth is how many cells the bar has.
@@ -170,7 +166,7 @@ func renderStatus(out io.Writer, v statusView) {
 	s := v.Box
 	w := func(format string, args ...any) { _, _ = fmt.Fprintf(out, format+"\n", args...) }
 	row := func(label, format string, args ...any) {
-		w("  %-10s %s", label, fmt.Sprintf(format, args...))
+		w("%s", strings.TrimRight(fmt.Sprintf("  %-10s %s", label, fmt.Sprintf(format, args...)), " "))
 	}
 	more := func(format string, args ...any) { row("", format, args...) }
 
@@ -188,8 +184,12 @@ func renderStatus(out io.Writer, v statusView) {
 		filled := done * progressWidth / total
 		bar := strings.Repeat("█", filled) + strings.Repeat("░", progressWidth-filled)
 		line := fmt.Sprintf("%s  %d/%d stories · %d%%", bar, done, total, done*100/total)
-		if parked := countParked(p); parked > 0 {
-			line += fmt.Sprintf(" · %d parked for review", parked)
+		review, blocked := countParked(p)
+		if review > 0 {
+			line += fmt.Sprintf(" · %d parked for review", review)
+		}
+		if blocked > 0 {
+			line += fmt.Sprintf(" · %d blocked", blocked)
 		}
 		row("Progress", "%s", line)
 	}
@@ -240,12 +240,45 @@ func renderStatus(out io.Writer, v statusView) {
 		label := "Recent"
 		for i := len(done) - 1; i >= 0 && i >= len(done)-recentStories; i-- {
 			f := done[i]
-			how := "done"
-			if f.Parked {
-				how = "parked"
-			}
-			row(label, "%-10s %4s   %s %s", f.ID, roundMinutes(f.Took), how, f.Ended.In(v.Now.Location()).Format("15:04"))
+			row(label, "%-10s %4s   %s %s", f.ID, roundMinutes(f.Took), f.How, f.Ended.In(v.Now.Location()).Format("15:04"))
 			label = ""
+		}
+	}
+
+	// What waits for a person, in two lists: a blocked story says what has to
+	// happen before it can go on, a parked one only that somebody has to look.
+	if p := v.PRD; p != nil {
+		var blocked, review []prd.UserStory
+		for _, st := range p.UserStories {
+			switch {
+			case st.Blocked:
+				blocked = append(blocked, st)
+			case st.NeedsReview:
+				review = append(review, st)
+			}
+		}
+		if len(blocked) > 0 {
+			w("")
+			label := "Blocked"
+			for _, st := range blocked {
+				row(label, "%-10s %s", st.ID, clip(st.Title, 64))
+				reason := st.BlockedReason
+				if reason == "" {
+					reason = "no reason given"
+				}
+				for _, line := range strings.Split(wrap(reason, 72), "\n") {
+					more("%-10s %s", "", line)
+				}
+				label = ""
+			}
+		}
+		if len(review) > 0 {
+			w("")
+			label := "Review"
+			for _, st := range review {
+				row(label, "%-10s %s", st.ID, clip(st.Title, 64))
+				label = ""
+			}
 		}
 	}
 
@@ -285,14 +318,40 @@ func runState(v statusView) string {
 	}
 }
 
-func countParked(p *prd.PRD) int {
-	n := 0
+// countParked counts the stories waiting for a person: parked for review, and
+// blocked.
+func countParked(p *prd.PRD) (review, blocked int) {
 	for _, st := range p.UserStories {
-		if st.NeedsReview {
-			n++
+		switch {
+		case st.Blocked:
+			blocked++
+		case st.NeedsReview:
+			review++
 		}
 	}
-	return n
+	return review, blocked
+}
+
+// wrap breaks s into lines of at most width characters at spaces, so a long
+// reason stays readable in a terminal.
+func wrap(s string, width int) string {
+	var lines []string
+	line := ""
+	for _, word := range strings.Fields(s) {
+		if line != "" && len([]rune(line))+1+len([]rune(word)) > width {
+			lines = append(lines, line)
+			line = word
+			continue
+		}
+		if line != "" {
+			line += " "
+		}
+		line += word
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // titleOf is a story's title, or nothing when the PRD cannot say.

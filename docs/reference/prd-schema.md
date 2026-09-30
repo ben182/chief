@@ -39,7 +39,8 @@ Below each story heading, Chief recognizes these bold-label fields:
 
 | Field | Format | Required | Default | Description |
 |-------|--------|----------|---------|-------------|
-| Status | `**Status:** value` | No | `todo` | Current state: `done`, `in-progress`, `todo`, or `needs-review` |
+| Status | `**Status:** value` | No | `todo` | Current state: `done`, `in-progress`, `todo`, `needs-review`, or `blocked` |
+| Blocked reason | `**Blockiert (Ben):** text` | No | — | Written by Chief under a `blocked` status: what blocks the story and what to do about it. Removed when the status changes |
 | Priority | `**Priority:** N` | No | Document order | Execution order (lower = higher priority) |
 | Blocked by | `**Blocked by:** ID, ID` | No | none | Story IDs that must be `done` before this story may start |
 | Description | `**Description:** text` | No | — | Story description (or use freeform prose) |
@@ -62,7 +63,8 @@ Chief reads checkbox state to track progress. The agent checks boxes as it compl
 | `done` | `complete`, `completed`, `passed` | Story is complete — Chief skips it |
 | `in-progress` | `in progress`, `started` | Agent is actively working on this story |
 | `todo` | *(anything unrecognized falls back to this)* | Story is pending (also the default if Status is absent) |
-| `needs-review` | `needs review`, `blocked` | Chief parked the story (e.g. after repeated failed attempts). Skipped by the loop and flagged with ⚑ in the TUI until a human resets it. |
+| `needs-review` | `needs review` | Chief parked the story (e.g. after repeated failed attempts). Skipped by the loop and flagged with ⚑ in the TUI until a human resets it. |
+| `blocked` | — | The agent stopped on something only a person can resolve and said why with `<chief-blocked>`. Chief writes the reason under the status as `**Blockiert (Ben):** …`. Skipped by the loop, and so is every story that depends on it, until a person sets it back to `todo`. Flagged with ⊘ in the TUI. |
 
 Status matching is case-insensitive. Any value Chief doesn't recognize is treated as `todo` rather than raising an error.
 
@@ -156,12 +158,13 @@ A comma-separated list of story IDs that must be `done` before this story may st
 - A **self-reference** (a story listing its own ID) is ignored.
 - **Duplicate IDs** are harmless.
 - If a **dependency cycle** (or a chain of stories all blocked by a parked `needs-review` story) leaves the frontier empty while unfinished, non-parked work still remains, Chief falls back to the lowest-priority unfinished, non-parked story so the loop always makes progress.
+- A story that depends on a **`blocked`** story — directly or through others — is never picked, not even by that fallback: it waits until the blocked story is released and done.
 
 ### status
 
-Tracked by Chief. Set to `in-progress` when work begins, `done` when the agent outputs `<chief-done/>` and a matching commit lands, and `needs-review` when a story is parked after repeated failed attempts.
+Tracked by Chief. Set to `in-progress` when work begins, `done` when the agent outputs `<chief-done/>` and a matching commit lands, `needs-review` when a story is parked after repeated failed attempts, and `blocked` at once when the agent outputs `<chief-blocked>reason</chief-blocked>`.
 
-**Values:** `done`, `in-progress`, `todo` (default if absent), `needs-review` — plus the case-insensitive aliases listed under [Status Values](#status-values)
+**Values:** `done`, `in-progress`, `todo` (default if absent), `needs-review`, `blocked` — plus the case-insensitive aliases listed under [Status Values](#status-values)
 
 ## Parsing Behavior
 

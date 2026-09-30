@@ -347,6 +347,18 @@ func HeadSubject(dir string) (string, error) {
 	return runGit(dir, "log", "-1", "--format=%s")
 }
 
+// HeadIsPushed reports whether the current HEAD commit is on any remote-tracking
+// branch, which is what makes amending it a rewrite of published history: the
+// next push of the branch would be refused as a non-fast-forward. It answers
+// true when git cannot say, since not amending is the safe side of that doubt.
+func HeadIsPushed(dir string) bool {
+	out, err := runGit(dir, "branch", "-r", "--contains", "HEAD")
+	if err != nil {
+		return true
+	}
+	return strings.TrimSpace(out) != ""
+}
+
 // AmendPaths force-adds the given paths and folds them into the current HEAD
 // commit without opening an editor or changing its message. It attaches chief's
 // own working files (prd.md, progress.md) to the story commit the agent just
