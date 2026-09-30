@@ -34,6 +34,46 @@ type PrepOptions struct {
 	Out io.Writer
 }
 
+// PrepUsage is the help for `chief prep`, or with forBox `chief box prep`.
+func PrepUsage(forBox bool) string {
+	command, where, scope := "chief prep", "this machine", ""
+	if forBox {
+		command, where, scope = "chief box prep", "the box", " and the box: section of .chief/config.yaml"
+	}
+	return fmt.Sprintf(`Usage: %s [name] [--agent <name>] [--agent-path <path>] [--model <model>]
+
+Go through a PRD with you before an unattended run on %s: blocked
+stories, open decisions, contradictions, what cannot run there, missing tools.
+The session edits only the PRD%s; chief then commits and pushes the
+changes and records the PRD as prepared. Needs a terminal.
+
+  name                 PRD to prepare (default: inferred from the branch, else "default")
+  --agent <name>       Agent CLI to run the session on
+  --agent-path <path>  Path to that agent's binary
+  --model <model>      Model for the session (skips the Claude model picker)
+  -h, --help           Show this help
+`, command, where, scope)
+}
+
+// ParsePrepArgs reads what is left of `chief prep`'s arguments once the agent
+// flags are taken out: at most one PRD name, and -h/--help. Any other flag is
+// an error rather than a name — a mistyped flag must not start a session.
+func ParsePrepArgs(args []string) (name string, help bool, err error) {
+	for _, arg := range args {
+		switch {
+		case arg == "-h" || arg == "--help" || arg == "help":
+			return "", true, nil
+		case strings.HasPrefix(arg, "-"):
+			return "", false, fmt.Errorf("unknown flag: %s", arg)
+		case name != "":
+			return "", false, fmt.Errorf("one PRD at a time: got %q and %q", name, arg)
+		default:
+			name = arg
+		}
+	}
+	return name, false, nil
+}
+
 // canAsk says whether there is a person at a terminal to hold a prep session
 // with. A variable so a test can stand in for the terminal.
 var canAsk = func() bool { return isTerminal(os.Stdin) }

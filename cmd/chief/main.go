@@ -261,11 +261,20 @@ func runPrep(forBox bool, args []string) {
 	if err != nil {
 		fatal(err)
 	}
-	for _, arg := range remaining {
-		if opts.Name == "" && !strings.HasPrefix(arg, "-") {
-			opts.Name = arg
-		}
+	name, help, err := cmd.ParsePrepArgs(remaining)
+	if help {
+		fmt.Print(cmd.PrepUsage(forBox))
+		return
 	}
+	if err != nil {
+		command := "chief prep"
+		if forBox {
+			command = "chief box prep"
+		}
+		fmt.Fprintf(os.Stderr, "Error: %v\nRun '%s --help' for usage.\n", err, command)
+		os.Exit(1)
+	}
+	opts.Name = name
 
 	opts.Provider = resolveProvider(flagAgent, flagPath, flagModel)
 	if !selectModelForProvider(opts.Provider, "Prep PRD", flagModel) {

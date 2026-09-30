@@ -414,3 +414,32 @@ func TestEnsurePreparedChecksTheWorktreesCopy(t *testing.T) {
 		t.Errorf("the worktree's last commit = %q, want the prep's", got)
 	}
 }
+
+// `chief prep -h` used to start a real prep on the default PRD: every argument
+// starting with "-" was skipped. Help is help, and an unknown flag is an error.
+func TestParsePrepArgs(t *testing.T) {
+	for _, tc := range []struct {
+		args       []string
+		name       string
+		help, fail bool
+	}{
+		{nil, "", false, false},
+		{[]string{"auth"}, "auth", false, false},
+		{[]string{"-h"}, "", true, false},
+		{[]string{"auth", "--help"}, "", true, false},
+		{[]string{"--skip-prep"}, "", false, true},
+		{[]string{"auth", "-x"}, "", false, true},
+		{[]string{"auth", "billing"}, "", false, true},
+	} {
+		name, help, err := ParsePrepArgs(tc.args)
+		if name != tc.name || help != tc.help || (err != nil) != tc.fail {
+			t.Errorf("ParsePrepArgs(%q) = %q, %v, %v", tc.args, name, help, err)
+		}
+	}
+	if u := PrepUsage(true); !strings.Contains(u, "chief box prep [name]") || !strings.Contains(u, "box: section") {
+		t.Errorf("box usage:\n%s", u)
+	}
+	if u := PrepUsage(false); !strings.Contains(u, "chief prep [name]") || strings.Contains(u, "config.yaml") {
+		t.Errorf("usage:\n%s", u)
+	}
+}
