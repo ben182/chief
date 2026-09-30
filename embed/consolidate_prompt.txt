@@ -48,7 +48,11 @@ Ranked by how much damage they do:
 4. **Leftovers from abandoned approaches.** Dead code, unused helpers, unreferenced
    exports, commented-out attempts, debug output a story left behind.
 5. **Drift from the codebase's own conventions.** A story that invented its own
-   layout or naming where an established convention already existed.
+   layout or naming where an established convention already existed. That
+   includes code this run wrote in a language other than English — identifiers,
+   test names, comments — and one domain term translated two different ways:
+   give it the English name, the same one everywhere. Text the product shows its
+   users is not code and stays as it is.
 
 Deliberately **out of scope** — leave these alone:
 

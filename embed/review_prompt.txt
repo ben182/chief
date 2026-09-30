@@ -67,6 +67,12 @@ violations** — flag one only when addressing it genuinely improves the code:
 - **Message chains / middle man** — long `a.b().c().d()` navigation, or a type that
   only forwards calls → talk to the real target directly.
 - Dead code, debug leftovers, or `.chief/` files accidentally staged.
+- **Code not written in English** — identifiers, test names, comments, log
+  messages, column or JSON key names in the language of the story → translate
+  them, reusing the English name the code already has for a domain term. Text the
+  product shows or sends to its users stays as the story asks. This one is a hard
+  rule, not a judgment call, and it holds even where older code in the repo does
+  otherwise (which you leave alone).
 
 Rules for this axis:
 

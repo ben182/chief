@@ -601,3 +601,25 @@ func TestConsolidatePromptFixesBugsApartAndReportsTheRest(t *testing.T) {
 		t.Error("the findings path placeholder was left in the prompt")
 	}
 }
+
+// A PRD, glossary and progress file written in German led the agents to write
+// German code: test names, helpers, comments, migration names. Code is English
+// in every prompt that writes code; product text keeps the story's language.
+func TestCodeIsWrittenInEnglish(t *testing.T) {
+	prompts := map[string]string{
+		"build":       GetPrompt("/p/progress.md", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", false),
+		"review":      GetReviewPrompt("/p/progress.md", `{"id":"US-001"}`, "US-001", "Test Story", "", ""),
+		"consolidate": GetConsolidatePrompt("/p/progress.md", "/p/findings.md", "abc123 feat: x", "abc..HEAD", "myprd", "", ""),
+	}
+	for name, prompt := range prompts {
+		if !strings.Contains(prompt, "English") {
+			t.Errorf("%s prompt does not ask for English code", name)
+		}
+		if !strings.Contains(prompt, "users") {
+			t.Errorf("%s prompt does not exempt the text the product shows its users", name)
+		}
+	}
+	if build := prompts["build"]; !strings.Contains(build, "add the mapping to Codebase Patterns") {
+		t.Error("build prompt does not pin one English name per glossary term")
+	}
+}

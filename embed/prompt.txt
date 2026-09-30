@@ -38,6 +38,24 @@ all tests first and then all the code.
   disagree; expected values must come from an independent source (a known-good
   literal, a worked example, or the spec).
 
+## Language of the code
+
+Write the code in English, whatever language the story, the PRD, the glossary
+or the progress file is in: identifiers, file and type names, test names,
+comments and doc comments, log and error messages, database tables, columns and
+migration names, JSON keys, and the body of your commit message.
+
+- **Text the product shows or sends stays in the language the story asks for** —
+  UI labels, notifications, messages to users, prompts sent to a model. That is
+  product content, not code.
+- **A domain term from a non-English glossary (e.g. `CONTEXT.md`) gets one fixed
+  English name in code.** Use the one the code already has. For a new term, pick
+  one and add the mapping to Codebase Patterns (e.g. "Aufnahme → `Recording`") so
+  every later story uses the same word. The glossary's "Avoid" lists govern how
+  we talk about the product, not what the code calls it.
+- **This holds even where earlier code in the repo is in another language.** Do
+  not copy that; do not rename it either, beyond what your story touches.
+
 ## Progress Report Format
 
 APPEND to `{{PROGRESS_PATH}}` (never replace, always append):
