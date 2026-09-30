@@ -1,5 +1,7 @@
 package loop
 
+import "strings"
+
 // geminiStreamEvent is the top-level structure for a Gemini stream-json line.
 type geminiStreamEvent struct {
 	Type string `json:"type"`
@@ -51,6 +53,8 @@ func ParseLineGemini(line string) *Event {
 		if msg.Role != "assistant" || msg.Content == "" {
 			return nil
 		}
+		// A single line judged alone. The loop reads Gemini's deltas through
+		// NewGeminiLineParser, which judges them together.
 		return classifyAssistantText(msg.Content)
 
 	case "tool_use":
@@ -77,5 +81,37 @@ func ParseLineGemini(line string) *Event {
 
 	default:
 		return nil
+	}
+}
+
+// NewGeminiLineParser returns a ParseLineGemini that reads assistant deltas as
+// the text they add up to. Gemini streams an answer a few words at a time, so a
+// signal can be spread over several lines: judged one delta at a time, a
+// "<chief-blocked>" ended the story before its reason arrived, and a
+// "<chief-" / "done/>" split was never seen at all. Each delta is judged
+// together with the ones before it in the same message; a signal ends the
+// message, and so does anything that is not an assistant delta.
+func NewGeminiLineParser() func(line string) *Event {
+	var text strings.Builder
+	return func(line string) *Event {
+		msg, ok := decodeLine[geminiMessageEvent](line)
+		if !ok {
+			return nil
+		}
+		if msg.Type != "message" || msg.Role != "assistant" || !msg.Delta {
+			text.Reset()
+			return ParseLineGemini(line)
+		}
+		if msg.Content == "" {
+			return nil
+		}
+		text.WriteString(msg.Content)
+		ev := classifyAssistantText(text.String())
+		if ev.Type == EventAssistantText {
+			// Plain text is passed on a delta at a time, as before.
+			return &Event{Type: EventAssistantText, Text: msg.Content}
+		}
+		text.Reset()
+		return ev
 	}
 }

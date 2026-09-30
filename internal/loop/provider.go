@@ -50,3 +50,14 @@ type ModelSwitcher interface {
 type SkillSwitcher interface {
 	WithSkills(enabled bool) Provider
 }
+
+// StreamParser is implemented by providers whose stream can split one piece of
+// assistant text over several lines — today Gemini, which streams its answer in
+// deltas. A <chief-blocked> whose reason arrives in the next delta, or a
+// <chief-done/> cut in two, can only be read with the text before it in hand.
+// NewLineParser returns a parser that keeps that text; the loop takes a fresh
+// one for every agent run, so nothing carries over between runs or between
+// loops sharing a provider.
+type StreamParser interface {
+	NewLineParser() func(line string) *Event
+}

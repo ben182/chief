@@ -191,6 +191,8 @@ When the agent finishes working on a story, it outputs a special marker:
 
 This signal tells Chief that the **current story** is done. Before marking it done, Chief verifies that a matching commit (`feat: <PRD Name>/<Story ID> - <Story Title>`) actually landed. If it did, Chief marks the story as `**Status:** done` in `prd.md` and selects the next incomplete story. When no stories remain, the loop ends naturally.
 
+Only the signal counts, not a mention of it: a tag inside backticks or a code block is a quote and is ignored, `<chief-blocked>` needs its closing tag and a reason between the two, and when the agent writes both signals, the one written last is its verdict. For Gemini, which streams its answer in pieces, the pieces of one answer are read together, so a signal split across them is still found and a `<chief-blocked>` waits for its reason.
+
 If the agent emits `<chief-done/>` but **no matching commit exists** — it forgot to commit, a pre-commit hook rejected the change, or it crashed before committing — Chief does not trust the signal. The story is treated as a failed attempt (counting toward the per-story retry budget below) instead of being falsely marked done, so the uncommitted work isn't silently lost when the next fresh-context iteration moves on.
 
 ### 7. Continue the Loop

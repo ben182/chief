@@ -204,8 +204,10 @@ After implementing the story:
    (see above): output <chief-blocked>…</chief-blocked> instead
 4. If any other criterion is NOT met: end your response WITHOUT <chief-done/>
 
-Write the two signal tags only as the signal itself — never quote them in a
-sentence ("so I do not output …"): chief reads any occurrence as the signal.
+Write the two signal tags only as the signal itself, as the last thing in your
+answer — never quote them in a sentence ("so I do not output …"). chief skips a
+tag inside backticks or a code block, but reads a bare one in a sentence as the
+signal, and when both appear, the one written last counts.
 
 ## Important
 

@@ -57,6 +57,12 @@ func (p *GeminiProvider) ParseLine(line string) *loop.Event {
 	return loop.ParseLineGemini(line)
 }
 
+// NewLineParser implements loop.StreamParser: Gemini streams its answer in
+// deltas, and a signal can be split across them.
+func (p *GeminiProvider) NewLineParser() func(line string) *loop.Event {
+	return loop.NewGeminiLineParser()
+}
+
 // LogFileName implements loop.Provider.
 func (p *GeminiProvider) LogFileName() string { return "gemini.log" }
 

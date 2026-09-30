@@ -35,35 +35,186 @@ func decodeLine[T any](line string) (T, bool) {
 }
 
 // classifyAssistantText maps a block of assistant text to the event it should
-// produce: a story-blocked signal carrying the reason when it holds a
-// <chief-blocked> tag, a story-done signal when it carries the <chief-done/>
-// tag, otherwise plain assistant text. Centralizing the tag check keeps all
-// provider parsers in lockstep on how completion is detected.
+// produce: a story-blocked signal carrying the reason, a story-done signal, or
+// plain assistant text. Centralizing the tag check keeps all provider parsers in
+// lockstep on how completion is detected.
 //
-// Blocked wins over done when an agent writes both: it is the one that says a
-// person has something to do, and a story wrongly held back costs a question in
-// the morning, where one wrongly marked done costs a broken feature.
+// Only a signal counts, not a mention of one. A tag inside inline code or a
+// fenced code block is quoted, not written; <chief-blocked> needs its closing
+// tag and a reason between the two. When the text carries both signals, the one
+// written last is the agent's verdict — "I was blocked on X, fixed it,
+// <chief-done/>" is done.
 func classifyAssistantText(text string) *Event {
-	if reason, ok := blockedReason(text); ok {
+	code := codeSpans(text)
+	donePos := lastSignalIndex(text, chiefDoneTag, code)
+	reason, blockedPos := lastBlocked(text, code)
+	switch {
+	case blockedPos >= 0 && blockedPos > donePos:
 		return &Event{Type: EventStoryBlocked, Text: reason}
-	}
-	if strings.Contains(text, chiefDoneTag) {
+	case donePos >= 0:
 		return &Event{Type: EventStoryDone, Text: text}
 	}
 	return &Event{Type: EventAssistantText, Text: text}
 }
 
-// blockedReason extracts the reason from a <chief-blocked>…</chief-blocked> tag.
-// A missing closing tag takes the rest of the text: the agent said it is
-// blocked, and losing that over a typo would retry a story nobody can finish.
-func blockedReason(text string) (string, bool) {
-	start := strings.Index(text, chiefBlockedOpen)
-	if start < 0 {
-		return "", false
+// span is a half-open byte range [start, end) of a text.
+type span struct{ start, end int }
+
+// inSpans reports whether byte offset i lies inside one of spans.
+func inSpans(i int, spans []span) bool {
+	for _, s := range spans {
+		if i >= s.start && i < s.end {
+			return true
+		}
 	}
-	rest := text[start+len(chiefBlockedOpen):]
-	if end := strings.Index(rest, chiefBlockedClose); end >= 0 {
-		rest = rest[:end]
+	return false
+}
+
+// lastSignalIndex is the offset of the last occurrence of tag outside code, or
+// -1.
+func lastSignalIndex(text, tag string, code []span) int {
+	last := -1
+	for from := 0; ; {
+		i := strings.Index(text[from:], tag)
+		if i < 0 {
+			return last
+		}
+		i += from
+		if !inSpans(i, code) {
+			last = i
+		}
+		from = i + len(tag)
 	}
-	return strings.TrimSpace(rest), true
+}
+
+// lastBlocked finds the last complete <chief-blocked>reason</chief-blocked>
+// outside code with a non-empty reason, and returns the reason and the offset of
+// its opening tag (-1 when there is none). A tag without its closing tag is not a
+// signal: an agent that writes the opening tag in a sentence has not said it is
+// blocked, and taking the rest of its text as the reason set finished stories
+// aside.
+func lastBlocked(text string, code []span) (string, int) {
+	reason, pos := "", -1
+	for from := 0; ; {
+		i := strings.Index(text[from:], chiefBlockedOpen)
+		if i < 0 {
+			return reason, pos
+		}
+		i += from
+		from = i + len(chiefBlockedOpen)
+		if inSpans(i, code) {
+			continue
+		}
+		// The closing tag has to be a real one too; a quoted one inside the
+		// reason is part of the reason.
+		end := -1
+		for search := from; ; {
+			j := strings.Index(text[search:], chiefBlockedClose)
+			if j < 0 {
+				break
+			}
+			j += search
+			if !inSpans(j, code) {
+				end = j
+				break
+			}
+			search = j + len(chiefBlockedClose)
+		}
+		if end < 0 {
+			continue
+		}
+		if r := strings.TrimSpace(text[from:end]); r != "" {
+			reason, pos = r, i
+		}
+		from = end + len(chiefBlockedClose)
+	}
+}
+
+// codeSpans returns the byte ranges of text that are code in Markdown: fenced
+// blocks (``` or ~~~, an unclosed one running to the end, as a fence still being
+// streamed does) and inline code spans (a run of backticks closed by a run of the
+// same length; an unmatched run is a literal backtick).
+func codeSpans(text string) []span {
+	var spans []span
+	var prose []span // the ranges outside fences, for inline code
+	pos := 0
+	fenceStart, fenceChar, fenceLen := -1, byte(0), 0
+	proseStart := 0
+	for pos <= len(text) {
+		lineEnd := strings.IndexByte(text[pos:], '\n')
+		next := len(text) + 1
+		if lineEnd >= 0 {
+			lineEnd += pos
+			next = lineEnd + 1
+		} else {
+			lineEnd = len(text)
+		}
+		line := text[pos:lineEnd]
+		trimmed := strings.TrimLeft(line, " ")
+		if len(line)-len(trimmed) <= 3 && len(trimmed) >= 3 && (trimmed[0] == '`' || trimmed[0] == '~') {
+			c := trimmed[0]
+			n := 0
+			for n < len(trimmed) && trimmed[n] == c {
+				n++
+			}
+			switch {
+			case fenceStart < 0 && n >= 3:
+				fenceStart, fenceChar, fenceLen = pos, c, n
+				prose = append(prose, span{proseStart, pos})
+			case fenceStart >= 0 && c == fenceChar && n >= fenceLen && strings.TrimSpace(trimmed[n:]) == "":
+				spans = append(spans, span{fenceStart, lineEnd})
+				fenceStart = -1
+				proseStart = min(next, len(text))
+			}
+		}
+		pos = next
+	}
+	if fenceStart >= 0 {
+		spans = append(spans, span{fenceStart, len(text)})
+	} else {
+		prose = append(prose, span{proseStart, len(text)})
+	}
+	for _, p := range prose {
+		spans = append(spans, inlineCode(text, p)...)
+	}
+	return spans
+}
+
+// inlineCode returns the inline code spans within the range p of text.
+func inlineCode(text string, p span) []span {
+	var spans []span
+	i := p.start
+	for i < p.end {
+		if text[i] != '`' {
+			i++
+			continue
+		}
+		n := 0
+		for i+n < p.end && text[i+n] == '`' {
+			n++
+		}
+		closeAt := -1
+		for j := i + n; j < p.end; {
+			if text[j] != '`' {
+				j++
+				continue
+			}
+			m := 0
+			for j+m < p.end && text[j+m] == '`' {
+				m++
+			}
+			if m == n {
+				closeAt = j
+				break
+			}
+			j += m
+		}
+		if closeAt < 0 {
+			i += n
+			continue
+		}
+		spans = append(spans, span{i, closeAt + n})
+		i = closeAt + n
+	}
+	return spans
 }

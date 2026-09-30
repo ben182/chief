@@ -886,6 +886,12 @@ func (l *Loop) processOutput(r io.Reader, mode iterationMode) {
 	// copy instead overstated a run's cost by 1.85x: of 656 messages in one
 	// run, 507 arrived as several lines, each carrying the same usage.
 	counted := make(map[string]struct{})
+	// A provider whose signals can be split across lines hands out a parser
+	// with a memory of its own, fresh for every agent run.
+	parse := l.provider.ParseLine
+	if sp, ok := l.provider.(StreamParser); ok {
+		parse = sp.NewLineParser()
+	}
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -898,7 +904,7 @@ func (l *Loop) processOutput(r io.Reader, mode iterationMode) {
 		l.logLine(line)
 
 		// Parse the line and emit event if valid
-		if event := l.provider.ParseLine(line); event != nil {
+		if event := parse(line); event != nil {
 			if id := event.MessageID; id != "" {
 				if _, dup := counted[id]; dup {
 					event.clearUsage()
