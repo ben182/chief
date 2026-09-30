@@ -659,3 +659,57 @@ func TestPRD_NextStory_BlockedStoryHoldsBackItsDependents(t *testing.T) {
 		t.Error("with only the blocked story and its dependents left, the run has nothing to do")
 	}
 }
+
+func TestParseOS(t *testing.T) {
+	for in, want := range map[string]string{
+		"macOS (Xcode, signing)": "darwin",
+		"MacOS":                  "darwin",
+		"Mac OS X":               "darwin",
+		"darwin":                 "darwin",
+		"Linux (systemd)":        "linux",
+		"Ubuntu":                 "linux",
+		"Windows — registry":     "windows",
+		"":                       "",
+		"a GPU (CUDA)":           "",
+		"macOS-only":             "darwin",
+	} {
+		if got := ParseOS(in); got != want {
+			t.Errorf("ParseOS(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// A story that needs another operating system is skipped like a parked one, and
+// so is everything that depends on it; on its own system it runs normally. The
+// run ends rather than circling: with only those left, nothing is actionable.
+func TestPRD_NextStoryOn_SkipsStoriesForAnotherSystem(t *testing.T) {
+	md := "# P\n\n" +
+		"### US-001: Sign the app\n**Braucht:** macOS (Xcode, signing)\n- [ ] Signed\n\n" +
+		"### US-002: Notarize\n**Blocked by:** US-001\n- [ ] Notarized\n\n" +
+		"### US-003: Settings page\n- [ ] Page\n"
+	p, err := ParseMarkdownPRDFromString(md)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.UserStories[0].Needs; got != "macOS (Xcode, signing)" {
+		t.Errorf("Needs = %q", got)
+	}
+
+	if next := p.NextStoryOn("linux"); next == nil || next.ID != "US-003" {
+		t.Fatalf("on linux NextStoryOn = %v, want US-003", next)
+	}
+	if next := p.NextStoryOn("darwin"); next == nil || next.ID != "US-001" {
+		t.Fatalf("on darwin NextStoryOn = %v, want US-001", next)
+	}
+
+	p.UserStories[2].Passes = true
+	if next := p.NextStoryOn("linux"); next != nil {
+		t.Errorf("on linux NextStoryOn = %s, want nil", next.ID)
+	}
+	if got := len(p.ActionableOn("linux")); got != 0 {
+		t.Errorf("ActionableOn(linux) = %d stories, want none", got)
+	}
+	if got := p.OtherOS("linux"); len(got) != 1 || got[0].ID != "US-001" {
+		t.Errorf("OtherOS(linux) = %v, want US-001", got)
+	}
+}

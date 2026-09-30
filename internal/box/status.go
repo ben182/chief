@@ -147,11 +147,15 @@ func (l runLog) estimate(left int) (remaining, per time.Duration, ok bool) {
 	return max(remaining, 0), per, true
 }
 
+// OS is the operating system a box runs, as Go spells it: what a story's
+// "**Braucht:**" line is compared with on the box.
+const OS = "linux"
+
 // storiesLeft is how many stories the run still has to work through. A parked
-// or blocked story is not one of them, and neither is one waiting on a blocked
-// story: the loop skips them until a person has looked.
+// or blocked story is not one of them, and neither is one that needs another
+// operating system or waits on one of those: the loop on the box skips them.
 func storiesLeft(p *prd.PRD) int {
-	return len(p.Actionable())
+	return len(p.ActionableOn(OS))
 }
 
 // progressWidth is how many cells the bar has.
@@ -190,6 +194,9 @@ func renderStatus(out io.Writer, v statusView) {
 		}
 		if blocked > 0 {
 			line += fmt.Sprintf(" · %d blocked", blocked)
+		}
+		if other := len(p.OtherOS(OS)); other > 0 {
+			line += fmt.Sprintf(" · %d not for this box", other)
 		}
 		row("Progress", "%s", line)
 	}

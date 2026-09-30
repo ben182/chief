@@ -23,6 +23,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -187,6 +188,15 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	res.Stories = len(p.UserStories)
 
 	log.event("run", "%s · %d stories, %d already passing", name, len(p.UserStories), p.CompletedCount())
+	// A story whose **Braucht:** names another system is skipped by the loop
+	// without a word; said once here, a quiet run is not mistaken for a stuck one.
+	if other := p.OtherOS(runtime.GOOS); len(other) > 0 {
+		ids := make([]string, len(other))
+		for i, s := range other {
+			ids[i] = s.ID
+		}
+		log.event("run", "skipped here, they need another system: %s", strings.Join(ids, ", "))
+	}
 	log.event("run", "agent %s · project %s", opts.Provider.Name(), baseDir)
 
 	// A headless run gets the same iteration budget an interactive one is given

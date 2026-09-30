@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -551,6 +552,9 @@ func (a *App) renderDetailsPanel(width, height int) string {
 	case story.Blocked:
 		statusText = "Blocked — needs you"
 		statusStyle = statusFailedStyle
+	case !story.RunsOn(runtime.GOOS):
+		statusText = "Needs " + prd.OSName(story.NeededOS()) + " — skipped here"
+		statusStyle = statusPendingStyle
 	case story.NeedsReview:
 		statusText = "Needs Review"
 		statusStyle = statusPausedStyle

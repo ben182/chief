@@ -92,7 +92,7 @@ func TestStatusWhileRunning(t *testing.T) {
 
 // A blocked story is listed with what has to happen before it can go on, apart
 // from the ones parked for review, and neither counts as a story left to run —
-// nor does one that waits on the blocked story.
+// nor does one that waits on the blocked story, or one that needs macOS.
 func TestStatusListsBlockedStoriesWithTheirReason(t *testing.T) {
 	p := &prd.PRD{UserStories: []prd.UserStory{
 		{ID: "US-1", Passes: true},
@@ -101,6 +101,7 @@ func TestStatusListsBlockedStoriesWithTheirReason(t *testing.T) {
 		{ID: "US-3", Title: "Notarize", BlockedBy: []string{"US-2"}},
 		{ID: "US-4", Title: "Flaky import", NeedsReview: true},
 		{ID: "US-5", Title: "Settings page"},
+		{ID: "US-6", Title: "Xcode build", Needs: "macOS (Xcode)"},
 	}}
 	log := parseRunLog(journalAt(45,
 		"0 story      US-1 started (iteration 1)",
@@ -114,7 +115,7 @@ func TestStatusListsBlockedStoriesWithTheirReason(t *testing.T) {
 		Now: time.Date(2026, 9, 24, 12, 45, 0, 0, time.UTC).In(berlin),
 	})
 	for _, want := range []string{
-		"1/5 stories · 20% · 1 parked for review · 1 blocked",
+		"1/6 stories · 16% · 1 parked for review · 1 blocked · 1 not for this box",
 		"≈20m per story, 1 story to go",
 		"Recent     US-2        20m   blocked 14:40",
 		"  Blocked    US-2       Sign the app\n" +

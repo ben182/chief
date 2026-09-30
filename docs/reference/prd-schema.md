@@ -43,6 +43,7 @@ Below each story heading, Chief recognizes these bold-label fields:
 | Blocked reason | `**Blockiert (Ben):** text` | No | — | Written by Chief under a `blocked` status: what blocks the story and what to do about it. Removed when the status changes |
 | Priority | `**Priority:** N` | No | Document order | Execution order (lower = higher priority) |
 | Blocked by | `**Blocked by:** ID, ID` | No | none | Story IDs that must be `done` before this story may start |
+| Braucht | `**Braucht:** OS (why)` | No | any system | The operating system the story can only be done on, e.g. `macOS (Xcode, signing)` or `Linux (systemd)`. See [needs](#needs) |
 | Description | `**Description:** text` | No | — | Story description (or use freeform prose) |
 
 ## Acceptance Criteria
@@ -143,6 +144,12 @@ The `- [ ]` / `- [x]` items under each story heading. The agent uses these to kn
 Lower numbers = higher priority. Chief always picks the incomplete story with the lowest priority number first. If omitted, stories are selected in document order.
 
 **Range:** Any positive number (integers or decimals). A value that isn't a positive number is ignored, and the story falls back to document order.
+
+### needs
+
+The operating system a story can only be done on, and why: `**Braucht:** macOS (Xcode, signing)`, `**Braucht:** Linux (systemd)`, `**Braucht:** Windows (installer)`. `**Needs:**` and `**Requires:**` are read as well. Internally the parsed field is `needs`.
+
+Only the system at the start is compared, deterministically, with the one Chief runs on (`macOS`, `Mac`, `darwin` → macOS; `Linux`, `Ubuntu`, `Debian` → Linux; `Windows`); the part in brackets is for the reader. A story for another system is skipped like a parked one — on a box, which runs Linux, every macOS story is — and so is every story that depends on it. Locally on a Mac the same stories run normally. A value naming no system Chief knows is ignored, so a typo never keeps a story from running at all.
 
 ### blockedBy
 

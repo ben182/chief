@@ -6,6 +6,7 @@ package prd
 import (
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"strings"
 )
 
@@ -27,6 +28,11 @@ type UserStory struct {
 	// Not to be confused with BlockedBy, which is about other stories.
 	Blocked       bool   `json:"blocked,omitempty"`
 	BlockedReason string `json:"blockedReason,omitempty"`
+	// Needs is the story's "**Braucht:**" line as written, e.g. "macOS (Xcode,
+	// signing)": the operating system the story can only be done on, and why.
+	// Only the system is read (see NeededOS); a story that names none runs
+	// anywhere.
+	Needs string `json:"needs,omitempty"`
 	// BlockedBy lists the IDs of stories that must have Passes==true before this
 	// story becomes eligible (see Frontier). Empty means the story can start
 	// immediately. Unknown/typo IDs are ignored so they can never deadlock the loop.
@@ -38,6 +44,54 @@ type UserStory struct {
 // resolve.
 func (s *UserStory) Parked() bool {
 	return s.NeedsReview || s.Blocked
+}
+
+// NeededOS is the operating system the story's Needs line names, as Go spells it
+// in runtime.GOOS ("darwin", "linux", "windows"), or "" when it names none that
+// chief knows — which makes the story runnable anywhere, the way an unknown
+// blocker ID is ignored: a typo must never keep a story from running at all.
+func (s *UserStory) NeededOS() string {
+	return ParseOS(s.Needs)
+}
+
+// RunsOn reports whether the story can be worked on under the operating system
+// goos (a runtime.GOOS value).
+func (s *UserStory) RunsOn(goos string) bool {
+	need := s.NeededOS()
+	return need == "" || need == goos
+}
+
+// ParseOS reads the operating system at the start of a "**Braucht:**" value —
+// "macOS (Xcode)", "Linux (systemd)", "windows" — and returns it as Go spells it
+// in runtime.GOOS. It returns "" for anything else.
+func ParseOS(needs string) string {
+	head := needs
+	if i := strings.IndexAny(head, "(,;:—-"); i >= 0 {
+		head = head[:i]
+	}
+	switch strings.ToLower(strings.Join(strings.Fields(head), " ")) {
+	case "macos", "mac os", "mac", "osx", "os x", "mac os x", "darwin":
+		return "darwin"
+	case "linux", "ubuntu", "debian":
+		return "linux"
+	case "windows", "win":
+		return "windows"
+	}
+	return ""
+}
+
+// OSName is how a person writes the operating system goos: "macOS" for
+// "darwin". Unknown values are returned as they are.
+func OSName(goos string) string {
+	switch goos {
+	case "darwin":
+		return "macOS"
+	case "linux":
+		return "Linux"
+	case "windows":
+		return "Windows"
+	}
+	return goos
 }
 
 // PRD represents a Product Requirements Document.
@@ -115,6 +169,10 @@ func (p *PRD) Incomplete() []UserStory {
 //   - A self-reference (a story listing its own ID) is ignored.
 //   - Duplicate IDs are handled safely (checked more than once is harmless).
 func (p *PRD) Frontier() []*UserStory {
+	return p.frontierOn(runtime.GOOS)
+}
+
+func (p *PRD) frontierOn(goos string) []*UserStory {
 	passed := make(map[string]bool, len(p.UserStories))
 	exists := make(map[string]bool, len(p.UserStories))
 	for i := range p.UserStories {
@@ -125,7 +183,7 @@ func (p *PRD) Frontier() []*UserStory {
 	}
 
 	var out []*UserStory
-	for _, story := range p.Actionable() {
+	for _, story := range p.ActionableOn(goos) {
 		if blockersSatisfied(story, exists, passed) {
 			out = append(out, story)
 		}
@@ -133,14 +191,21 @@ func (p *PRD) Frontier() []*UserStory {
 	return out
 }
 
-// Actionable returns, in PRD order, every story the loop may still work on:
-// not passed, not parked, and not waiting on a blocked story. A story waits
-// when it depends — directly or through other stories — on a blocked story that
-// has not passed; its work would stand on something a person has yet to
-// provide. A story parked for review holds nothing back, since its dependents
-// may well still be doable (see NextStory's fallback).
+// Actionable returns, in PRD order, every story the loop may still work on on
+// this machine: see ActionableOn.
 func (p *PRD) Actionable() []*UserStory {
-	waiting := p.waiting()
+	return p.ActionableOn(runtime.GOOS)
+}
+
+// ActionableOn returns, in PRD order, every story the loop may still work on
+// under the operating system goos: not passed, not parked, runnable on goos,
+// and not waiting on a story that is blocked or needs another system. A story
+// waits when it depends — directly or through other stories — on one of those
+// that has not passed; its work would stand on something that cannot happen
+// here. A story parked for review holds nothing back, since its dependents may
+// well still be doable (see NextStory's fallback).
+func (p *PRD) ActionableOn(goos string) []*UserStory {
+	waiting := p.waiting(goos)
 	var out []*UserStory
 	for i := range p.UserStories {
 		story := &p.UserStories[i]
@@ -152,14 +217,26 @@ func (p *PRD) Actionable() []*UserStory {
 	return out
 }
 
-// waiting returns the IDs of the stories that cannot start before a person has
-// acted: the blocked stories themselves, and every unpassed story that depends
-// on one of them, however indirectly. Unknown and self-referencing blocker IDs
-// are ignored exactly as in Frontier.
-func (p *PRD) waiting() map[string]bool {
+// OtherOS returns, in PRD order, the unpassed stories that need an operating
+// system other than goos.
+func (p *PRD) OtherOS(goos string) []*UserStory {
+	var out []*UserStory
+	for i := range p.UserStories {
+		if s := &p.UserStories[i]; !s.Passes && !s.RunsOn(goos) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// waiting returns the IDs of the stories that cannot start under goos: the
+// blocked stories and those needing another system, and every unpassed story
+// that depends on one of them, however indirectly. Unknown and
+// self-referencing blocker IDs are ignored exactly as in Frontier.
+func (p *PRD) waiting(goos string) map[string]bool {
 	waiting := make(map[string]bool)
 	for i := range p.UserStories {
-		if s := &p.UserStories[i]; s.Blocked && !s.Passes {
+		if s := &p.UserStories[i]; !s.Passes && (s.Blocked || !s.RunsOn(goos)) {
 			waiting[s.ID] = true
 		}
 	}
@@ -226,10 +303,18 @@ func lowestPriority(stories []*UserStory) *UserStory {
 //  4. nil when there are no actionable stories left at all.
 //
 // Parked stories (NeedsReview, Blocked) are always skipped so the loop moves on
-// instead of retrying a stuck one forever, and so are the stories waiting on a
-// blocked one (see Actionable) — the fallback included.
+// instead of retrying a stuck one forever, and so are the stories that need
+// another operating system and the stories waiting on a blocked one or one of
+// those (see Actionable) — the fallback included.
 func (p *PRD) NextStory() *UserStory {
-	actionable := p.Actionable()
+	return p.NextStoryOn(runtime.GOOS)
+}
+
+// NextStoryOn is NextStory for a run under the operating system goos. Stories
+// that need another system are skipped like parked ones, and so is everything
+// that depends on them.
+func (p *PRD) NextStoryOn(goos string) *UserStory {
+	actionable := p.ActionableOn(goos)
 
 	// 1. In-progress (interrupted) story resumes first.
 	for _, story := range actionable {
@@ -239,7 +324,7 @@ func (p *PRD) NextStory() *UserStory {
 	}
 
 	// 2. Lowest-priority eligible frontier story.
-	if next := lowestPriority(p.Frontier()); next != nil {
+	if next := lowestPriority(p.frontierOn(goos)); next != nil {
 		return next
 	}
 
@@ -248,8 +333,9 @@ func (p *PRD) NextStory() *UserStory {
 	return lowestPriority(actionable)
 }
 
-// AllResolved returns true when the loop has no more actionable work: every
-// story is done, parked, or waiting on a blocked story.
+// AllResolved returns true when the loop has no more actionable work on this
+// machine: every story is done, parked, needs another operating system, or
+// waits on one of those.
 func (p *PRD) AllResolved() bool {
 	return len(p.Actionable()) == 0
 }

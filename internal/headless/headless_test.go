@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -806,5 +807,40 @@ func TestABlockedStoryIsSetAsideWithItsReasonAndPushed(t *testing.T) {
 	}
 	if strings.Contains(pushed, "### US-002: Notarize\n**Status:**") {
 		t.Errorf("US-002 waits on a blocked story and must not have been started:\n%s", pushed)
+	}
+}
+
+// A story whose **Braucht:** names another operating system is never started,
+// the log says so once, and the run ends complete instead of circling.
+func TestAStoryForAnotherSystemIsSkippedAndTheRunEnds(t *testing.T) {
+	other := "Windows"
+	if runtime.GOOS == "windows" {
+		other = "Linux"
+	}
+	dir, prdPath := project(t, "US-001", "First Story")
+	md := "# Demo\n\nA demo project\n\n" +
+		"### US-001: First Story\n\n- [ ] It works\n\n" +
+		"### US-002: Installer\n**Braucht:** " + other + " (installer)\n\n- [ ] Installs\n"
+	if err := os.WriteFile(prdPath, []byte(md), 0644); err != nil {
+		t.Fatal(err)
+	}
+	off := false
+	cfg := &config.Config{}
+	cfg.Review.Enabled, cfg.Consolidate.Enabled = &off, &off
+
+	res, log := run(t, Options{
+		PRDPath:  prdPath,
+		BaseDir:  dir,
+		Provider: &testProvider{script: agentScript(t, dir, "feat: demo/US-001 - First Story")},
+		Config:   cfg,
+	})
+	if !res.Completed || res.Passing != 1 {
+		t.Errorf("Completed = %v, Passing = %d; want a complete run with US-001 done\nlog:\n%s", res.Completed, res.Passing, log)
+	}
+	if !strings.Contains(log, "skipped here, they need another system: US-002") {
+		t.Errorf("the log does not say US-002 is skipped:\n%s", log)
+	}
+	if strings.Contains(log, "US-002 started") {
+		t.Errorf("US-002 needs %s and must not start here:\n%s", other, log)
 	}
 }

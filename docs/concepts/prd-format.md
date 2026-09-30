@@ -52,6 +52,7 @@ Below the freeform context, define your user stories using structured markdown h
 - `**Blockiert (Ben):** ...` — written by Chief under a `blocked` status: what blocks the story and what to do
 - `**Priority:** N` — execution order (optional; defaults to document order)
 - `**Blocked by:** US-001, US-002` — story IDs that must be `done` first (optional; omit for stories with no dependencies)
+- `**Braucht:** macOS (Xcode, signing)` — the operating system the story can only be done on (optional). A run on another system skips it and everything that depends on it
 - `**Description:** ...` — story description (or freeform prose after heading)
 - `- [ ] criterion` / `- [x] criterion` — acceptance criteria as checkboxes
 
@@ -130,8 +131,9 @@ Chief picks the next story to work on by following the **dependency frontier** �
 ```
 1. If a story is **Status:** in-progress (and not parked), resume it first
 2. Otherwise compute the frontier: every story that is not done, not
-   needs-review, not blocked, not waiting on a blocked story, and whose
-   Blocked by IDs are all done
+   needs-review, not blocked, runnable on this operating system (see
+   Braucht), not waiting on a blocked story or one for another system, and
+   whose Blocked by IDs are all done
 3. From the frontier, pick the lowest **Priority:** (ties break by document order)
 4. Fallback: if the frontier is empty but unfinished, non-parked work remains
    (a dependency cycle, or everything left is blocked by a parked story),

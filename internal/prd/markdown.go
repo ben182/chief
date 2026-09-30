@@ -27,6 +27,10 @@ var blockedByLineRegex = regexp.MustCompile(`^\*\*Blocked by:\*\*\s*(.+)$`)
 // a PRD somebody edited by hand.
 var blockedReasonLineRegex = regexp.MustCompile(`^\*\*(?:Blockiert|Blocked) \(Ben\):\*\*\s*(.*)$`)
 
+// needsLineRegex matches "**Braucht:** macOS (Xcode, signing)", the operating
+// system a story can only be done on. "Needs" and "Requires" are read too.
+var needsLineRegex = regexp.MustCompile(`^\*\*(?:Braucht|Needs|Requires):\*\*\s*(.*)$`)
+
 // checkboxRegex matches "- [ ] text" or "- [x] text"
 var checkboxRegex = regexp.MustCompile(`^-\s+\[([ xX])\]\s+(.+)$`)
 
@@ -181,6 +185,12 @@ func ParseMarkdownPRDFromString(content string) (*PRD, error) {
 			// **Description:** line
 			if m := descriptionLineRegex.FindStringSubmatch(trimmed); m != nil {
 				current.story.Description = strings.TrimSpace(m[1])
+				continue
+			}
+
+			// **Braucht:** line — the operating system the story needs.
+			if m := needsLineRegex.FindStringSubmatch(trimmed); m != nil {
+				current.story.Needs = strings.TrimSpace(m[1])
 				continue
 			}
 

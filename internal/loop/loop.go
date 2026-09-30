@@ -1513,11 +1513,7 @@ func (l *Loop) WatchdogTimeout() time.Duration {
 func DefaultMaxIterations(p *prd.PRD) int {
 	remaining := 0
 	if p != nil {
-		for _, story := range p.UserStories {
-			if !story.Passes && !story.NeedsReview {
-				remaining++
-			}
-		}
+		remaining = len(p.Actionable())
 	}
 	if n := remaining*DefaultMaxAttemptsPerStory + 5; n > 5 {
 		return n
