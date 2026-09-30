@@ -40,6 +40,10 @@ type Options struct {
 	// It is the other half of what a run on a throwaway box needs: the machine
 	// is destroyed, so a commit that only exists there does not exist.
 	Push bool // --push
+	// SkipPrep starts `chief start` without making sure the PRD was prepared for
+	// this machine (see `chief prep`). A headless run never checks, so there it
+	// changes nothing.
+	SkipPrep bool // --skip-prep
 }
 
 // AgentFlags extracts --agent, --agent-path and --model from args[startIdx:],
@@ -116,6 +120,8 @@ func ParseArgs(args []string) (*Options, error) {
 			opts.LogToBranch = true
 		case arg == "--push":
 			opts.Push = true
+		case arg == "--skip-prep":
+			opts.SkipPrep = true
 		case arg == "--agent" || arg == "--agent-path" || arg == "--model":
 			i++ // skip value (already parsed by AgentFlags)
 		case strings.HasPrefix(arg, "--agent=") || strings.HasPrefix(arg, "--agent-path=") || strings.HasPrefix(arg, "--model="):

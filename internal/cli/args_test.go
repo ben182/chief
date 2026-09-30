@@ -246,3 +246,13 @@ func TestPushIsOffUnlessAsked(t *testing.T) {
 		t.Error("--push was not read")
 	}
 }
+
+func TestParseArgsSkipPrep(t *testing.T) {
+	if opts, err := ParseArgs([]string{"auth"}); err != nil || opts.SkipPrep {
+		t.Errorf("SkipPrep = %v by default (%v)", opts.SkipPrep, err)
+	}
+	opts, err := ParseArgs([]string{"auth", "--skip-prep"})
+	if err != nil || !opts.SkipPrep {
+		t.Errorf("--skip-prep lost: %+v, %v", opts, err)
+	}
+}

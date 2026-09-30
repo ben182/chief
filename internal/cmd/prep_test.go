@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ben182/chief/internal/loop"
 	"github.com/ben182/chief/internal/prd"
@@ -136,7 +137,7 @@ printf 'box:\n  packages:\n    - ffmpeg\n' > .chief/config.yaml
 }
 
 // Without a terminal there is nobody to talk to: no session starts, nothing is
-// stamped, and the caller is told how to get past it.
+// stamped, and the caller is told why.
 func TestRunPrepRefusesWithoutATerminal(t *testing.T) {
 	withTerminal(t, false)
 	dir, prdPath, _ := prepProject(t)
@@ -146,7 +147,7 @@ func TestRunPrepRefusesWithoutATerminal(t *testing.T) {
 		Name: "app", BaseDir: dir, Out: &bytes.Buffer{},
 		Provider: sessionProvider{script: "touch " + started},
 	})
-	if err == nil || !strings.Contains(err.Error(), "--skip-prep") {
+	if err == nil || !strings.Contains(err.Error(), "needs a terminal") {
 		t.Fatalf("err = %v, want the terminal error", err)
 	}
 	if _, statErr := os.Stat(started); statErr == nil {
@@ -154,5 +155,93 @@ func TestRunPrepRefusesWithoutATerminal(t *testing.T) {
 	}
 	if fresh, _ := prd.CheckPrep(prdPath, runtime.GOOS); fresh {
 		t.Error("stamped without a prep")
+	}
+}
+
+// writeAppPRD puts a PRD at .chief/prds/app/prd.md under a fresh project.
+func writeAppPRD(t *testing.T, md string) (dir, prdPath string) {
+	t.Helper()
+	dir = t.TempDir()
+	prdPath = filepath.Join(dir, ".chief", "prds", "app", "prd.md")
+	if err := os.MkdirAll(filepath.Dir(prdPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(prdPath, []byte(md), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return dir, prdPath
+}
+
+// A start whose PRD was never prepared runs the prep first and then goes ahead;
+// the next start finds the stamp and asks nothing.
+func TestEnsurePreparedRunsThePrepOnceAndThenLetsTheRunStart(t *testing.T) {
+	withTerminal(t, true)
+	dir, prdPath := writeAppPRD(t, "# App\n\n### US-001: Page\n- [ ] Shown\n")
+	sessions := 0
+	provider := func() (loop.Provider, error) {
+		sessions++
+		return sessionProvider{script: "true"}, nil
+	}
+
+	for i := 0; i < 2; i++ {
+		err := EnsurePrepared(GateOptions{PRDPath: prdPath, BaseDir: dir, Provider: provider, Out: &bytes.Buffer{}})
+		if err != nil {
+			t.Fatalf("start %d: %v", i+1, err)
+		}
+	}
+	if sessions != 1 {
+		t.Errorf("%d prep sessions for two starts of an unchanged PRD, want 1", sessions)
+	}
+	if fresh, reason := prd.CheckPrep(prdPath, runtime.GOOS); !fresh {
+		t.Errorf("not prepared after the gate: %s", reason)
+	}
+}
+
+// With nobody at a terminal the gate never starts a session: it fails at once,
+// naming the command that fixes it — a box, a script or a service must not hang.
+func TestEnsurePreparedFailsWithoutATerminalInsteadOfWaiting(t *testing.T) {
+	withTerminal(t, false)
+	dir, prdPath := writeAppPRD(t, "# App\n\n### US-001: Page\n- [ ] Shown\n")
+
+	err := EnsurePrepared(GateOptions{
+		PRDPath: prdPath, BaseDir: dir, Box: true, Out: &bytes.Buffer{},
+		Provider: func() (loop.Provider, error) {
+			t.Fatal("no provider should be needed without a terminal")
+			return nil, nil
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "chief box prep app") || !strings.Contains(err.Error(), "--skip-prep") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// A PRD prepared for the box that has nothing the box can do stops `box up`
+// before a machine is paid for, and says why.
+func TestEnsurePreparedRefusesWhenNothingCanRunThere(t *testing.T) {
+	withTerminal(t, false)
+	dir, prdPath := writeAppPRD(t, "# App\n\n"+
+		"### US-001: Xcode build\n**Braucht:** macOS (Xcode)\n- [ ] Builds\n\n"+
+		"### US-002: Notarize\n**Blocked by:** US-001\n- [ ] Notarized\n\n"+
+		"### US-003: Sign\n**Status:** blocked\n**Blockiert (Ben):** 1Password is locked\n- [ ] Signed\n")
+	if err := prd.RecordPrep(prdPath, prd.PrepTargetBox, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	err := EnsurePrepared(GateOptions{PRDPath: prdPath, BaseDir: dir, Box: true, Out: &bytes.Buffer{}})
+	if err == nil {
+		t.Fatal("expected the start to be refused")
+	}
+	if want := "nothing in PRD app can run on the box — 1 blocked, 1 need another system, 1 wait on those"; !strings.Contains(err.Error(), want) {
+		t.Errorf("err = %v\nwant it to contain %q", err, want)
+	}
+
+	// On a Mac the same PRD has a story to run.
+	if runtime.GOOS == "darwin" {
+		if err := prd.RecordPrep(prdPath, runtime.GOOS, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		if err := EnsurePrepared(GateOptions{PRDPath: prdPath, BaseDir: dir, Out: &bytes.Buffer{}}); err != nil {
+			t.Errorf("locally on macOS: %v", err)
+		}
 	}
 }

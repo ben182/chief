@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/ben182/chief/embed"
@@ -22,6 +23,10 @@ type PrepOptions struct {
 	Name     string        // PRD name (default: inferred from the branch, else "default")
 	BaseDir  string        // project root (default: current directory)
 	Provider loop.Provider // agent CLI the session runs on
+	// PRDPath, when set, is the prd.md to prepare, used as given — what a
+	// starting run is about to read. Empty resolves Name the way `chief edit`
+	// does.
+	PRDPath string
 	// Box prepares the PRD for a run on the box rather than on this machine.
 	Box bool
 	// Out is where chief's own lines go. Nil means stdout.
@@ -35,7 +40,7 @@ var canAsk = func() bool { return isTerminal(os.Stdin) }
 // errPrepNeedsTerminal is what every non-interactive path gets instead of a
 // session nobody can answer. A prep that waits for input on a box, in a script
 // or under systemd is a hang, and a hang looks like work.
-var errPrepNeedsTerminal = fmt.Errorf("chief prep is a conversation and needs a terminal; run it where you can answer, or pass --skip-prep")
+var errPrepNeedsTerminal = fmt.Errorf("chief prep is a conversation and needs a terminal; run it where you can answer")
 
 // PrepTarget is the stamp key and the operating system of what a prep is for:
 // "box" and Linux for the box, runtime.GOOS for this machine.
@@ -61,16 +66,27 @@ func RunPrep(opts PrepOptions) error {
 		return errPrepNeedsTerminal
 	}
 
-	opts.Name = resolvePRDName(opts.Name, opts.BaseDir)
-	name, baseDir, prdDir, prdMdPath, err := preparePRDPaths(opts.Name, opts.BaseDir)
-	if err != nil {
-		return err
-	}
-	opts.Name, opts.BaseDir = name, baseDir
-	// A local run in a worktree reads the worktree's copy; a box is sent the
-	// project's own, so that is the one to prepare for it.
-	if !opts.Box {
-		prdDir, prdMdPath = livePRDPaths(baseDir, name, prdDir, prdMdPath)
+	var name, baseDir, prdDir, prdMdPath string
+	if opts.PRDPath != "" {
+		var err error
+		if baseDir, err = resolveBaseDir(opts.BaseDir); err != nil {
+			return err
+		}
+		prdMdPath = opts.PRDPath
+		prdDir = filepath.Dir(prdMdPath)
+		name = filepath.Base(prdDir)
+	} else {
+		opts.Name = resolvePRDName(opts.Name, opts.BaseDir)
+		var err error
+		name, baseDir, prdDir, prdMdPath, err = preparePRDPaths(opts.Name, opts.BaseDir)
+		if err != nil {
+			return err
+		}
+		// A local run in a worktree reads the worktree's copy; a box is sent the
+		// project's own, so that is the one to prepare for it.
+		if !opts.Box {
+			prdDir, prdMdPath = livePRDPaths(baseDir, name, prdDir, prdMdPath)
+		}
 	}
 	if _, err := os.Stat(prdMdPath); err != nil {
 		return fmt.Errorf("PRD not found at %s. Use 'chief new %s' to create it first", prdMdPath, name)
@@ -199,4 +215,102 @@ func commitAndPushPrep(out io.Writer, paths []string, message string) {
 		}
 		_, _ = fmt.Fprintf(out, "Pushed %s\n", branch)
 	}
+}
+
+// GateOptions describe a run about to start, for EnsurePrepared.
+type GateOptions struct {
+	// PRDPath is the prd.md the run will read.
+	PRDPath string
+	BaseDir string
+	// Box is true for `chief box up`, false for `chief start`.
+	Box bool
+	// Provider supplies the agent a prep session runs on. Called only when a
+	// prep is needed, so a start that needs none resolves nothing.
+	Provider func() (loop.Provider, error)
+	Out      io.Writer
+}
+
+// EnsurePrepared is what `chief start` and `chief box up` go through before a
+// run: the PRD has to be prepared for where the run happens (see RunPrep), and
+// something in it has to be able to run there.
+//
+// A missing, stale or other-target stamp starts the matching prep right here —
+// at a terminal. Without one it fails with the command that fixes it instead:
+// a prep cannot happen without a person, and a start that waits for one is a
+// hang. What the prep cannot fix is a PRD with nothing left to do in that
+// environment, and that ends the start, before a box is paid for.
+func EnsurePrepared(opts GateOptions) error {
+	out := opts.Out
+	if out == nil {
+		out = os.Stdout
+	}
+	target, goos := PrepTarget(opts.Box)
+	where, command := "this machine ("+prd.OSName(goos)+")", "chief prep"
+	if opts.Box {
+		where, command = "the box", "chief box prep"
+	}
+	name := filepath.Base(filepath.Dir(opts.PRDPath))
+
+	if fresh, reason := prd.CheckPrep(opts.PRDPath, target); !fresh {
+		if !canAsk() {
+			return fmt.Errorf("PRD %s is not prepared for a run on %s: %s.\n"+
+				"  Run '%s %s' at a terminal first, or pass --skip-prep", name, where, reason, command, name)
+		}
+		_, _ = fmt.Fprintf(out, "==> PRD %s is not prepared for a run on %s: %s. Starting '%s' first.\n\n", name, where, reason, command)
+		provider, err := opts.Provider()
+		if err != nil {
+			return err
+		}
+		if err := RunPrep(PrepOptions{PRDPath: opts.PRDPath, BaseDir: opts.BaseDir, Provider: provider, Box: opts.Box, Out: out}); err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintln(out)
+	}
+
+	p, err := prd.LoadPRD(opts.PRDPath)
+	if err != nil {
+		return err
+	}
+	if len(p.ActionableOn(goos)) == 0 {
+		return fmt.Errorf("nothing in PRD %s can run on %s — %s.\n"+
+			"  Release blocked stories or split stories with '%s %s', or pass --skip-prep",
+			name, where, whyNothingRuns(p, goos), command, name)
+	}
+	return nil
+}
+
+// whyNothingRuns sums up what the stories of a PRD with nothing to do are
+// waiting on, so the refusal says what to change.
+func whyNothingRuns(p *prd.PRD, goos string) string {
+	var done, blocked, review, other, waiting int
+	for i := range p.UserStories {
+		s := &p.UserStories[i]
+		switch {
+		case s.Passes:
+			done++
+		case s.Blocked:
+			blocked++
+		case s.NeedsReview:
+			review++
+		case !s.RunsOn(goos):
+			other++
+		default:
+			waiting++
+		}
+	}
+	var parts []string
+	add := func(n int, what string) {
+		if n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, what))
+		}
+	}
+	add(done, "done")
+	add(blocked, "blocked")
+	add(review, "parked for review")
+	add(other, "need another system")
+	add(waiting, "wait on those")
+	if len(parts) == 0 {
+		return "it has no stories"
+	}
+	return strings.Join(parts, ", ")
 }

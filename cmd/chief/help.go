@@ -11,7 +11,9 @@ Usage:
 
 Commands:
   start [name]              Launch the TUI and begin the loop immediately
-                            (add --headless to run without a TUI, e.g. over SSH)
+                            (add --headless to run without a TUI, e.g. over SSH).
+                            Runs 'chief prep' first when the PRD was not prepared
+                            for this machine as it stands
   new [name] [context]      Create a new PRD interactively (prompts for the Claude model unless --model is set)
   edit [name] [options]     Edit an existing PRD interactively (prompts for the Claude model unless --model is set)
   followup [name]           Convert a PRD's follow-up inbox (todos.md) into new user stories
@@ -38,6 +40,8 @@ Global Options:
                             is resolved. Never asks a question
   --worktree                With --headless, run in the PRD's own git worktree
                             (branch chief/<name>) instead of the current checkout
+  --skip-prep               With start, skip the prep check (a headless run never
+                            checks)
   --help, -h                Show this help message
   --version, -v             Show version number
 

@@ -114,6 +114,8 @@ chief start auth-system -n 50
 If you're on a protected branch (e.g. `main`) or another PRD is already running in the same directory, Chief still shows the branch/worktree confirmation before starting.
 :::
 
+**Prepared first.** Before it starts the loop, `chief start` checks that the PRD was gone through with [`chief prep`](#chief-prep) for this machine, as it stands now. When it never was, was prepared only for the box, or has changed since, the prep starts right there and the run follows once you `exit` it. A PRD in which nothing can run on this machine — everything done, blocked, parked, or needing another system — ends the start with a line saying which. `--skip-prep` starts without the check. A headless run (`--headless`, which is how the box runs) never checks and never preps; neither does anything without a terminal, which is told to run `chief prep` first instead of waiting for an answer. Starting the loop from inside the TUI with `s` does not check either.
+
 ---
 
 ### Headless runs
@@ -484,6 +486,7 @@ chief box down          # destroy it — this is what stops the billing
 | `--node <major>` | Node to install, e.g. `22` | `box.node`, else what this machine runs |
 | `--file <path>` | An untracked file the run needs; repeatable | `.env` |
 | `--package <name>` | An apt package to install on top of what was read from the project; repeatable | — |
+| `--skip-prep` | Create the box without checking that `chief box prep` has gone through the PRD as it stands | check, and prep first if needed |
 
 **Flags for `down`:**
 

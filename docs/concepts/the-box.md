@@ -60,12 +60,13 @@ A box turns all three into one number on a bill. It is a machine with exactly th
 In order:
 
 1. **Everything checkable is checked first**, before anything is created and before any login can open a browser: the PRD exists, the project has an `origin`, the current branch is on `origin` and not ahead of it, `ssh`/`scp`/`rsync` are installed, and this machine has an SSH public key.
-2. **Chief cross-compiles itself** for the box from your checkout, rather than downloading a release. The box runs the Chief you have, not the last tag.
-3. **The instance is created** behind a shared firewall (inbound: SSH and ping, nothing else) with an SSH host key Chief generated *before* the machine existed — so the first connection, the one carrying your tokens and your `.env`, is verified rather than trusted.
-4. **cloud-init provisions it** to the profile read from your project (below).
-5. **The project is cloned** over HTTPS with the GitHub token, on the branch you are on.
-6. **The files git does not carry go over**: the PRD directory, `.chief/config.yaml`, and `.env`.
-7. **The run starts** as a systemd unit, `chief-run@<prd>`, and owes nothing to the connection that started it.
+2. **The PRD has to be prepared for the box.** When [`chief box prep`](/reference/cli#chief-prep) never went through it, or it changed since, that prep starts first — at a terminal; without one, `up` stops and says to run it. It releases blocked stories, marks with `**Braucht:**` what Linux cannot do, and puts missing apt packages into `box.packages`. If nothing in the PRD can run on the box afterwards, no box is created. `--skip-prep` skips all of this. The box itself never preps: its run is headless.
+3. **Chief cross-compiles itself** for the box from your checkout, rather than downloading a release. The box runs the Chief you have, not the last tag.
+4. **The instance is created** behind a shared firewall (inbound: SSH and ping, nothing else) with an SSH host key Chief generated *before* the machine existed — so the first connection, the one carrying your tokens and your `.env`, is verified rather than trusted.
+5. **cloud-init provisions it** to the profile read from your project (below).
+6. **The project is cloned** over HTTPS with the GitHub token, on the branch you are on.
+7. **The files git does not carry go over**: the PRD directory, `.chief/config.yaml`, and `.env`.
+8. **The run starts** as a systemd unit, `chief-run@<prd>`, and owes nothing to the connection that started it.
 
 ::: warning The branch has to be on origin
 The box clones `origin` and checks out your branch by name. A branch that was never pushed does not exist for the clone, and one that is ahead of `origin` exists at the *wrong commit* — the run would build on a version of the project missing the last thing you did. Chief refuses both before creating anything and tells you to `git push`.

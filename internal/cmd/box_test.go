@@ -221,3 +221,12 @@ func TestParseBoxArgsTakesAStartTime(t *testing.T) {
 		t.Error("--at tonight was accepted")
 	}
 }
+
+func TestParseBoxArgsTakesSkipPrep(t *testing.T) {
+	if o, err := ParseBoxArgs([]string{"up", "auth"}); err != nil || o.SkipPrep {
+		t.Errorf("SkipPrep = %v by default (%v)", o.SkipPrep, err)
+	}
+	if o, err := ParseBoxArgs([]string{"run", "auth", "--skip-prep"}); err != nil || !o.SkipPrep || o.PRD != "auth" {
+		t.Errorf("--skip-prep lost: %+v, %v", o, err)
+	}
+}

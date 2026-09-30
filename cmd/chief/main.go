@@ -71,8 +71,13 @@ func main() {
 				return
 			}
 			opts.AutoStart = true
+			// Headless is how the box runs, and how anything without a person
+			// runs: it never preps, and never waits for one.
 			if opts.Headless {
 				runHeadless(opts)
+				return
+			}
+			if !opts.SkipPrep && !ensurePreparedToStart(opts) {
 				return
 			}
 			runTUIWithOptions(opts)
@@ -97,6 +102,36 @@ func main() {
 
 	// Run the TUI
 	runTUIWithOptions(opts)
+}
+
+// ensurePreparedToStart makes sure the PRD `chief start` is about to run was
+// prepared for this machine, starting `chief prep` when it was not (see
+// cmd.EnsurePrepared). It pins the resolved PRD on opts so the TUI opens the
+// same one, and returns false when the start should not go ahead because
+// first-time setup was cancelled; every other refusal exits.
+func ensurePreparedToStart(opts *cli.Options) bool {
+	provider := resolveProvider(opts.Agent, opts.AgentPath, opts.Model)
+	prdPath, ok := resolvePRDPath(opts, provider)
+	if !ok {
+		return false
+	}
+	opts.PRDPath = prdPath
+	if !fileExists(prdPath) {
+		// The TUI explains a missing PRD better than the gate could.
+		return true
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		fatal(err)
+	}
+	if err := cmd.EnsurePrepared(cmd.GateOptions{
+		PRDPath:  prdPath,
+		BaseDir:  cwd,
+		Provider: func() (loop.Provider, error) { return provider, nil },
+	}); err != nil {
+		fatal(err)
+	}
+	return true
 }
 
 // parseTUIOptions parses os.Args for TUI mode. It turns cli.ParseArgs' errors

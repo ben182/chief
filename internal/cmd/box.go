@@ -9,10 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ben182/chief/internal/agent"
 	"github.com/ben182/chief/internal/box"
 	"github.com/ben182/chief/internal/cli"
 	"github.com/ben182/chief/internal/config"
+	"github.com/ben182/chief/internal/loop"
 	"github.com/ben182/chief/internal/notify"
+	"github.com/ben182/chief/internal/prd"
 	"github.com/ben182/chief/internal/tui"
 )
 
@@ -61,6 +64,9 @@ Options for up/run:
   --node <major>        Node to install, e.g. 22 (default: what this machine runs)
   --file <path>         An untracked file the run needs, repeatable (default .env)
   --package <name>      An apt package to install on the box, repeatable
+  --skip-prep           Start without the prep check: up and run otherwise make
+                        sure 'chief box prep' has gone through the PRD as it
+                        stands, and start it first if not (at a terminal)
 
 What the box is built with is read from the project: PHP and its extensions from
 composer.json and composer.lock, the database from .env, the JavaScript package
@@ -85,13 +91,15 @@ type BoxOptions struct {
 	Command2 string
 	PRD      string
 
-	Worktree      bool
-	Verbose       bool
-	Force         bool
-	All           bool
-	Name          string
-	DownWhenDone  bool
-	Keep          bool
+	Worktree     bool
+	Verbose      bool
+	Force        bool
+	All          bool
+	Name         string
+	DownWhenDone bool
+	Keep         bool
+	// SkipPrep starts without making sure the PRD was prepared for the box.
+	SkipPrep      bool
 	MaxHours      int
 	MaxIterations int
 	// At is when the run should start, already resolved to the next time the
@@ -139,6 +147,8 @@ func ParseBoxArgs(args []string) (BoxOptions, error) {
 			o.DownWhenDone = true
 		case arg == "--keep":
 			o.Keep = true
+		case arg == "--skip-prep":
+			o.SkipPrep = true
 		case arg == "--max-hours":
 			var v string
 			if v, err = value(&i, arg); err == nil {
@@ -311,14 +321,32 @@ func runBoxUp(ctx context.Context, baseDir string, opts BoxOptions) error {
 		}
 	}
 
-	up := boxUpOptions(baseDir, prdName, cfg, opts)
-
 	// Everything that can be checked for free is checked first. Resolving the
 	// secrets below can open a browser, and nobody should be sent through a
 	// login to be told afterwards that their PRD does not exist.
-	if err := box.Preflight(ctx, up); err != nil {
+	if err := box.Preflight(ctx, box.UpOptions{PRD: prdName, BaseDir: baseDir}); err != nil {
 		return err
 	}
+
+	// Then the PRD itself: prepared for the box as it stands, and with something
+	// in it the box can do. A prep can change the box config, so the config is
+	// read again after it.
+	if !opts.SkipPrep {
+		if err := EnsurePrepared(GateOptions{
+			PRDPath:  prd.PRDPath(baseDir, prdName),
+			BaseDir:  baseDir,
+			Box:      true,
+			Provider: func() (loop.Provider, error) { return configuredProvider(baseDir) },
+			Out:      os.Stderr,
+		}); err != nil {
+			return err
+		}
+		if reloaded, err := config.Load(baseDir); err == nil {
+			cfg = reloaded
+		}
+	}
+
+	up := boxUpOptions(baseDir, prdName, cfg, opts)
 
 	// Never interactive, even at a terminal. Creating a box is something scripts
 	// and background shells do, and a browser login started there waits forever
@@ -340,6 +368,23 @@ func runBoxUp(ctx context.Context, baseDir string, opts BoxOptions) error {
 	}
 	_ = state
 	return nil
+}
+
+// configuredProvider is the agent the project's config names, for a prep that
+// `chief box up` starts on its own — there is no --agent flag to read there.
+func configuredProvider(baseDir string) (loop.Provider, error) {
+	cfg, err := config.Load(baseDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load .chief/config.yaml: %w", err)
+	}
+	provider, err := agent.Resolve("", "", cfg)
+	if err != nil {
+		return nil, err
+	}
+	if err := agent.CheckInstalled(provider); err != nil {
+		return nil, err
+	}
+	return provider, nil
 }
 
 // boxUpOptions assembles what the box is created and built with: a flag beats
