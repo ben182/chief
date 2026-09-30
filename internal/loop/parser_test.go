@@ -305,6 +305,10 @@ func TestClassifyAssistantText_OnlyRealSignalsCount(t *testing.T) {
 		{"quoted blocked, real done", "Skipped `<chief-blocked>…</chief-blocked>`: nothing blocks it.\n<chief-done/>", EventStoryDone, ""},
 		{"stray backtick before a signal", "It's in the `foo dir.\n<chief-done/>", EventStoryDone, ""},
 		{"fence closed, signal after it", "```go\nx := 1\n```\n<chief-done/>", EventStoryDone, ""},
+		{"done in a sentence", "Darum gebe ich kein <chief-done/> aus.", EventAssistantText, ""},
+		{"done promised for later", "I set <chief-done/> once the commit is through.\nCommitting now.", EventAssistantText, ""},
+		{"done at the end of a line", "All criteria met. <chief-done/>", EventStoryDone, ""},
+		{"done with emphasis and a full stop", "**<chief-done/>**.", EventStoryDone, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ev := classifyAssistantText(tc.text)

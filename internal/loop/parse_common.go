@@ -70,8 +70,10 @@ func inSpans(i int, spans []span) bool {
 	return false
 }
 
-// lastSignalIndex is the offset of the last occurrence of tag outside code, or
-// -1.
+// lastSignalIndex is the offset of the last occurrence of tag outside code that
+// ends its line, or -1. A signal closes what the agent says; a tag with words
+// after it on the same line ("so I do not output <chief-done/> yet") is a
+// sentence about the signal. Closing punctuation or emphasis may follow.
 func lastSignalIndex(text, tag string, code []span) int {
 	last := -1
 	for from := 0; ; {
@@ -80,7 +82,7 @@ func lastSignalIndex(text, tag string, code []span) int {
 			return last
 		}
 		i += from
-		if !inSpans(i, code) {
+		if !inSpans(i, code) && endsLine(text[i+len(tag):]) {
 			last = i
 		}
 		from = i + len(tag)
@@ -217,4 +219,13 @@ func inlineCode(text string, p span) []span {
 		i = closeAt + n
 	}
 	return spans
+}
+
+// endsLine reports whether rest, the text after a tag, has nothing on the tag's
+// line but whitespace, closing punctuation or markdown emphasis.
+func endsLine(rest string) bool {
+	if nl := strings.IndexByte(rest, '\n'); nl >= 0 {
+		rest = rest[:nl]
+	}
+	return strings.Trim(rest, " \t\r.!*_") == ""
 }
