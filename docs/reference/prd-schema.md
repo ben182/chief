@@ -65,7 +65,7 @@ Chief reads checkbox state to track progress. The agent checks boxes as it compl
 | `in-progress` | `in progress`, `started` | Agent is actively working on this story |
 | `todo` | *(anything unrecognized falls back to this)* | Story is pending (also the default if Status is absent) |
 | `needs-review` | `needs review` | Chief parked the story (e.g. after repeated failed attempts). Skipped by the loop and flagged with ⚑ in the TUI until a human resets it. |
-| `blocked` | — | The agent stopped on something only a person can resolve and said why with `<chief-blocked>`. Chief writes the reason under the status as `**Blockiert (Ben):** …`. Skipped by the loop, and so is every story that depends on it, until a person sets it back to `todo`. Flagged with ⊘ in the TUI. |
+| `blocked` | — | The agent stopped on something only a person can resolve and said why with `<chief-blocked>`. Chief writes the reason under the status as `**Blockiert (Ben):** …`. Skipped by the loop, and so is every story that depends on it, until a person sets it back to `todo` — [`chief prep`](/reference/cli#chief-prep) asks about each one. Flagged with ⊘ in the TUI. |
 
 Status matching is case-insensitive. Any value Chief doesn't recognize is treated as `todo` rather than raising an error.
 
@@ -150,6 +150,8 @@ Lower numbers = higher priority. Chief always picks the incomplete story with th
 The operating system a story can only be done on, and why: `**Braucht:** macOS (Xcode, signing)`, `**Braucht:** Linux (systemd)`, `**Braucht:** Windows (installer)`. `**Needs:**` and `**Requires:**` are read as well. Internally the parsed field is `needs`.
 
 Only the system at the start is compared, deterministically, with the one Chief runs on (`macOS`, `Mac`, `darwin` → macOS; `Linux`, `Ubuntu`, `Debian` → Linux; `Windows`); the part in brackets is for the reader. A story for another system is skipped like a parked one — on a box, which runs Linux, every macOS story is — and so is every story that depends on it. Locally on a Mac the same stories run normally. A value naming no system Chief knows is ignored, so a typo never keeps a story from running at all.
+
+[`chief prep`](/reference/cli#chief-prep) writes these lines for you and offers to split a story whose code runs anywhere from the part that needs one system, so the stories after it are not held back.
 
 ### blockedBy
 

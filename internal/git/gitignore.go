@@ -84,6 +84,14 @@ func IgnoreLogsIn(dir string) {
 	_ = ensureLineInFile(filepath.Join(dir, ".gitignore"), "*.log", "# chief run logs — regenerated each run")
 }
 
+// IgnorePrepStampIn ensures dir's .gitignore carries the prep stamp's name
+// (prep.json), which records what this checkout prepared the PRD for and has no
+// business on the branch. Scoped to the PRD directory like IgnoreLogsIn, and
+// best-effort and idempotent the same way.
+func IgnorePrepStampIn(dir, name string) {
+	_ = ensureLineInFile(filepath.Join(dir, ".gitignore"), name, "# chief prep stamp — local to this checkout")
+}
+
 // ensureWorktreePathIgnored keeps a worktree that lives inside the main
 // checkout out of that checkout's git status. A worktree is a second full copy
 // of the tree, so without an ignore rule every file in it turns up as untracked

@@ -127,6 +127,18 @@ func IsGitRepo(dir string) bool {
 	return cmd.Run() == nil
 }
 
+// RepoRoot returns the top of the working tree dir belongs to — the checkout
+// itself, or the worktree when dir is inside one.
+func RepoRoot(dir string) (string, error) {
+	return runGit(dir, "rev-parse", "--show-toplevel")
+}
+
+// HasOrigin reports whether the repository at dir has a remote named origin.
+func HasOrigin(dir string) bool {
+	_, err := runGit(dir, "remote", "get-url", "origin")
+	return err == nil
+}
+
 // CommitCount returns the number of commits on branch that are not on the default branch.
 // Returns 0 if the count cannot be determined.
 func CommitCount(repoDir, branch string) int {

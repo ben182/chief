@@ -16,6 +16,9 @@ Commands:
   edit [name] [options]     Edit an existing PRD interactively (prompts for the Claude model unless --model is set)
   followup [name]           Convert a PRD's follow-up inbox (todos.md) into new user stories
                             (name defaults to the PRD of the current chief/<name> branch)
+  prep [name]               Go through a PRD with you before an unattended run on this
+                            machine: blocked stories, open decisions, what cannot run
+                            here, missing tools ('chief box prep' does the same for the box)
   status [name]             Show progress for a PRD (default: default)
   list                      List all PRDs with progress
   worktree <cmd> <prd>      Run a PRD worktree's setup or teardown command by hand
@@ -67,6 +70,8 @@ Examples:
   chief edit                Edit PRD in .chief/prds/default/
   chief edit auth           Edit PRD in .chief/prds/auth/
   chief followup auth       Turn .chief/prds/auth/todos.md items into new stories
+  chief prep auth           Ready the auth PRD for a run on this machine
+  chief box prep auth       Ready the auth PRD for a run on the box
   chief status              Show progress for default PRD
   chief status auth         Show progress for auth PRD
   chief list                List all PRDs with progress

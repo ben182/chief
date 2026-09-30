@@ -31,6 +31,9 @@ var reviewPromptTemplate string
 //go:embed consolidate_prompt.txt
 var consolidatePromptTemplate string
 
+//go:embed prep_prompt.txt
+var prepPromptTemplate string
+
 // GetPrompt returns the agent prompt with the progress path and
 // current story context substituted. The storyContext is the JSON of the
 // current story to work on, inlined directly into the prompt so that the
@@ -331,6 +334,60 @@ func GetFollowupPrompt(prdDir, inboxPath string, nativeQuestions bool) string {
 	result = strings.ReplaceAll(result, "{{INBOX_PATH}}", inboxPath)
 	result = strings.ReplaceAll(result, "{{QUESTION_FORMAT}}", questionFormatBatch)
 	result = strings.ReplaceAll(result, "{{PROTOTYPE}}", prototypeBlock(nativeQuestions))
+	return strings.ReplaceAll(result, "{{EXPLORE_MODEL}}", exploreModel(nativeQuestions))
+}
+
+// PrepTarget is what a `chief prep` session prepares the PRD for.
+type PrepTarget struct {
+	// Box is true for `chief box prep`, false for a prep of this machine.
+	Box bool
+	// OS is the target's operating system as a person writes it ("macOS",
+	// "Linux"), which is what a story's **Braucht:** line is compared with.
+	OS string
+	// Environment describes the target: for the box, exactly what chief
+	// installs on it; for this machine, what it is.
+	Environment string
+	// ConfigPath is the project's .chief/config.yaml, the only file besides
+	// prd.md a box prep may edit.
+	ConfigPath string
+}
+
+// GetPrepPrompt returns the prompt for the interactive session that prepares a
+// PRD for an unattended run: it releases blocked stories, settles what only the
+// PRD's author can, marks and splits stories the target cannot run, and lists
+// what has to happen before the start. The two targets differ in what may be
+// changed about missing tools — a box through its config, this machine only
+// with the person's yes — so those steps are swapped in here.
+func GetPrepPrompt(prdDir string, target PrepTarget, nativeQuestions bool) string {
+	var targetName, configScope, envStep, toolsStep string
+	if target.Box {
+		targetName = "the box — a throwaway Linux server"
+		configScope = " and `" + target.ConfigPath + "` (its `box:` section only)"
+		envStep = "The description above is exactly what chief installs on the box; there is\n" +
+			"nothing else on it, and there is no box to look at yet. Judge every tool and\n" +
+			"service the open stories need against that description."
+		toolsStep = "For a missing command-line tool that apt carries, add its Ubuntu package\n" +
+			"name to `box.packages` in `" + target.ConfigPath + "` (create the `box:` section if it\n" +
+			"is missing, and leave everything else in the file as it is). A missing service is\n" +
+			"switched on through the project's `.env` the way the description says — you do not\n" +
+			"edit `.env`: put the exact line to set on the checklist. Anything else goes on the\n" +
+			"checklist too. Do not install anything on this machine."
+	} else {
+		targetName = "this machine (" + target.OS + ")"
+		envStep = "Find out what this machine has. For every tool the open stories need, check\n" +
+			"that it is there and which version (`command -v`, `--version`, and on macOS\n" +
+			"`xcode-select -p`, `brew list`). Note what is missing for step 5."
+		toolsStep = "For each missing tool, offer the command that installs it here (for example\n" +
+			"`brew install …`) and **run it only after the user says yes** — never install\n" +
+			"anything unasked. What no command can install goes on the checklist."
+	}
+	result := strings.ReplaceAll(prepPromptTemplate, "{{PRD_DIR}}", prdDir)
+	result = strings.ReplaceAll(result, "{{TARGET}}", targetName)
+	result = strings.ReplaceAll(result, "{{CONFIG_SCOPE}}", configScope)
+	result = strings.ReplaceAll(result, "{{ENVIRONMENT}}", strings.TrimSpace(target.Environment))
+	result = strings.ReplaceAll(result, "{{ENVIRONMENT_STEP}}", envStep)
+	result = strings.ReplaceAll(result, "{{TOOLS_STEP}}", toolsStep)
+	result = strings.ReplaceAll(result, "{{QUESTION_FORMAT}}", questionFormatBatch)
 	return strings.ReplaceAll(result, "{{EXPLORE_MODEL}}", exploreModel(nativeQuestions))
 }
 

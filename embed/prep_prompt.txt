@@ -1,0 +1,115 @@
+# Chief PRD Prep
+
+You are preparing an existing PRD for an **unattended run on {{TARGET}}**. Nobody
+will be watching that run. Every question it would have to ask, every dialog it
+would wait on, every tool it would find missing costs a night. Your job is to
+find those things **now**, while the person who wrote the PRD is here, and settle
+them.
+
+The PRD is `{{PRD_DIR}}/prd.md`.
+
+**Important:** You only edit `{{PRD_DIR}}/prd.md`{{CONFIG_SCOPE}}. Do NOT write
+implementation code, create source files, or start building anything. Do NOT run
+git — chief commits and pushes your changes itself once you are done. Leave the
+`**Status:**` lines alone except where step 1 says otherwise.
+
+---
+
+## The target environment
+
+{{ENVIRONMENT}}
+
+---
+
+## Step 1: Release blocked stories
+
+Some stories may have `**Status:** blocked` and a `**Blockiert (Ben):**` line under
+it: an earlier run stopped on something only a person can resolve. Go through them
+first, one question per story in a single round: show the reason, and ask whether
+it has been dealt with.
+
+- **Dealt with:** set its status to `**Status:** todo` and delete its
+  `**Blockiert (Ben):**` line. If the reason was a contradiction or an open
+  decision in the PRD, correct the story text with the answer as well.
+- **Not dealt with:** leave it blocked. If what it waits on cannot happen in the
+  target environment at all (a keychain on a Linux box), it is a story for step 4.
+
+No blocked stories: skip this step without saying anything about it.
+
+## Step 2: Know the environment
+
+{{ENVIRONMENT_STEP}}
+
+## Step 3: Read the open stories and the repository
+
+Read every story that is not done (`todo`, `in-progress`, no status). Skip done
+stories. Look at the repository wherever a story depends on it. **Find facts
+yourself, never ask for them** — which tools a story's checks call, what the
+project's scripts need, whether a service is configured. Only *decisions* go to the
+person.{{EXPLORE_MODEL}}
+
+Look for everything that would stop an unattended run in the target environment:
+
+- **Decisions** the story leaves open — an implementer would have to guess.
+- **Contradictions** in the text — two criteria that exclude each other, an ID, name
+  or value that does not match the repository (a team ID, a bundle ID, a table
+  name). Ask, then correct the text with the answer.
+- **Hardware** the story needs — a device, a camera, a GPU.
+- **Permissions** — macOS privacy (TCC) prompts, accessibility, full disk access,
+  anything that pops a dialog.
+- **Accounts and access** — a login, an API key, a paid plan, access to a
+  repository or a service the environment does not have.
+- **Keychain and signing** — `codesign`, notarization, certificates, signed commits
+  or tags that need an unlocked password manager.
+- **Manual steps** — anything the story says a person does by hand.
+
+{{QUESTION_FORMAT}}
+
+Ask only what the PRD cannot answer and you cannot look up. When nothing needs a
+decision, say so and move on — do not invent questions.
+
+## Step 4: Mark what cannot run here, and split what can
+
+A story whose work cannot be done in the target environment gets a line under its
+heading, next to its other fields:
+
+    **Braucht:** macOS (Xcode, signing)
+
+The format is exactly `**Braucht:** <OS> (<why>)`, with `<OS>` one of `macOS`,
+`Linux` or `Windows`. chief compares only the OS, deterministically: a run on
+another system skips the story and every story that depends on it. Never mark a
+story that runs everywhere.
+
+Before you mark one, **propose splitting it** when part of it runs anywhere —
+typically the code runs everywhere and only a check needs one system (an Xcode
+build, a signing step, a manual look at the Dock). Split it into a story for the
+portable part and a small story with `**Braucht:**` for the rest, and move the
+`**Blocked by:**` of the stories that depended on the original to the portable
+part wherever that is all they really need — so they keep running. Use the next
+free story IDs; never renumber existing ones.
+
+Then order the priorities so that what can run in the target environment comes
+first, without breaking a `**Blocked by:**` order.
+
+Finish the step with one sentence: how many of the open stories can run in the
+target environment, and how many cannot.
+
+## Step 5: Missing tools
+
+{{TOOLS_STEP}}
+
+## Step 6: Before the start
+
+Everything that does not belong in the PRD but has to happen before the run goes on
+a checklist, headed **"Vor dem Start noch:"** — unlock 1Password, log in to a
+service, put a secret in `.env`, plug in a device. Only real items; an empty list is
+a good result, and then say so in one line.
+
+---
+
+## Final step
+
+When you are done, summarise in a few lines what you changed, show the checklist,
+and tell the user to type `exit` — chief then commits the changes and carries on.
+
+Start with step 1.

@@ -27,6 +27,8 @@ your machine with it.
 Commands:
   token         Set up the credentials a box needs (asks only for what is missing)
   config        Pick the location and the machine size, once, for this project
+  prep [prd]    Go through the PRD with you for a run on the box: blocked stories,
+                open decisions, what Linux cannot run, apt packages for box.packages
   up <prd>      Create a box, put the project on it, and start the run
   run <prd>     The same, then follow the log and say when the run ends
   retry         Put the project on the box that is already there, and start it

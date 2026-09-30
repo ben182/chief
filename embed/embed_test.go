@@ -700,3 +700,36 @@ func TestStoryWritingPromptsCheckFactsAndPrerequisites(t *testing.T) {
 		t.Error("summary prompt does not carry the unverified parts into Offene Punkte")
 	}
 }
+
+// A box prep may change the box's config and never this machine; a local prep
+// may install on this machine, but only after a yes. Both run the same grill.
+func TestGetPrepPrompt_TargetsDiffer(t *testing.T) {
+	boxPrompt := GetPrepPrompt("/p/.chief/prds/app", PrepTarget{
+		Box: true, OS: "Linux", Environment: "THE BOX DESCRIPTION", ConfigPath: "/p/.chief/config.yaml",
+	}, true)
+	local := GetPrepPrompt("/p/.chief/prds/app", PrepTarget{OS: "macOS", Environment: "THIS MAC"}, false)
+
+	for name, prompt := range map[string]string{"box": boxPrompt, "local": local} {
+		if strings.Contains(prompt, "{{") {
+			t.Errorf("%s: unsubstituted placeholder:\n%s", name, prompt)
+		}
+		for _, want := range []string{"/p/.chief/prds/app/prd.md", "**Braucht:** macOS (Xcode, signing)", "Blockiert (Ben)", "Vor dem Start noch:", "Grill in rounds"} {
+			if !strings.Contains(prompt, want) {
+				t.Errorf("%s: missing %q", name, want)
+			}
+		}
+	}
+	for _, want := range []string{"THE BOX DESCRIPTION", "`box.packages` in `/p/.chief/config.yaml`", "Do not install anything on this machine"} {
+		if !strings.Contains(boxPrompt, want) {
+			t.Errorf("box: missing %q", want)
+		}
+	}
+	for _, want := range []string{"THIS MAC", "this machine (macOS)", "run it only after the user says yes"} {
+		if !strings.Contains(local, want) {
+			t.Errorf("local: missing %q", want)
+		}
+	}
+	if strings.Contains(local, "config.yaml") {
+		t.Error("a local prep has no business in the box config")
+	}
+}

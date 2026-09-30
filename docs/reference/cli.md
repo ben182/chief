@@ -330,6 +330,60 @@ chief followup auth-system
 
 ---
 
+### chief prep
+
+Go through a PRD with you before an unattended run on this machine.
+
+```bash
+chief prep [name]
+chief box prep [name]     # the same, for a run on the box
+```
+
+A run that nobody watches stops on things nobody at the keyboard would have
+noticed: a question the PRD leaves open, two criteria that contradict each other,
+a keychain dialog, a tool that is not installed. `chief prep` starts a session
+that looks for exactly those, while you are still there to answer. It only edits
+`prd.md` (and, for the box, the `box:` section of `.chief/config.yaml`), never
+code, and it asks only for decisions — facts it looks up itself.
+
+1. **Blocked stories first.** For every `blocked` story it shows the reason and
+   asks whether it is dealt with; if so the story goes back to `todo` and its
+   `**Blockiert (Ben):**` line is removed.
+2. **The target.** `chief prep` looks at this machine — its OS and the tools the
+   open stories need. `chief box prep` is told exactly what the box is built with:
+   the Ubuntu base, what Chief reads from the project (runtimes, database, Redis,
+   Meilisearch, browser libraries) and the `box.*` settings.
+3. **The open stories.** Decisions, contradictions (corrected in the text once you
+   answer), hardware, permissions, accounts, keychain and signing, manual steps.
+4. **What cannot run there** gets a [`**Braucht:**`](/reference/prd-schema#needs)
+   line. It proposes splitting such a story — the code runs anywhere, only the
+   check needs macOS, say — and moves the dependencies over so the stories after
+   it keep running, then orders the priorities so that what can run comes first,
+   and says how many stories can run there.
+5. **Missing tools.** For the box, apt packages go into `box.packages`; a service
+   is switched on through `.env`, which it tells you rather than edits. Locally it
+   installs nothing unasked: it offers the command (`brew install …`) and runs it
+   only after your yes.
+6. **"Vor dem Start noch:"** — a checklist of what does not belong in the PRD:
+   unlock 1Password, log in somewhere, plug something in.
+
+When you `exit`, Chief commits the changed `prd.md` and config (unless you keep
+`.chief/` out of git) and pushes the branch, then records that the PRD is
+prepared for this target in `prep.json` next to it. The stamp is local to the
+checkout and ignored by git; it keeps a fingerprint of the PRD without its status
+lines, blocked reasons and ticked boxes, so a run working through the stories
+does not make it stale — editing what a story asks for does. A prep for the box
+and one for this machine are recorded separately.
+
+`chief start` and `chief box up` run the matching prep themselves when the stamp
+is missing or stale (see [chief start](#chief-start)). Prep needs a terminal: it
+never runs headless or on the box.
+
+Like `chief edit`, this shows the [Claude model picker](#chief-new) before the
+session starts (Claude only; skipped when `--model` is set).
+
+---
+
 ### chief status
 
 Show progress for the current PRD. Displays a summary of story completion at a glance.
@@ -401,6 +455,7 @@ it switches itself off — see [Running on a Box](/concepts/the-box).
 
 ```bash
 chief box config        # pick the location and the machine size, once
+chief box prep <prd>    # go through the PRD with you for a run on the box
 chief box up <prd>      # create the box, put the project on it, start the run
 chief box run <prd>     # the same, then follow the log and say when it ends
 chief box retry         # put the project on the box that is already there

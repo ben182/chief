@@ -37,6 +37,9 @@ func main() {
 		case "followup":
 			runFollowup()
 			return
+		case "prep":
+			runPrep(false, os.Args[2:])
+			return
 		case "status":
 			runStatus()
 			return
@@ -203,6 +206,30 @@ func runFollowup() {
 		return // user cancelled the model select
 	}
 	if err := cmd.RunFollowup(opts); err != nil {
+		fatal(err)
+	}
+}
+
+// runPrep runs `chief prep [name]` or, with forBox, `chief box prep [name]`:
+// an interactive session that readies a PRD for an unattended run.
+func runPrep(forBox bool, args []string) {
+	opts := cmd.PrepOptions{Box: forBox}
+
+	flagAgent, flagPath, flagModel, remaining, err := cli.AgentFlags(args, 0)
+	if err != nil {
+		fatal(err)
+	}
+	for _, arg := range remaining {
+		if opts.Name == "" && !strings.HasPrefix(arg, "-") {
+			opts.Name = arg
+		}
+	}
+
+	opts.Provider = resolveProvider(flagAgent, flagPath, flagModel)
+	if !selectModelForProvider(opts.Provider, "Prep PRD", flagModel) {
+		return // user cancelled the model select
+	}
+	if err := cmd.RunPrep(opts); err != nil {
 		fatal(err)
 	}
 }
@@ -538,6 +565,12 @@ func runHeadless(opts *cli.Options) {
 // run — and the machine it is billing for — in a state the next command can
 // still see.
 func runBox() {
+	// `box prep` is the one box command that holds a conversation, so it is
+	// dispatched like `chief prep`, with an agent and a model to pick.
+	if len(os.Args) > 2 && os.Args[2] == "prep" {
+		runPrep(true, os.Args[3:])
+		return
+	}
 	opts, err := cmd.ParseBoxArgs(os.Args[2:])
 	if err != nil {
 		if err.Error() == "no command" {
