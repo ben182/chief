@@ -3,34 +3,39 @@
 // log viewer, PRD picker, help overlay, and consistent styling.
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 // Color palette - consistent colors used throughout the TUI.
 //
-// Every color is an AdaptiveColor so lipgloss picks the variant that matches
-// the terminal's detected background: the Dark values keep the original
-// Catppuccin-style look on dark terminals, while the Light values swap in
-// darker, higher-contrast tones so the UI stays legible on light backgrounds
-// (pale yellows/greens on white are otherwise nearly invisible).
+// Every color is one of the terminal's 16 ANSI palette slots (or its default
+// foreground) instead of a fixed hex value. The terminal theme owns the actual
+// shades, so the UI always matches it — and when the theme changes while chief
+// is running (Ghostty reloading its palette, say), everything already on screen
+// is recolored by the terminal itself. Detecting light/dark once at startup
+// could not do that: a session started on a light theme kept its dark text
+// after a switch to a dark one.
 var (
 	// Primary colors
-	PrimaryColor = lipgloss.AdaptiveColor{Dark: "#00D7FF", Light: "#007899"} // Cyan - primary brand, in-progress states
-	SuccessColor = lipgloss.AdaptiveColor{Dark: "#5AF78E", Light: "#1A7F37"} // Green - passed, complete states
-	WarningColor = lipgloss.AdaptiveColor{Dark: "#F3F99D", Light: "#9A6700"} // Yellow - paused, warning states
-	ErrorColor   = lipgloss.AdaptiveColor{Dark: "#FF5C57", Light: "#CF222E"} // Red - failed, error states
-	ReviewColor  = lipgloss.AdaptiveColor{Dark: "#CBA6F7", Light: "#8250DF"} // Mauve - under review by the review agent
-	MutedColor   = lipgloss.AdaptiveColor{Dark: "#6C7086", Light: "#57606A"} // Gray - pending, muted text
-	BorderColor  = lipgloss.AdaptiveColor{Dark: "#45475A", Light: "#D0D7DE"} // Borders, dividers
+	PrimaryColor = lipgloss.Color("6") // Cyan - primary brand, in-progress states
+	SuccessColor = lipgloss.Color("2") // Green - passed, complete states
+	WarningColor = lipgloss.Color("3") // Yellow - paused, warning states
+	ErrorColor   = lipgloss.Color("1") // Red - failed, error states
+	ReviewColor  = lipgloss.Color("5") // Magenta - under review by the review agent
+	MutedColor   = lipgloss.Color("8") // Bright black - pending, muted text
+	BorderColor  = lipgloss.Color("8") // Borders, dividers
 
-	// Text colors
-	TextColor       = lipgloss.AdaptiveColor{Dark: "#CDD6F4", Light: "#1F2328"} // Primary text
-	TextMutedColor  = lipgloss.AdaptiveColor{Dark: "#6C7086", Light: "#57606A"} // Muted text
-	TextBrightColor = lipgloss.AdaptiveColor{Dark: "#FFFFFF", Light: "#000000"} // Emphasis
+	// Text colors. The terminal's own foreground, not palette 7/15: in light
+	// themes those are often pale greys meant for dark backgrounds.
+	TextColor       lipgloss.TerminalColor = lipgloss.NoColor{}  // Primary text
+	TextMutedColor                         = lipgloss.Color("8") // Muted text
+	TextBrightColor lipgloss.TerminalColor = lipgloss.NoColor{}  // Emphasis (callers add Bold)
 
 	// Background colors
-	BgColor          = lipgloss.AdaptiveColor{Dark: "#1E1E2E", Light: "#FFFFFF"} // Base background
-	BgSelectedColor  = lipgloss.AdaptiveColor{Dark: "#313244", Light: "#EAEEF2"} // Selected item background
-	BgHighlightColor = lipgloss.AdaptiveColor{Dark: "#45475A", Light: "#D0D7DE"} // Highlight background
+	BgSelectedColor = lipgloss.Color("8") // Selected item background
 )
 
 // Header styles
@@ -171,8 +176,8 @@ var (
 
 // interruptedWarningStyle is the banner shown when a story was interrupted.
 var interruptedWarningStyle = lipgloss.NewStyle().
-	Background(lipgloss.AdaptiveColor{Dark: "#3D3000", Light: "#FFF8C5"}).
 	Foreground(WarningColor).
+	Bold(true).
 	Padding(0, 1)
 
 // Divider styles
@@ -284,4 +289,14 @@ func GetActivityStyle(state AppState) lipgloss.Style {
 	default:
 		return ActivityMutedStyle
 	}
+}
+
+// highlightRow renders an already styled row with the selection background
+// across its full width. Wrapping it in selectedStyle alone is not enough: the
+// first colored segment (a status icon, say) ends with a reset that also clears
+// the background, so only that segment would appear highlighted.
+func highlightRow(row string, width int) string {
+	bgOn := strings.TrimSuffix(lipgloss.NewStyle().Background(BgSelectedColor).Render("x"), "x\x1b[0m")
+	row = strings.ReplaceAll(row, "\x1b[0m", "\x1b[0m"+bgOn)
+	return selectedStyle.Width(width).Render(row)
 }

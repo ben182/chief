@@ -484,13 +484,7 @@ func (a *App) renderStoriesPanel(width, height int) string {
 		line := fmt.Sprintf("%s %s %s", icon, story.ID, displayTitle)
 
 		if i == a.selectedIndex {
-			// Pad line to full width to ensure background fills the entire row
-			lineWidth := lipgloss.Width(line)
-			targetWidth := width - 2
-			if lineWidth < targetWidth {
-				line = line + strings.Repeat(" ", targetWidth-lineWidth)
-			}
-			line = selectedStyle.Render(line)
+			line = highlightRow(line, width-2)
 		}
 
 		content.WriteString(line)

@@ -766,7 +766,7 @@ func (p *PRDPicker) renderEntry(entry PRDEntry, selected bool, width int) string
 
 	// Apply selection highlight
 	if selected {
-		result = selectedStyle.Width(width).Render(result)
+		result = highlightRow(result, width)
 	}
 
 	return result

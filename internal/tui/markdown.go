@@ -8,7 +8,6 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/ansi"
 	"github.com/charmbracelet/glamour/styles"
-	"github.com/charmbracelet/lipgloss"
 )
 
 var (
@@ -18,10 +17,6 @@ var (
 
 // progressStyleConfig returns the glamour style used to render progress
 // markdown, building it once on first use.
-//
-// It is built lazily (rather than in init) so terminal-background detection
-// runs after the program has taken over the terminal, matching how the rest of
-// the TUI resolves its AdaptiveColors.
 func progressStyleConfig() ansi.StyleConfig {
 	progressStyleOnce.Do(func() {
 		progressStyle = buildProgressStyle()
@@ -29,31 +24,43 @@ func progressStyleConfig() ansi.StyleConfig {
 	return progressStyle
 }
 
-// buildProgressStyle picks a glamour style matching the terminal background and
-// tames two defaults that render badly inside our panels:
+// buildProgressStyle takes glamour's dark style for its layout and swaps every
+// color for a terminal palette slot, like the rest of the TUI (see styles.go).
+// glamour's own styles hardcode 256-color and hex values for one background,
+// so they break as soon as the terminal theme changes under a running session.
+//
+// It also tames two defaults that render badly inside our panels:
 //
 //   - the document margin is removed so markdown sits flush within the panel
 //     padding
-//   - inline code no longer uses glamour's default bright red (ANSI 203) on a
-//     grey block. That is garish on dark terminals and, because a fixed dark
-//     style was previously used regardless of background, showed up as an
-//     unreadable dark-red box on light terminals. It becomes a calm cyan accent
-//     (matching PrimaryColor) with no background box.
+//   - inline code loses glamour's grey background block and becomes a calm
+//     cyan accent (PrimaryColor)
+//
+// Fenced code blocks drop syntax highlighting: its theme is hex colors too.
 func buildProgressStyle() ansi.StyleConfig {
 	cfg := styles.DarkStyleConfig
-	codeColor := PrimaryColor.Dark
-	if !lipgloss.HasDarkBackground() {
-		cfg = styles.LightStyleConfig
-		codeColor = PrimaryColor.Light
-	}
+	primary, muted, accent := string(PrimaryColor), string(MutedColor), string(ReviewColor)
 
 	zero := uint(0)
 	cfg.Document.Margin = &zero
 	cfg.Document.StylePrimitive.BlockPrefix = ""
 	cfg.Document.StylePrimitive.BlockSuffix = ""
+	cfg.Document.Color = nil
 
-	cfg.Code.Color = &codeColor
+	cfg.Heading.Color = &primary
+	cfg.H1.Color = &primary
+	cfg.H1.BackgroundColor = nil
+	cfg.H6.Color = &muted
+	cfg.HorizontalRule.Color = &muted
+	cfg.Link.Color = &primary
+	cfg.LinkText.Color = &primary
+	cfg.Image.Color = &accent
+	cfg.ImageText.Color = &muted
+
+	cfg.Code.Color = &primary
 	cfg.Code.BackgroundColor = nil
+	cfg.CodeBlock.Color = nil
+	cfg.CodeBlock.Chroma = nil
 
 	return cfg
 }
