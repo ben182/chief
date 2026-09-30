@@ -108,7 +108,8 @@ func main() {
 // prepared for this machine, starting `chief prep` when it was not (see
 // cmd.EnsurePrepared). It pins the resolved PRD on opts so the TUI opens the
 // same one, and returns false when the start should not go ahead because
-// first-time setup was cancelled; every other refusal exits.
+// first-time setup was cancelled or the person said no after the prep; every
+// other refusal exits.
 func ensurePreparedToStart(opts *cli.Options) bool {
 	provider := resolveProvider(opts.Agent, opts.AgentPath, opts.Model)
 	prdPath, ok := resolvePRDPath(opts, provider)
@@ -124,11 +125,17 @@ func ensurePreparedToStart(opts *cli.Options) bool {
 	if err != nil {
 		fatal(err)
 	}
+	// opts.PRDPath stays the project's copy: the TUI maps it onto the
+	// worktree itself, and EnsurePrepared checks the copy the run will read.
 	if err := cmd.EnsurePrepared(cmd.GateOptions{
 		PRDPath:  prdPath,
 		BaseDir:  cwd,
 		Provider: func() (loop.Provider, error) { return provider, nil },
 	}); err != nil {
+		if errors.Is(err, cmd.ErrStartDeclined) {
+			fmt.Println("Not starting. 'chief start' picks up from here.")
+			return false
+		}
 		fatal(err)
 	}
 	return true

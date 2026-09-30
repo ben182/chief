@@ -3,6 +3,7 @@ package cmd
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -339,6 +340,10 @@ func runBoxUp(ctx context.Context, baseDir string, opts BoxOptions) error {
 			Provider: func() (loop.Provider, error) { return configuredProvider(baseDir) },
 			Out:      os.Stderr,
 		}); err != nil {
+			if errors.Is(err, ErrStartDeclined) {
+				_, _ = fmt.Fprintln(os.Stderr, "No box created. 'chief box up' picks up from here.")
+				return nil
+			}
 			return err
 		}
 		if reloaded, err := config.Load(baseDir); err == nil {

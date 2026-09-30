@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -248,7 +249,9 @@ func relativeToRoot(root, abs string) (string, bool) {
 
 // GateOptions describe a run about to start, for EnsurePrepared.
 type GateOptions struct {
-	// PRDPath is the prd.md the run will read.
+	// PRDPath is the prd.md the run will read — for a local run the project's
+	// own copy, which EnsurePrepared maps onto the PRD's worktree when it has
+	// one. A relative path is taken relative to BaseDir.
 	PRDPath string
 	BaseDir string
 	// Box is true for `chief box up`, false for `chief start`.
@@ -257,7 +260,15 @@ type GateOptions struct {
 	// prep is needed, so a start that needs none resolves nothing.
 	Provider func() (loop.Provider, error)
 	Out      io.Writer
+	// In is where the answer to "start now?" after a prep comes from. Nil
+	// means stdin.
+	In io.Reader
 }
+
+// ErrStartDeclined is what EnsurePrepared returns when the person, asked after
+// a prep, did not want the run to start. It is an answer, not a failure:
+// callers stop without an error message.
+var ErrStartDeclined = errors.New("the run was not started")
 
 // EnsurePrepared is what `chief start` and `chief box up` go through before a
 // run: the PRD has to be prepared for where the run happens (see RunPrep), and
@@ -266,8 +277,14 @@ type GateOptions struct {
 // A missing, stale or other-target stamp starts the matching prep right here —
 // at a terminal. Without one it fails with the command that fixes it instead:
 // a prep cannot happen without a person, and a start that waits for one is a
-// hang. What the prep cannot fix is a PRD with nothing left to do in that
-// environment, and that ends the start, before a box is paid for.
+// hang. A prepared PRD with nothing left to run because stories are blocked
+// starts the prep as well, to release them. What no prep fixes is a PRD with
+// nothing left to do in that environment, and that ends the start, before a
+// box is paid for.
+//
+// After a prep it started itself, it asks whether to start now: leaving the
+// session with /exit looks exactly like finishing it, and a box costs money
+// from the moment it is created. ErrStartDeclined is the "no".
 func EnsurePrepared(opts GateOptions) error {
 	out := opts.Out
 	if out == nil {
@@ -278,27 +295,61 @@ func EnsurePrepared(opts GateOptions) error {
 	if opts.Box {
 		where, command = "the box", "chief box prep"
 	}
-	name := filepath.Base(filepath.Dir(opts.PRDPath))
+	baseDir, err := resolveBaseDir(opts.BaseDir)
+	if err != nil {
+		return err
+	}
+	prdPath := opts.PRDPath
+	if !filepath.IsAbs(prdPath) {
+		prdPath = filepath.Join(baseDir, prdPath)
+	}
+	name := filepath.Base(filepath.Dir(prdPath))
+	// A local run in a worktree reads the worktree's copy of the PRD, so that
+	// is the one to check and to prepare; a box is sent the project's own.
+	if !opts.Box {
+		_, prdPath = livePRDPaths(baseDir, name, filepath.Dir(prdPath), prdPath)
+	}
 
-	if fresh, reason := prd.CheckPrep(opts.PRDPath, target); !fresh {
+	prepped := false
+	runPrep := func() error {
+		provider, err := opts.Provider()
+		if err != nil {
+			return err
+		}
+		if err := RunPrep(PrepOptions{PRDPath: prdPath, BaseDir: baseDir, Provider: provider, Box: opts.Box, Out: out}); err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintln(out)
+		prepped = true
+		return nil
+	}
+
+	if fresh, reason := prd.CheckPrep(prdPath, target); !fresh {
 		if !canAsk() {
 			return fmt.Errorf("PRD %s is not prepared for a run on %s: %s.\n"+
 				"  Run '%s %s' at a terminal first, or pass --skip-prep", name, where, reason, command, name)
 		}
 		_, _ = fmt.Fprintf(out, "==> PRD %s is not prepared for a run on %s: %s. Starting '%s' first.\n\n", name, where, reason, command)
-		provider, err := opts.Provider()
-		if err != nil {
+		if err := runPrep(); err != nil {
 			return err
 		}
-		if err := RunPrep(PrepOptions{PRDPath: opts.PRDPath, BaseDir: opts.BaseDir, Provider: provider, Box: opts.Box, Out: out}); err != nil {
-			return err
-		}
-		_, _ = fmt.Fprintln(out)
 	}
 
-	p, err := prd.LoadPRD(opts.PRDPath)
+	p, err := prd.LoadPRD(prdPath)
 	if err != nil {
 		return err
+	}
+	// Prepared, and yet everything left is blocked — the morning after a night
+	// that hit its walls. Releasing them is what the prep's first step is for.
+	if len(p.ActionableOn(goos)) == 0 && !prepped && hasBlocked(p) && canAsk() {
+		_, _ = fmt.Fprintf(out, "==> Nothing in PRD %s can run on %s — %s. Starting '%s' to release the blocked stories.\n\n",
+			name, where, whyNothingRuns(p, goos), command)
+		if err := runPrep(); err != nil {
+			return err
+		}
+		if p, err = prd.LoadPRD(prdPath); err != nil {
+			return err
+		}
 	}
 	for _, w := range p.NeedsWarnings() {
 		_, _ = fmt.Fprintf(out, "Warning: %s.\n", w)
@@ -308,7 +359,58 @@ func EnsurePrepared(opts GateOptions) error {
 			"  Release blocked stories or split stories with '%s %s', or pass --skip-prep",
 			name, where, whyNothingRuns(p, goos), command, name)
 	}
+	if prepped && !confirmStart(opts.In, out, opts.Box) {
+		return ErrStartDeclined
+	}
 	return nil
+}
+
+// hasBlocked reports whether an open story of p is blocked.
+func hasBlocked(p *prd.PRD) bool {
+	for i := range p.UserStories {
+		if s := &p.UserStories[i]; !s.Passes && s.Blocked {
+			return true
+		}
+	}
+	return false
+}
+
+// confirmStart asks whether the run should start now and reads the answer, a
+// line from in (stdin when nil). Enter or yes starts it; anything else, and an
+// input that ends without an answer, does not. It reads a byte at a time so
+// nothing typed after the answer is taken from the TUI that starts next.
+func confirmStart(in io.Reader, out io.Writer, forBox bool) bool {
+	if in == nil {
+		in = os.Stdin
+	}
+	what := "the run"
+	if forBox {
+		what = "the box (it costs money from now on)"
+	}
+	_, _ = fmt.Fprintf(out, "Start %s now? [Y/n] ", what)
+	var line []byte
+	buf := make([]byte, 1)
+	for {
+		n, err := in.Read(buf)
+		if n == 1 {
+			if buf[0] == '\n' {
+				break
+			}
+			line = append(line, buf[0])
+		}
+		if err != nil {
+			if len(line) == 0 {
+				_, _ = fmt.Fprintln(out)
+				return false
+			}
+			break
+		}
+	}
+	switch strings.ToLower(strings.TrimSpace(string(line))) {
+	case "", "y", "yes", "j", "ja":
+		return true
+	}
+	return false
 }
 
 // whyNothingRuns sums up what the stories of a PRD with nothing to do are

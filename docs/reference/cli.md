@@ -114,7 +114,7 @@ chief start auth-system -n 50
 If you're on a protected branch (e.g. `main`) or another PRD is already running in the same directory, Chief still shows the branch/worktree confirmation before starting.
 :::
 
-**Prepared first.** Before it starts the loop, `chief start` checks that the PRD was gone through with [`chief prep`](#chief-prep) for this machine, as it stands now. When it never was, was prepared only for the box, or has changed since, the prep starts right there and the run follows once you `exit` it. A PRD in which nothing can run on this machine — everything done, blocked, parked, or needing another system — ends the start with a line saying which. `--skip-prep` starts without the check. A headless run (`--headless`, which is how the box runs) never checks and never preps; neither does anything without a terminal, which is told to run `chief prep` first instead of waiting for an answer. Starting the loop from inside the TUI with `s` does not check either.
+**Prepared first.** Before it starts the loop, `chief start` checks that the PRD was gone through with [`chief prep`](#chief-prep) for this machine, as it stands now. When it never was, was prepared only for the box, or has changed since, the prep starts right there; once you `exit` it, `chief start` asks `Start the run now? [Y/n]` — leaving the session early looks exactly like finishing it — and only a yes (or Enter) starts the run. In a PRD worktree it checks and prepares the worktree's copy of the PRD, which is the one the run reads. When the stamp is fresh but every story left is blocked, the prep starts as well, to release them. A PRD in which nothing can run on this machine even then — everything done, blocked, parked, or needing another system — ends the start with a line saying which. `--skip-prep` starts without the check. A headless run (`--headless`, which is how the box runs) never checks and never preps; neither does anything without a terminal, which is told to run `chief prep` first instead of waiting for an answer. Starting the loop from inside the TUI with `s` does not check either.
 
 ---
 
@@ -378,7 +378,8 @@ does not make it stale — editing what a story asks for does. A prep for the bo
 and one for this machine are recorded separately.
 
 `chief start` and `chief box up` run the matching prep themselves when the stamp
-is missing or stale (see [chief start](#chief-start)). Prep needs a terminal: it
+is missing or stale, or when everything left is blocked, and ask before they
+start after it (see [chief start](#chief-start)). Prep needs a terminal: it
 never runs headless or on the box.
 
 Like `chief edit`, this shows the [Claude model picker](#chief-new) before the

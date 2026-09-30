@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ben182/chief/internal/git"
 	"github.com/ben182/chief/internal/loop"
 	"github.com/ben182/chief/internal/prd"
 )
@@ -184,7 +186,8 @@ func TestEnsurePreparedRunsThePrepOnceAndThenLetsTheRunStart(t *testing.T) {
 	}
 
 	for i := 0; i < 2; i++ {
-		err := EnsurePrepared(GateOptions{PRDPath: prdPath, BaseDir: dir, Provider: provider, Out: &bytes.Buffer{}})
+		// Only the start that ran the prep asks; Enter says yes.
+		err := EnsurePrepared(GateOptions{PRDPath: prdPath, BaseDir: dir, Provider: provider, Out: &bytes.Buffer{}, In: strings.NewReader("\n")})
 		if err != nil {
 			t.Fatalf("start %d: %v", i+1, err)
 		}
@@ -286,5 +289,128 @@ func TestCommitAndPushPrepFindsFilesInASubfolder(t *testing.T) {
 	}
 	if files := gitIn(t, repo, "show", "--name-only", "--format=", "HEAD"); files != "apps/web/.chief/prds/app/prd.md" {
 		t.Errorf("committed %q", files)
+	}
+}
+
+// Leaving the prep session with /exit looks exactly like finishing it. So after
+// a prep the gate started, the start asks first, and a "no" — or no answer —
+// starts nothing. The prep itself stands: its stamp stays.
+func TestEnsurePreparedAsksBeforeStartingAfterAPrep(t *testing.T) {
+	withTerminal(t, true)
+	for _, answer := range []string{"n\n", "nein\n", ""} {
+		dir, prdPath := writeAppPRD(t, "# App\n\n### US-001: Page\n- [ ] Shown\n")
+		var out bytes.Buffer
+		err := EnsurePrepared(GateOptions{
+			PRDPath: prdPath, BaseDir: dir, Out: &out, In: strings.NewReader(answer),
+			Provider: func() (loop.Provider, error) { return sessionProvider{script: "true"}, nil },
+		})
+		if !errors.Is(err, ErrStartDeclined) {
+			t.Errorf("answer %q: err = %v, want ErrStartDeclined", answer, err)
+		}
+		if !strings.Contains(out.String(), "Start the run now? [Y/n]") {
+			t.Errorf("answer %q: not asked:\n%s", answer, out.String())
+		}
+		if fresh, reason := prd.CheckPrep(prdPath, runtime.GOOS); !fresh {
+			t.Errorf("answer %q: the prep's stamp is gone: %s", answer, reason)
+		}
+	}
+	dir, prdPath := writeAppPRD(t, "# App\n\n### US-001: Page\n- [ ] Shown\n")
+	if err := EnsurePrepared(GateOptions{
+		PRDPath: prdPath, BaseDir: dir, Box: true, Out: &bytes.Buffer{}, In: strings.NewReader("y\n"),
+		Provider: func() (loop.Provider, error) { return sessionProvider{script: "true"}, nil },
+	}); err != nil {
+		t.Errorf("a yes did not start: %v", err)
+	}
+}
+
+// The morning after: the stamp is fresh, but every story left is blocked. At a
+// terminal the gate starts the prep to release them instead of refusing, and
+// checks again afterwards.
+func TestEnsurePreparedStartsThePrepWhenEverythingIsBlocked(t *testing.T) {
+	withTerminal(t, true)
+	dir, prdPath := writeAppPRD(t, "# App\n\n### US-001: Sign\n**Status:** blocked\n**Blockiert (Ben):** 1Password is locked\n- [ ] Signed\n")
+	if err := prd.RecordPrep(prdPath, runtime.GOOS, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	release := `p=.chief/prds/app/prd.md
+sed -i.bak -e 's/^\*\*Status:\*\* blocked$/**Status:** todo/' -e '/^\*\*Blockiert (Ben):\*\*/d' "$p" && rm "$p.bak"
+`
+	sessions := 0
+	var out bytes.Buffer
+	err := EnsurePrepared(GateOptions{
+		PRDPath: prdPath, BaseDir: dir, Out: &out, In: strings.NewReader("\n"),
+		Provider: func() (loop.Provider, error) { sessions++; return sessionProvider{script: release}, nil },
+	})
+	if err != nil {
+		t.Fatalf("EnsurePrepared: %v\n%s", err, out.String())
+	}
+	if sessions != 1 || !strings.Contains(out.String(), "to release the blocked stories") {
+		t.Errorf("sessions = %d, want one prep to release the story\n%s", sessions, out.String())
+	}
+
+	// A prep that releases nothing ends the start as before, after one try.
+	dir, prdPath = writeAppPRD(t, "# App\n\n### US-001: Sign\n**Status:** blocked\n**Blockiert (Ben):** 1Password is locked\n- [ ] Signed\n")
+	if err := prd.RecordPrep(prdPath, runtime.GOOS, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	sessions = 0
+	err = EnsurePrepared(GateOptions{
+		PRDPath: prdPath, BaseDir: dir, Out: &bytes.Buffer{}, In: strings.NewReader("\n"),
+		Provider: func() (loop.Provider, error) { sessions++; return sessionProvider{script: "true"}, nil },
+	})
+	if err == nil || !strings.Contains(err.Error(), "1 blocked") || sessions != 1 {
+		t.Errorf("err = %v, sessions = %d; want one prep and then the refusal", err, sessions)
+	}
+}
+
+// A local run in a PRD's worktree reads the worktree's copy of the PRD. The
+// gate has to check and prepare that copy, not the project's: stamped in the
+// project, the worktree's copy is still unprepared; prepared through the gate,
+// the stamp and the commit land in the worktree.
+func TestEnsurePreparedChecksTheWorktreesCopy(t *testing.T) {
+	repo := initWorktreeTestRepo(t)
+	home := filepath.Join(repo, ".chief", "prds", "app", "prd.md")
+	if err := os.MkdirAll(filepath.Dir(home), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(home, []byte("# App\n\n### US-001: Page\n- [ ] Shown\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "git", "add", ".")
+	runGit(t, repo, "git", "commit", "-m", "prd")
+	wtPath, err := git.WorktreePathForPRD(repo, "", "app", git.BranchForPRD("app"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := git.CreateWorktree(git.CreateWorktreeOptions{RepoDir: repo, WorktreePath: wtPath, Branch: git.BranchForPRD("app"), PRDName: "app"}); err != nil {
+		t.Fatalf("CreateWorktree: %v", err)
+	}
+	live := filepath.Join(wtPath, ".chief", "prds", "app", "prd.md")
+	if _, err := os.Stat(live); err != nil {
+		t.Fatalf("the worktree has no copy of the PRD: %v", err)
+	}
+
+	withTerminal(t, false)
+	if err := prd.RecordPrep(home, runtime.GOOS, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	err = EnsurePrepared(GateOptions{PRDPath: filepath.Join(".chief", "prds", "app", "prd.md"), BaseDir: repo, Out: &bytes.Buffer{}})
+	if err == nil || !strings.Contains(err.Error(), "not prepared") {
+		t.Fatalf("err = %v; the project's stamp must not count for the worktree's copy", err)
+	}
+
+	withTerminal(t, true)
+	edit := "printf '\\n### US-002: More\\n- [ ] More\\n' >> " + live
+	if err := EnsurePrepared(GateOptions{
+		PRDPath: home, BaseDir: repo, Out: &bytes.Buffer{}, In: strings.NewReader("\n"),
+		Provider: func() (loop.Provider, error) { return sessionProvider{script: edit}, nil },
+	}); err != nil {
+		t.Fatalf("EnsurePrepared: %v", err)
+	}
+	if fresh, reason := prd.CheckPrep(live, runtime.GOOS); !fresh {
+		t.Errorf("the worktree's copy is not stamped: %s", reason)
+	}
+	if got := strings.TrimSpace(runGit(t, wtPath, "git", "log", "-1", "--format=%s")); !strings.HasPrefix(got, "chore: prep app for") {
+		t.Errorf("the worktree's last commit = %q, want the prep's", got)
 	}
 }
