@@ -779,7 +779,13 @@ func (l *Loop) runIteration(ctx context.Context, mode iterationMode) error {
 	<-watchdogStopped
 
 	// Wait for the command to finish
-	if err := l.agentCmd.Wait(); err != nil {
+	waitErr := l.agentCmd.Wait()
+	// Whatever the agent left running goes with it, however it ended: a build
+	// it backgrounded before ending its turn otherwise outlives the iteration
+	// and holds its locks against the next one. The group outlives its leader
+	// for as long as it has members, so this still reaches them.
+	killProcessGroup(l.agentCmd.Process)
+	if err := waitErr; err != nil {
 		// If the context was cancelled, don't treat it as an error
 		if ctx.Err() != nil {
 			return ctx.Err()
