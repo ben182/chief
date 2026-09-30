@@ -737,3 +737,25 @@ func TestGetPrepPrompt_TargetsDiffer(t *testing.T) {
 		t.Error("a local prep has no business in the box config")
 	}
 }
+
+// The prep uses the shared grill, which says to write nothing until every
+// question is settled — wrong for a prep, which releases stories one by one and
+// often has nothing to ask. And it must not reorder priorities for its target:
+// the PRD's fingerprint would change with every prep for the other target.
+func TestGetPrepPrompt_GrillsOnlyWhatIsOpenAndKeepsTheOrder(t *testing.T) {
+	prompt := GetPrepPrompt("/p/.chief/prds/app", PrepTarget{OS: "macOS", Environment: "THIS MAC"}, false)
+	for _, want := range []string{
+		"In this prep the grill is narrower than that",
+		"is written at once, once they have\n  confirmed it",
+		"there is no round at all",
+		"Change priorities only where a dependency needs it",
+		"Do not reorder for the target",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prep prompt is missing %q", want)
+		}
+	}
+	if strings.Contains(prompt, "order the priorities so that what can run in the target environment comes\nfirst") {
+		t.Error("prep prompt still reorders priorities for the target")
+	}
+}

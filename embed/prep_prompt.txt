@@ -65,8 +65,18 @@ Look for everything that would stop an unattended run in the target environment:
 
 {{QUESTION_FORMAT}}
 
-Ask only what the PRD cannot answer and you cannot look up. When nothing needs a
-decision, say so and move on — do not invent questions.
+**In this prep the grill is narrower than that.** Ask only real open decisions:
+what the PRD leaves open or contradicts, and what only the person can say —
+never what the PRD answers or you can look up. Three things the rules above do
+not mean here:
+
+- A story the person released in step 1 is written at once, once they have
+  confirmed it — it does not wait for the rest of the grill.
+- When nothing needs a decision, there is no round at all: say so in one line
+  and move on. Do not invent questions to have a round.
+- "Write nothing until then" holds for the answers you asked for, not for the
+  facts you found yourself: a `**Braucht:**` line or a split you proposed and the
+  person accepted is written when they accept it.
 
 ## Step 4: Mark what cannot run here, and split what can
 
@@ -88,8 +98,11 @@ portable part and a small story with `**Braucht:**` for the rest, and move the
 part wherever that is all they really need — so they keep running. Use the next
 free story IDs; never renumber existing ones.
 
-Then order the priorities so that what can run in the target environment comes
-first, without breaking a `**Blocked by:**` order.
+Change priorities only where a dependency needs it — a split story whose
+portable part now has to come first, a story that must come before one that
+depends on it. Do not reorder for the target: a run skips what cannot run there
+anyway, and a PRD ordered for the box by one prep and for this machine by the
+next would change with every prep and never stay prepared.
 
 Finish the step with one sentence: how many of the open stories can run in the
 target environment, and how many cannot.

@@ -357,11 +357,14 @@ code, and it asks only for decisions — facts it looks up itself.
    Meilisearch, browser libraries) and the `box.*` settings.
 3. **The open stories.** Decisions, contradictions (corrected in the text once you
    answer), hardware, permissions, accounts, keychain and signing, manual steps.
+   It asks only what is really open; with nothing open there is no round of
+   questions at all.
 4. **What cannot run there** gets a [`**Braucht:**`](/reference/prd-schema#needs)
    line. It proposes splitting such a story — the code runs anywhere, only the
    check needs macOS, say — and moves the dependencies over so the stories after
-   it keep running, then orders the priorities so that what can run comes first,
-   and says how many stories can run there.
+   it keep running, changes priorities only where a dependency needs it (not to
+   put the target's stories first, which would flip with every prep for the
+   other target), and says how many stories can run there.
 5. **Missing tools.** For the box, apt packages go into `box.packages`; a service
    is switched on through `.env`, which it tells you rather than edits. Locally it
    installs nothing unasked: it offers the command (`brew install …`) and runs it
