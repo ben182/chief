@@ -66,3 +66,33 @@ func ranges(chunks []prd.LineRange) string {
 }
 
 func kb(n int) int { return (n + 1023) / 1024 }
+
+// prdGuide points the build agent at the parts of the PRD that are not stories.
+// It is handed only its own story, and rules the PRD states once for every
+// story — "never run the budget test", "no builds in the background" — never
+// reached it. Empty when the PRD has nothing outside its stories.
+func prdGuide(path string) string {
+	sections, ok := prd.MapPRDSections(path)
+	if !ok || len(sections) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "   Then read what the PRD, `%s`, says outside its stories — the parts that\n"+
+		"   apply to every story: conventions, technical considerations, testing decisions,\n"+
+		"   design. Parts that only restate the stories (goals, functional requirements,\n"+
+		"   non-goals) you can skip unless your story needs them. Do not read the other\n"+
+		"   stories. With offset and limit:\n", path)
+	for _, s := range sections {
+		name := s.Heading
+		if name == "" {
+			name = "before the first section"
+		} else {
+			name = "`" + name + "`"
+		}
+		if s.BeforeStories {
+			name += " (above its stories)"
+		}
+		fmt.Fprintf(&b, "   - %s: lines %d–%d\n", name, s.Start, s.End)
+	}
+	return b.String()
+}

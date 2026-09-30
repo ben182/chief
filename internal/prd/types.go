@@ -38,6 +38,11 @@ type UserStory struct {
 	// story becomes eligible (see Frontier). Empty means the story can start
 	// immediately. Unknown/typo IDs are ignored so they can never deadlock the loop.
 	BlockedBy []string `json:"blockedBy,omitempty"`
+	// Body is the story's markdown as the PRD has it, everything below the
+	// heading except the status line. It is what the agent is given: the fields
+	// above keep only what chief acts on, and a story's sub-bullets, thresholds
+	// and "manual" blocks are in none of them.
+	Body string `json:"-"`
 }
 
 // Parked reports whether the loop has set the story aside for a person: parked
@@ -442,11 +447,16 @@ func (p *PRD) StoryContextByID(id string) *string {
 	return nil
 }
 
-// storyContext formats a story as JSON (with a plain-text fallback) for
-// inlining into an agent prompt. Returns nil for a nil story.
+// storyContext formats a story for inlining into an agent prompt: the markdown
+// the PRD has for it when it was parsed from one, otherwise JSON (with a
+// plain-text fallback). Returns nil for a nil story.
 func storyContext(story *UserStory) *string {
 	if story == nil {
 		return nil
+	}
+	if story.Body != "" {
+		result := "### " + story.ID + ": " + story.Title + "\n\n" + story.Body
+		return &result
 	}
 
 	data, err := json.MarshalIndent(story, "", "  ")

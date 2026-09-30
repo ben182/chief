@@ -44,8 +44,10 @@ var prepPromptTemplate string
 //
 // progressMap is the list of line ranges to read in progress.md, worked out by
 // the caller from the file as it stands; empty leaves the agent to find them.
-func GetPrompt(progressPath, progressMap, storyContext, prdName, storyID, storyTitle string, subagents bool) string {
+// prdMap does the same for the parts of the PRD outside its stories.
+func GetPrompt(progressPath, progressMap, prdMap, storyContext, prdName, storyID, storyTitle string, subagents bool) string {
 	result := strings.ReplaceAll(promptTemplate, "{{PROGRESS_MAP}}", progressMap)
+	result = strings.ReplaceAll(result, "{{PRD_MAP}}", prdMap)
 	result = strings.ReplaceAll(result, "{{PROGRESS_PATH}}", progressPath)
 	result = strings.ReplaceAll(result, "{{STORY_CONTEXT}}", storyContext)
 	result = strings.ReplaceAll(result, "{{PRD_NAME}}", prdName)

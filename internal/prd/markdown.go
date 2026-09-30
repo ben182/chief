@@ -55,6 +55,7 @@ func ParseMarkdownPRDFromString(content string) (*PRD, error) {
 	type storyBuilder struct {
 		story     UserStory
 		descLines []string
+		bodyLines []string
 	}
 
 	var current *storyBuilder
@@ -76,6 +77,7 @@ func ParseMarkdownPRDFromString(content string) (*PRD, error) {
 		if current.story.Description == "" && len(current.descLines) > 0 {
 			current.story.Description = strings.Join(current.descLines, " ")
 		}
+		current.story.Body = strings.TrimSpace(strings.Join(current.bodyLines, "\n"))
 		// A reason belongs to a blocked story only. A story set back to todo by
 		// hand, with the old line left standing, is not blocked on anything.
 		if !current.story.Blocked {
@@ -133,6 +135,12 @@ func ParseMarkdownPRDFromString(content string) (*PRD, error) {
 
 		// Inside a story block
 		if current != nil {
+			// The story as written, for the agent: every line but the status, which
+			// is chief's bookkeeping. The fields below keep only what chief itself
+			// acts on, and sub-bullets or bold sub-headings are none of that.
+			if !statusLineRegex.MatchString(trimmed) {
+				current.bodyLines = append(current.bodyLines, strings.TrimRight(line, " \t\r"))
+			}
 			// **Status:** line
 			if m := statusLineRegex.FindStringSubmatch(trimmed); m != nil {
 				status := strings.TrimSpace(strings.ToLower(m[1]))

@@ -8,7 +8,7 @@ import (
 func TestGetPrompt(t *testing.T) {
 	progressPath := "/path/to/progress.md"
 	storyContext := `{"id":"US-001","title":"Test Story"}`
-	prompt := GetPrompt(progressPath, "", storyContext, "myprd", "US-001", "Test Story", true)
+	prompt := GetPrompt(progressPath, "", "", storyContext, "myprd", "US-001", "Test Story", true)
 
 	// Verify all placeholders were substituted
 	if strings.Contains(prompt, "{{PROGRESS_PATH}}") {
@@ -54,7 +54,7 @@ func TestGetPrompt(t *testing.T) {
 // found nothing left for the test story (HE-002), signalled done with no commit
 // five times, and the story was parked as needing review — while being done.
 func TestGetPrompt_AlreadyCoveredStoryStillCommits(t *testing.T) {
-	prompt := GetPrompt("/path/progress.md", "", `{"id":"HE-002"}`, "health", "HE-002", "Feature test", true)
+	prompt := GetPrompt("/path/progress.md", "", "", `{"id":"HE-002"}`, "health", "HE-002", "Feature test", true)
 	if !strings.Contains(prompt, "--allow-empty") {
 		t.Error("the prompt never tells the agent how to close a story an earlier one already covered")
 	}
@@ -67,7 +67,7 @@ func TestGetPrompt_AlreadyCoveredStoryStillCommits(t *testing.T) {
 }
 
 func TestGetPrompt_NoFileReadInstruction(t *testing.T) {
-	prompt := GetPrompt("/path/progress.md", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
+	prompt := GetPrompt("/path/progress.md", "", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
 
 	// The prompt should NOT instruct Claude to read the PRD file
 	if strings.Contains(prompt, "Read the PRD") {
@@ -80,7 +80,7 @@ func TestGetPrompt_NoFileReadInstruction(t *testing.T) {
 // explicitly not the whole file, which grows by one report per story and was
 // dragged through every turn of every agent.
 func TestGetPrompt_TargetedProgressRead(t *testing.T) {
-	prompt := GetPrompt("/path/progress.md", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
+	prompt := GetPrompt("/path/progress.md", "", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
 
 	// Targeted read: the patterns section plus the last one or two entries.
 	if !strings.Contains(prompt, "Codebase Patterns") {
@@ -117,7 +117,7 @@ func TestGetPrompt_TargetedProgressRead(t *testing.T) {
 // read files with the Read tool, and the block is gated on Claude the same way the
 // interactive prompts' explore block is.
 func TestGetPrompt_ResearchDelegation(t *testing.T) {
-	claude := GetPrompt("/path/progress.md", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
+	claude := GetPrompt("/path/progress.md", "", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
 
 	// Delegate broad research instead of crawling the repo inline.
 	if !strings.Contains(claude, "Delegate broad codebase research to a subagent") {
@@ -142,7 +142,7 @@ func TestGetPrompt_ResearchDelegation(t *testing.T) {
 	}
 
 	// Gating: every other provider gets a build prompt without the block.
-	other := GetPrompt("/path/progress.md", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", false)
+	other := GetPrompt("/path/progress.md", "", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", false)
 	if strings.Contains(other, "Delegate broad codebase research to a subagent") {
 		t.Error("Expected the non-Claude build prompt to omit the research-delegation block")
 	}
@@ -188,7 +188,7 @@ func TestPromptTemplateNotEmpty(t *testing.T) {
 }
 
 func TestGetPrompt_ChiefExclusion(t *testing.T) {
-	prompt := GetPrompt("/path/progress.md", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
+	prompt := GetPrompt("/path/progress.md", "", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
 
 	// chief commits .chief/ itself; an agent that also staged, unstaged or reset
 	// those files fought chief over them (recap: git reset --soft to undo them).
@@ -203,7 +203,7 @@ func TestGetPrompt_ChiefExclusion(t *testing.T) {
 func TestGetPrompt_NoInlineReview(t *testing.T) {
 	// The build-agent prompt no longer carries an inline review step or its
 	// placeholder — review runs as a separate agent instead.
-	prompt := GetPrompt("/p.md", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
+	prompt := GetPrompt("/p.md", "", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
 	if strings.Contains(prompt, "{{QUALITY_REVIEW}}") {
 		t.Error("Expected no leftover {{QUALITY_REVIEW}} placeholder in the build prompt")
 	}
@@ -551,13 +551,13 @@ func TestGetSummaryPrompt_Parked(t *testing.T) {
 // background, tried to schedule a wakeup to wait for it, and then read the
 // same files itself anyway — the research paid for twice, per story.
 func TestGetPrompt_SubagentIsWaitedForAndTrusted(t *testing.T) {
-	prompt := GetPrompt("/path/progress.md", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
+	prompt := GetPrompt("/path/progress.md", "", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
 	for _, want := range []string{"in the foreground", "do not schedule a wakeup", "do not\nread the files it covered again"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt lacks %q", want)
 		}
 	}
-	if other := GetPrompt("/path/progress.md", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", false); strings.Contains(other, "Wait for the subagent") {
+	if other := GetPrompt("/path/progress.md", "", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", false); strings.Contains(other, "Wait for the subagent") {
 		t.Error("a provider without subagents is told how to wait for one")
 	}
 }
@@ -608,7 +608,7 @@ func TestConsolidatePromptFixesBugsApartAndReportsTheRest(t *testing.T) {
 // in every prompt that writes code; product text keeps the story's language.
 func TestCodeIsWrittenInEnglish(t *testing.T) {
 	prompts := map[string]string{
-		"build":       GetPrompt("/p/progress.md", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", false),
+		"build":       GetPrompt("/p/progress.md", "", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", false),
 		"review":      GetReviewPrompt("/p/progress.md", `{"id":"US-001"}`, "US-001", "Test Story", "", ""),
 		"consolidate": GetConsolidatePrompt("/p/progress.md", "/p/findings.md", "abc123 feat: x", "abc..HEAD", "myprd", "", ""),
 	}
@@ -631,7 +631,7 @@ func TestCodeIsWrittenInEnglish(t *testing.T) {
 // rather than in the done format (which chief takes as the story being done),
 // and the rest cleared away, so the next story starts on a clean tree.
 func TestGetPrompt_BlockedSignal(t *testing.T) {
-	prompt := GetPrompt("/p/progress.md", "", `{"id":"US-004"}`, "app", "US-004", "Sign the app", true)
+	prompt := GetPrompt("/p/progress.md", "", "", `{"id":"US-004"}`, "app", "US-004", "Sign the app", true)
 	for _, want := range []string{
 		"<chief-blocked>",
 		"keychain",
@@ -655,7 +655,7 @@ func TestGetPrompt_BlockedSignal(t *testing.T) {
 // tests against the person's real microphone, and a "done" signal chief read out
 // of a sentence that said the opposite.
 func TestGetPrompt_RulesFromUnattendedRuns(t *testing.T) {
-	prompt := GetPrompt("/p/progress.md", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
+	prompt := GetPrompt("/p/progress.md", "", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", true)
 	for _, want := range []string{
 		"real contract, never a guessed one",
 		"Never invent a payload silently",
