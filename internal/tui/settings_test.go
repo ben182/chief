@@ -949,6 +949,7 @@ func TestSettingsOverlay_GetSelectedItem(t *testing.T) {
 // "story done" while the run is still waiting on a review, or the reverse.
 func TestApp_PublishSettingsUpdatesReviewPendingMarker(t *testing.T) {
 	cfg := config.Default()
+	cfg.Review.Enabled = config.Bool(false)
 	app := &App{
 		baseDir:         t.TempDir(),
 		config:          cfg,
@@ -959,11 +960,11 @@ func TestApp_PublishSettingsUpdatesReviewPendingMarker(t *testing.T) {
 	app.settingsOverlay.LoadFromConfig(app.config)
 
 	if app.logViewer.reviewPending {
-		t.Fatal("precondition: review is off by default")
+		t.Fatal("precondition: review is switched off")
 	}
 
 	selectKey(t, app.settingsOverlay, "review.enabled")
-	app.settingsOverlay.CycleTriBool() // unset -> true
+	app.settingsOverlay.CycleTriBool() // false -> unset, which is on
 	app.publishSettings()
 
 	if !app.config.Review.Active() {
@@ -973,6 +974,7 @@ func TestApp_PublishSettingsUpdatesReviewPendingMarker(t *testing.T) {
 		t.Error("enabling the review mid-run must switch the story-done marker to review-pending")
 	}
 
+	app.settingsOverlay.CycleTriBool() // unset -> true
 	app.settingsOverlay.CycleTriBool() // true -> false
 	app.publishSettings()
 	if app.logViewer.reviewPending {

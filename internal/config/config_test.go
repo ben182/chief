@@ -140,12 +140,12 @@ func TestReviewConfigEnabled(t *testing.T) {
 		cfg  ReviewConfig
 		want bool
 	}{
-		{"empty", ReviewConfig{}, false},
+		{"empty", ReviewConfig{}, true},
 		{"enabled flag only", ReviewConfig{Enabled: Bool(true)}, true},
 		{"skill only", ReviewConfig{Skill: "/code-quality"}, true},
 		{"instructions only", ReviewConfig{Instructions: "watch for N+1"}, true},
 		{"both", ReviewConfig{Skill: "/cq", Instructions: "x"}, true},
-		{"whitespace only", ReviewConfig{Skill: "  ", Instructions: "\n\t"}, false},
+		{"whitespace only", ReviewConfig{Skill: "  ", Instructions: "\n\t"}, true},
 		{"disabled flag, whitespace fields", ReviewConfig{Enabled: Bool(false), Skill: "  "}, false},
 		// enabled: false is a hard off switch: a leftover skill or instructions
 		// block must not resurrect a review the project explicitly turned off.
@@ -183,12 +183,12 @@ func TestConsolidateConfigEnabled(t *testing.T) {
 		cfg  ConsolidateConfig
 		want bool
 	}{
-		{"empty", ConsolidateConfig{}, false},
+		{"empty", ConsolidateConfig{}, true},
 		{"enabled flag only", ConsolidateConfig{Enabled: Bool(true)}, true},
 		{"skill only", ConsolidateConfig{Skill: "/code-quality"}, true},
 		{"instructions only", ConsolidateConfig{Instructions: "one HTTP client"}, true},
 		{"both", ConsolidateConfig{Skill: "/cq", Instructions: "x"}, true},
-		{"whitespace only", ConsolidateConfig{Skill: "  ", Instructions: "\n\t"}, false},
+		{"whitespace only", ConsolidateConfig{Skill: "  ", Instructions: "\n\t"}, true},
 		{"disabled flag, whitespace fields", ConsolidateConfig{Enabled: Bool(false), Skill: "  "}, false},
 		// enabled: false is a hard off switch, skill or instructions notwithstanding.
 		{"disabled flag beats skill", ConsolidateConfig{Enabled: Bool(false), Skill: "/code-quality"}, false},
@@ -201,20 +201,20 @@ func TestConsolidateConfigEnabled(t *testing.T) {
 	}
 }
 
-// TestConsolidateDefaultsOff verifies the consolidation pass is opt-in: it
-// refactors already-committed, already-reviewed code, so it must never turn itself
-// on for a project that didn't ask for it.
-func TestConsolidateDefaultsOff(t *testing.T) {
-	if Default().Consolidate.Active() {
-		t.Error("consolidation must be off by default")
+// Review and consolidation run unless a project switches them off: an
+// unattended run otherwise lands every story unread (recap built thirty that
+// way), and no config file must not mean no second pair of eyes.
+func TestReviewAndConsolidateDefaultOn(t *testing.T) {
+	if !Default().Review.Active() || !Default().Consolidate.Active() {
+		t.Error("review and consolidation must be on by default")
 	}
 	dir := t.TempDir()
 	loaded, err := Load(dir) // no config file at all
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-	if loaded.Consolidate.Active() {
-		t.Error("consolidation must be off when there is no config file")
+	if !loaded.Review.Active() || !loaded.Consolidate.Active() {
+		t.Error("review and consolidation must be on when there is no config file")
 	}
 }
 

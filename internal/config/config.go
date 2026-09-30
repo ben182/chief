@@ -95,7 +95,8 @@ type ConsolidateConfig struct {
 	// Enabled is the hard switch for the pass, and it always wins: `enabled: true`
 	// runs it even with no other config, `enabled: false` keeps it off even when a
 	// skill or instructions are configured. Left out of the config entirely it is
-	// nil, and then a non-empty Skill or Instructions turns the pass on by itself.
+	// nil, and the pass runs: an unattended run with nobody reading the commits
+	// needs it most, so switching it off is the deliberate choice.
 	Enabled *bool `yaml:"enabled,omitempty"`
 	// Model is the model the consolidation agent runs on (e.g. "haiku", "opus").
 	// Empty — the default — runs the pass on Sonnet: consolidation is a large share
@@ -106,24 +107,21 @@ type ConsolidateConfig struct {
 	Model string `yaml:"model,omitempty"`
 	// Skill is the name of a project skill the consolidation agent should run as
 	// part of its pass (e.g. "/code-quality"). Claude-specific; other providers
-	// ignore it. Optional — setting it also enables the pass unless Enabled says
-	// otherwise.
+	// ignore it. Optional.
 	Skill string `yaml:"skill"`
 	// Instructions is free-form guidance for the consolidation agent (e.g. "we
 	// keep all HTTP clients in internal/transport"). Works with any provider.
-	// Optional — setting it also enables the pass unless Enabled says otherwise.
+	// Optional.
 	Instructions string `yaml:"instructions"`
 }
 
 // Active reports whether the consolidation pass should run at the end of a run.
-// An explicit `enabled` decides on its own, either way; without it, a configured
-// skill or free-form instructions turn the pass on.
+// An explicit `enabled` decides on its own, either way; without it, the pass runs.
 func (c ConsolidateConfig) Active() bool {
 	if c.Enabled != nil {
 		return *c.Enabled
 	}
-	return strings.TrimSpace(c.Skill) != "" ||
-		strings.TrimSpace(c.Instructions) != ""
+	return true
 }
 
 // ReviewConfig holds the per-project code review that runs after a story's
@@ -136,7 +134,8 @@ type ReviewConfig struct {
 	// runs it with just the built-in review prompt (the two-axis Spec/Standards
 	// review and code-smell baseline), `enabled: false` keeps it off even when a
 	// skill or instructions are configured. Left out of the config entirely it is
-	// nil, and then a non-empty Skill or Instructions turns the review on by itself.
+	// nil, and the review runs: a run nobody watches should not land stories no
+	// one has read, so switching it off is the deliberate choice.
 	Enabled *bool `yaml:"enabled,omitempty"`
 	// Model is the model the review agent runs on (e.g. "haiku", "opus"). Empty —
 	// the default — runs the review on Sonnet: reviewing a single story's diff is a
@@ -147,24 +146,20 @@ type ReviewConfig struct {
 	Model string `yaml:"model,omitempty"`
 	// Skill is the name of a project skill the review agent should run as part of
 	// its review (e.g. "/code-quality"). Claude-specific; other providers ignore
-	// it. Optional — setting it also enables the review unless Enabled says
-	// otherwise.
+	// it. Optional.
 	Skill string `yaml:"skill"`
 	// Instructions is free-form guidance for the review agent (e.g. "watch for
-	// N+1 queries and missing tests"). Works with any provider. Optional — setting
-	// it also enables the review unless Enabled says otherwise.
+	// N+1 queries and missing tests"). Works with any provider. Optional.
 	Instructions string `yaml:"instructions"`
 }
 
 // Active reports whether a review agent should run after a story commits. An
-// explicit `enabled` decides on its own, either way; without it, a configured
-// skill or free-form instructions turn the review on.
+// explicit `enabled` decides on its own, either way; without it, the review runs.
 func (r ReviewConfig) Active() bool {
 	if r.Enabled != nil {
 		return *r.Enabled
 	}
-	return strings.TrimSpace(r.Skill) != "" ||
-		strings.TrimSpace(r.Instructions) != ""
+	return true
 }
 
 // Bool returns a pointer to b, for setting the tri-state `enabled` switches

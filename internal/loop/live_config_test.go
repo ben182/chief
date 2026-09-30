@@ -91,7 +91,7 @@ func TestLoop_LiveReviewModelFallsBackToPhaseDefault(t *testing.T) {
 }
 
 func TestLoop_ConsolidateSettingsFollowTheLiveConfig(t *testing.T) {
-	src := &liveConfigSource{cfg: &config.Config{}}
+	src := &liveConfigSource{cfg: &config.Config{Consolidate: config.ConsolidateConfig{Enabled: config.Bool(false)}}}
 
 	l := NewLoop("/tmp/prd.md", "", 5, &mockProvider{})
 	l.SetConfigFn(src.get)
@@ -100,11 +100,11 @@ func TestLoop_ConsolidateSettingsFollowTheLiveConfig(t *testing.T) {
 		t.Fatal("expected the consolidation pass to be off")
 	}
 
-	// A skill alone turns the pass on, exactly as it does at startup — the live
+	// Without `enabled` the pass runs, exactly as it does at startup — the live
 	// path has to go through ConsolidateConfig.Active(), not just read `enabled`.
 	src.set(&config.Config{Consolidate: config.ConsolidateConfig{Skill: "/code-quality"}})
 	if !l.consolidateEnabled() {
-		t.Error("expected a configured skill to enable the pass")
+		t.Error("expected the pass to run when enabled is left out")
 	}
 	if got := l.currentConsolidator().skill; got != "/code-quality" {
 		t.Errorf("consolidate skill = %q, want /code-quality", got)

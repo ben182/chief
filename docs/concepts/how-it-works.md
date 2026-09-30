@@ -62,7 +62,7 @@ Chief works through your stories methodically. Each iteration focuses on a singl
                │ all done
                ▼
         ┌──────────────┐
-        │ Consolidate  │  (optional — one pass over the whole run)
+        │ Consolidate  │  (on by default — one pass over the whole run)
         └──────┬───────┘
                │
                ▼
@@ -75,14 +75,14 @@ Here's what happens in each step:
 2. **Invoke Agent**: Constructs a prompt with the story details and project context, then spawns the agent
 3. **Agent Codes**: The agent reads files, writes code, runs tests, and fixes issues until the story is complete. It works test-first in small vertical slices, testing observable behavior at the seams agreed during PRD authoring (see [PRD Format](/concepts/prd-format#what-chief-new-grilling-adds))
 4. **Commit**: The agent commits the changes with a message like `feat: US-001 - Feature Title`
-5. **Review** (optional): If a review is configured, a separate agent with a fresh context reviews the committed changes, fixes anything it finds, and amends the commit — see [The Review Agent](/concepts/code-review)
+5. **Review** (on by default, `review.enabled: false` turns it off): A separate agent with a fresh context reviews the committed changes, fixes anything it finds, and amends the commit — see [The Review Agent](/concepts/code-review)
 6. **Mark Complete**: Chief updates the story status in `prd.md` and records progress
 7. **Repeat**: If more stories remain, the loop continues
-8. **Consolidate** (optional): Once no stories remain, a single agent looks across *all* of this run's commits and refactors away the seams that no per-story review can see — see [The Review Agent → the blind spot](/concepts/code-review#the-blind-spot-what-a-per-story-review-cannot-see)
+8. **Consolidate** (on by default, `consolidate.enabled: false` turns it off): Once no stories remain, a single agent looks across *all* of this run's commits and refactors away the seams that no per-story review can see — see [The Review Agent → the blind spot](/concepts/code-review#the-blind-spot-what-a-per-story-review-cannot-see)
 
 This isolation is intentional. If something breaks, you know exactly which story caused it. Each commit represents one complete feature.
 
-It has one cost, though, and it's worth naming: because each story gets a *fresh* agent, no story can see what the others did. That's what keeps context small, and it's also why two stories can each grow their own helper for the same job without either agent noticing. Step 8 exists to clean that up — it's off by default, and on large runs it's the difference between forty clean commits and a coherent result.
+It has one cost, though, and it's worth naming: because each story gets a *fresh* agent, no story can see what the others did. That's what keeps context small, and it's also why two stories can each grow their own helper for the same job without either agent noticing. Step 8 exists to clean that up — it's on by default, and on large runs it's the difference between forty clean commits and a coherent result.
 
 ## Commit Messages & Story IDs
 

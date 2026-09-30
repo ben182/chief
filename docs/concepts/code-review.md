@@ -4,11 +4,10 @@ description: How Chief's separate review agent works — a second, independent a
 
 # The Review Agent
 
-By default, Chief marks a story done as soon as the build agent commits its
-work. With a review configured, Chief inserts a second opinion first: after the
+Chief does not sign a story off on the build agent's word alone. After the
 build agent commits, a **separate agent with a fresh context** reviews the
 committed changes, fixes anything it finds, and only then is the story signed
-off.
+off. The review is on by default; `review.enabled: false` turns it off.
 
 ::: info Multi-agent support
 This page uses "the agent" to refer to whichever backend you've configured
@@ -102,12 +101,11 @@ review:
 - **`review.instructions`** — free-form text steering what the reviewer should
   pay attention to. Works with any provider.
 
-With no `enabled` key present, setting **either of the other two enables the
-review** — so a project only has to name a skill. `enabled` overrides that in
-both directions: `enabled: false` disables the review no matter what else is
-configured, which is how you park a skill and instructions for later without
-running them. Leaving all three unset (the default) disables the review, and
-Chief marks stories done straight after the build commit as before.
+With no `enabled` key present, the review runs, with whatever skill and
+instructions are configured on top of the built-in prompt. `enabled: false`
+disables it no matter what else is configured, which is how you park a skill
+and instructions for later without running them; Chief then marks stories done
+straight after the build commit.
 
 ## How the review prompt is assembled
 
