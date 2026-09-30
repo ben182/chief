@@ -1148,11 +1148,13 @@ func (l *Loop) commitStoryProgress(storyID, storyTitle string) {
 	if len(paths) == 0 {
 		return
 	}
-	expected := fmt.Sprintf("feat: %s/%s - %s", prdNameFromPath(l.prdPath), storyID, storyTitle)
-	// Never into a commit that is already on origin: a story blocked in an
-	// earlier run and blocked again in this one finds its old, pushed commit at
-	// HEAD, and amending that would get every push after it refused.
-	if subj, err := git.HeadSubject(dir); err == nil && subj == expected && !git.HeadIsPushed(dir) {
+	story := fmt.Sprintf("%s/%s - %s", prdNameFromPath(l.prdPath), storyID, storyTitle)
+	// The story's own commit is "feat: …", or "wip: …" for the finished part of
+	// a story that was then blocked. Never into a commit that is already on
+	// origin: a story blocked in an earlier run and blocked again in this one
+	// finds its old, pushed commit at HEAD, and amending that would get every
+	// push after it refused.
+	if subj, err := git.HeadSubject(dir); err == nil && (subj == "feat: "+story || subj == "wip: "+story) && !git.HeadIsPushed(dir) {
 		_ = git.AmendPaths(dir, paths...)
 		return
 	}

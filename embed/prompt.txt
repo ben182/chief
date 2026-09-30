@@ -178,17 +178,23 @@ and bugs in your own code are **never** blocked — fix them. When in doubt, it 
 not blocked.
 
 If you are blocked:
-1. Commit the finished, working part of the story as usual, with the same
-   message as above (`feat: {{PRD_NAME}}/{{STORY_ID}} - {{STORY_TITLE}}`). Skip
-   this if nothing is finished or it does not pass the quality checks.
-2. Append a progress entry saying what is done, what is left, and exactly where
+1. Commit the finished, working part of the story as work in progress:
+   `wip: {{PRD_NAME}}/{{STORY_ID}} - {{STORY_TITLE}}` — **never** with the `feat:`
+   message above, which says the story is done. Skip this if nothing is finished
+   or it does not pass the quality checks.
+2. Leave the working tree clean for the next story: revert your own uncommitted
+   changes from this story (`git restore <file>`) and remove the files you
+   created and did not commit. Touch nothing under `.chief/` apart from the
+   progress entry below, and nothing this story did not change. Whatever is still left, chief stashes before the next
+   story starts.
+3. Append a progress entry saying what is done, what is left, and exactly where
    it stopped.
-3. Output `<chief-blocked>what blocks the story · what the person has to do</chief-blocked>`
+4. Output `<chief-blocked>what blocks the story · what the person has to do</chief-blocked>`
    — one or two sentences, concrete enough to act on without reading the log,
    e.g. `<chief-blocked>codesign waits on a keychain prompt for the "Developer ID"
    certificate · allow codesign to use the key in Keychain Access, then set the
    story back to todo</chief-blocked>`.
-4. Stop. Do NOT output <chief-done/>, and do not try again: the story is set
+5. Stop. Do NOT output <chief-done/>, and do not try again: the story is set
    aside until the person has acted, and the run moves on to other stories.
 
 ## Stop Condition

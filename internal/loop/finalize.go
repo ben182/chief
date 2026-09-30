@@ -58,6 +58,9 @@ func (l *Loop) finalizeStory(ctx context.Context, currentIter int) error {
 	l.mu.Unlock()
 
 	if blocked && storyID != "" {
+		if note := l.stashBlockedLeftovers(storyID); note != "" {
+			reason += " — " + note
+		}
 		if err := prd.SetStoryBlocked(l.prdPath, storyID, reason); err != nil {
 			werr := fmt.Errorf("failed to mark story %s blocked in prd.md: %w", storyID, err)
 			l.logLine("[chief] " + werr.Error())
@@ -147,4 +150,59 @@ func (l *Loop) setStatusOrFail(iteration int, storyID, status, failMsg string) e
 		return werr
 	}
 	return nil
+}
+
+// stashBlockedLeftovers moves what a blocked story left uncommitted out of the
+// way, so the next story does not start on a tree holding half of this one. It
+// only stashes, never deletes: the work is in `git stash list` under the
+// story's name. chief's own files (prd.md, progress.md and the rest of .chief/)
+// stay where they are — chief is about to write and commit them. It returns a
+// note for the blocked reason when it stashed something, "" otherwise.
+func (l *Loop) stashBlockedLeftovers(storyID string) string {
+	dir := l.effectiveWorkDir()
+	if !git.IsGitRepo(dir) {
+		return ""
+	}
+	// .chief/ at the top of the checkout, and the PRD's own directory wherever
+	// it is — unless that is the checkout itself, where chief's files are named
+	// one by one, the run log it is writing to among them.
+	keep := []string{filepath.Join(dir, ".chief")}
+	prdDir := filepath.Dir(l.prdPath)
+	if root, err := git.RepoRoot(dir); err == nil && sameDir(root, prdDir) {
+		l.mu.Lock()
+		logPath := l.logPath
+		l.mu.Unlock()
+		for _, p := range []string{l.prdPath, prd.ProgressPath(l.prdPath), filepath.Join(prdDir, ".gitignore"), prd.FollowupInboxPath(prdDir), logPath} {
+			if p != "" {
+				keep = append(keep, p)
+			}
+		}
+	} else {
+		keep = append(keep, prdDir)
+	}
+	name := fmt.Sprintf("chief: %s/%s blocked", prdNameFromPath(l.prdPath), storyID)
+	stashed, err := git.StashUncommitted(dir, name, keep...)
+	if err != nil {
+		l.logLine(fmt.Sprintf("[chief] could not stash what %s left uncommitted: %v", storyID, err))
+		return ""
+	}
+	if !stashed {
+		return ""
+	}
+	l.logLine(fmt.Sprintf("[chief] %s left uncommitted changes; stashed as %q", storyID, name))
+	return fmt.Sprintf("uncommitted leftovers stashed as \"%s\" (git stash list)", name)
+}
+
+// sameDir reports whether a and b are the same directory, symlinks followed.
+func sameDir(a, b string) bool {
+	norm := func(p string) string {
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			p = r
+		}
+		return filepath.Clean(p)
+	}
+	return norm(a) == norm(b)
 }

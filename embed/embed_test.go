@@ -627,8 +627,9 @@ func TestCodeIsWrittenInEnglish(t *testing.T) {
 
 // The blocked signal is for what only a person can resolve. The prompt has to
 // say that red tests and build errors never qualify — an agent that may give up
-// on a failing test will — and that finished work is committed first, in the
-// story's own commit format, so the morning starts from it.
+// on a failing test will — and that finished work is committed first, as wip:
+// rather than in the done format (which chief takes as the story being done),
+// and the rest cleared away, so the next story starts on a clean tree.
 func TestGetPrompt_BlockedSignal(t *testing.T) {
 	prompt := GetPrompt("/p/progress.md", "", `{"id":"US-004"}`, "app", "US-004", "Sign the app", true)
 	for _, want := range []string{
@@ -636,7 +637,10 @@ func TestGetPrompt_BlockedSignal(t *testing.T) {
 		"keychain",
 		"Failing tests, build errors, lint errors",
 		"**never** blocked",
-		"`feat: app/US-004 - Sign the app`",
+		"`wip: app/US-004 - Sign the app`",
+		"**never** with the `feat:`",
+		"Leave the working tree clean for the next story",
+		"Touch nothing under `.chief/` apart from the\n   progress entry",
 		"Do NOT output <chief-done/>, and do not try again",
 	} {
 		if !strings.Contains(prompt, want) {

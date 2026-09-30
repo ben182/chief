@@ -4,6 +4,7 @@ package git
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -226,10 +227,14 @@ func GetDiffStatsForCommit(dir, commitHash string) (string, error) {
 // followup run only finds the commit if it landed during this run and not on an
 // earlier one that already committed the same story on this branch.
 // Returns the commit hash if found, empty string otherwise.
+//
+// Only a subject that starts with the format counts. A `wip:` commit — the
+// finished part of a story that was then blocked — is not the story being done,
+// and neither is a revert, or a body that quotes the subject.
 func FindCommitForStory(dir, prdName, storyID, title, sinceRef string) (string, error) {
 	if prdName != "" {
-		grep := "feat: " + prdName + "/" + storyID + " - "
-		hash, err := grepCommit(dir, grep, sinceRef)
+		prefix := "feat: " + prdName + "/" + storyID + " - "
+		hash, err := grepCommit(dir, prefix, sinceRef)
 		if err != nil {
 			return "", err
 		}
@@ -241,14 +246,106 @@ func FindCommitForStory(dir, prdName, storyID, title, sinceRef string) (string, 
 	return grepCommit(dir, "feat: "+storyID+" - "+title, sinceRef)
 }
 
-// grepCommit returns the newest commit hash whose subject contains grep (a
-// fixed string), optionally scoped to sinceRef..HEAD. Empty string when none.
-func grepCommit(dir, grep, sinceRef string) (string, error) {
-	args := []string{"log", "--fixed-strings", "--grep=" + grep, "--format=%H", "-1"}
+// grepCommit returns the newest commit hash whose subject starts with prefix,
+// optionally scoped to sinceRef..HEAD. Empty string when none. git's --grep
+// narrows the log to messages containing prefix anywhere; the subject check
+// keeps only the ones that begin with it.
+func grepCommit(dir, prefix, sinceRef string) (string, error) {
+	args := []string{"log", "--fixed-strings", "--grep=" + prefix, "--format=%H %s"}
 	if sinceRef != "" {
 		args = append(args, sinceRef+"..HEAD")
 	}
-	return runGit(dir, args...)
+	out, err := runGit(dir, args...)
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(out, "\n") {
+		hash, subject, ok := strings.Cut(line, " ")
+		if ok && strings.HasPrefix(subject, prefix) {
+			return hash, nil
+		}
+	}
+	return "", nil
+}
+
+// StashUncommitted puts every uncommitted change in the repository at dir —
+// modified, staged and untracked files alike — into a stash named message,
+// except the files under the paths in keep (absolute, or relative to dir; a
+// directory keeps everything below it). Nothing is deleted: the stash holds it
+// all, and `git stash list` shows it by name. It reports whether there was
+// anything to stash.
+//
+// The files are named to git one by one instead of as pathspec exclusions: an
+// exclusion that matches an ignored path (chief's run log, a .chief/ the
+// project ignores) makes `git stash push` fail halfway, after it has saved the
+// stash and before it has cleaned the tree.
+func StashUncommitted(dir, message string, keep ...string) (bool, error) {
+	root, err := RepoRoot(dir)
+	if err != nil {
+		return false, err
+	}
+	var kept []string
+	for _, k := range keep {
+		if !filepath.IsAbs(k) {
+			k = filepath.Join(dir, k)
+		}
+		if rel, ok := relativeInRepo(root, k); ok {
+			kept = append(kept, rel)
+		}
+	}
+	status, err := runGitRaw(root, "status", "--porcelain", "-z", "--untracked-files=all", "--no-renames")
+	if err != nil {
+		return false, err
+	}
+	var files []string
+	for _, entry := range strings.Split(status, "\x00") {
+		if len(entry) < 4 {
+			continue
+		}
+		path := entry[3:]
+		if !underAny(path, kept) {
+			files = append(files, path)
+		}
+	}
+	if len(files) == 0 {
+		return false, nil
+	}
+	cmd := exec.Command("git", "--literal-pathspecs", "stash", "push", "--include-untracked", "-m", message,
+		"--pathspec-from-file=-", "--pathspec-file-nul")
+	cmd.Dir = root
+	cmd.Stdin = strings.NewReader(strings.Join(files, "\x00"))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return false, fmt.Errorf("git stash failed: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return true, nil
+}
+
+// relativeInRepo expresses path relative to the repository root, in git's
+// slash form, following symlinks on both (a temp dir on macOS is /var and
+// /private/var at once). False when path lies outside the repository.
+func relativeInRepo(root, path string) (string, bool) {
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		root = r
+	}
+	// The path itself may not exist; its directory usually does.
+	if d, err := filepath.EvalSymlinks(filepath.Dir(path)); err == nil {
+		path = filepath.Join(d, filepath.Base(path))
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
+}
+
+// underAny reports whether the slash path p is one of dirs or lies below one.
+func underAny(p string, dirs []string) bool {
+	for _, d := range dirs {
+		if d == "." || p == d || strings.HasPrefix(p, strings.TrimSuffix(d, "/")+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // HeadHash returns the full commit hash of the current HEAD. It errors on a repo

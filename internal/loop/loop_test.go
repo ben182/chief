@@ -1828,3 +1828,82 @@ func TestLoop_StoryFinishedComesOnceTheCommitIsFinal(t *testing.T) {
 		t.Errorf("the commit at EventStoryFinished does not carry the done status:\n%s", prdAtFinish)
 	}
 }
+
+// A story blocked halfway leaves its finished part as a wip: commit and maybe
+// more on disk. The next story must not start on that: what is left goes into
+// a named stash (never deleted), chief's own files stay and are committed, and
+// the blocked reason says where the leftovers are. The wip: commit does not
+// make the story done, and chief's files are amended into it.
+func TestLoop_BlockedStoryLeavesACleanTree(t *testing.T) {
+	dir := t.TempDir()
+	gitInit(t, dir)
+	prdPath := createTestPRD(t, dir, false)
+	name := filepath.Base(dir)
+	script := filepath.Join(t.TempDir(), "mock-claude")
+	body := "#!/bin/bash\n" +
+		"cd " + dir + "\n" +
+		"echo done-part > part.txt && git add part.txt && git commit -qm 'wip: " + name + "/US-001 - Test Story'\n" +
+		"echo half > half.txt\n" +
+		"echo changed > seed\n" +
+		"echo '## US-001 stopped at signing' >> progress.md\n" +
+		`echo '{"type":"assistant","message":{"content":[{"type":"text","text":"<chief-blocked>codesign waits on the keychain · allow it</chief-blocked>"}]}}'` + "\n"
+	if err := os.WriteFile(script, []byte(body), 0755); err != nil {
+		t.Fatal(err)
+	}
+	l := NewLoopWithWorkDir(prdPath, dir, "", 3, &mockProvider{cliPath: script})
+	l.buildPrompt = promptBuilderForPRD(prdPath, false)
+	l.DisableRetry()
+	go func() {
+		for range l.Events() {
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := l.Run(ctx); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	git := func(args ...string) string {
+		out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	// Run logs land in the PRD directory, which is the repo here; they are
+	// ignored by chief's own .gitignore.
+	if status := git("status", "--porcelain"); status != "" {
+		t.Errorf("the next story would start on a dirty tree:\n%s", status)
+	}
+	stashName := "chief: " + name + "/US-001 blocked"
+	if list := git("stash", "list"); !strings.Contains(list, stashName) {
+		t.Fatalf("no stash named %q:\n%s", stashName, list)
+	}
+	stashed := git("show", "--name-only", "--format=", "stash@{0}") + "\n" + git("show", "--name-only", "--format=", "stash@{0}^3")
+	for _, want := range []string{"seed", "half.txt"} {
+		if !strings.Contains(stashed, want) {
+			t.Errorf("%s is not in the stash:\n%s", want, stashed)
+		}
+	}
+	if strings.Contains(stashed, "progress.md") || strings.Contains(stashed, "prd.md") {
+		t.Errorf("chief's own files were stashed:\n%s", stashed)
+	}
+
+	p, err := prd.LoadPRD(prdPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := p.UserStories[0]
+	if !s.Blocked || s.Passes {
+		t.Fatalf("story blocked=%v passes=%v, want blocked and not done", s.Blocked, s.Passes)
+	}
+	if !strings.Contains(s.BlockedReason, "codesign waits on the keychain") || !strings.Contains(s.BlockedReason, stashName) {
+		t.Errorf("reason = %q, want the agent's reason and the stash", s.BlockedReason)
+	}
+	if subj := commitMsgAt(t, dir, "HEAD"); subj != "wip: "+name+"/US-001 - Test Story" {
+		t.Errorf("HEAD = %q, want chief's files amended into the wip commit", subj)
+	}
+	if !strings.Contains(git("show", "HEAD:progress.md"), "stopped at signing") {
+		t.Error("the progress entry did not ride along in the wip commit")
+	}
+}

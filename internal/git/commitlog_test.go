@@ -268,3 +268,83 @@ func TestCommittablePaths(t *testing.T) {
 		t.Errorf("CommittablePaths = %v, want %v", got, want)
 	}
 }
+
+// A story that was blocked halfway commits its finished part as wip:, and that
+// commit is not the story being done — nor is a revert of the done commit, or a
+// body that quotes the subject. Before, any message containing the done subject
+// counted, so a wip: commit whose body said what it was for, or a revert, made
+// the story done on the next attempt.
+func TestFindCommitForStory_OnlyADoneSubjectCounts(t *testing.T) {
+	dir := initTestRepo(t)
+	if err := CreateBranch(dir, "chief/app"); err != nil {
+		t.Fatalf("CreateBranch: %v", err)
+	}
+	commitFile(t, dir, "a.txt", "a", "wip: app/US-001 - Sign the app")
+	commitFile(t, dir, "b.txt", "b", "Revert \"feat: app/US-001 - Sign the app\"")
+	commitFile(t, dir, "c.txt", "c", "chore: notes\n\nThe rest follows as feat: app/US-001 - Sign the app")
+	got, err := FindCommitForStory(dir, "app", "US-001", "Sign the app", "")
+	if err != nil {
+		t.Fatalf("FindCommitForStory: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("matched %s (%s), want no done commit", got, commitSubject(t, dir, got))
+	}
+
+	commitFile(t, dir, "d.txt", "d", "feat: app/US-001 - Sign the app")
+	want, _ := HeadHash(dir)
+	commitFile(t, dir, "e.txt", "e", "wip: app/US-001 - Sign the app")
+	if got, _ := FindCommitForStory(dir, "app", "US-001", "Sign the app", ""); got != want {
+		t.Errorf("matched %q, want the feat: commit %q behind the newer wip:", got, want)
+	}
+}
+
+func commitSubject(t *testing.T, dir, hash string) string {
+	t.Helper()
+	out, _ := runGit(dir, "log", "-1", "--format=%s", hash)
+	return out
+}
+
+// A blocked story's leftovers go into a named stash, untracked files included,
+// and what is excluded stays in the tree.
+func TestStashUncommitted(t *testing.T) {
+	dir := initTestRepo(t)
+	if ok, err := StashUncommitted(dir, "chief: app/US-001 blocked", ".chief"); err != nil || ok {
+		t.Fatalf("clean tree: stashed=%v err=%v, want nothing stashed", ok, err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".chief", "prds", "app"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	// A project that keeps .chief/ out of git, and a run log that is ignored:
+	// as pathspec exclusions, either made the stash fail halfway.
+	if err := os.WriteFile(filepath.Join(dir, ".git", "info", "exclude"), []byte(".chief/\n*.log\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for path, body := range map[string]string{
+		"half.go":                     "package half\n",
+		"run.log":                     "log\n",
+		".chief/prds/app/progress.md": "## entry\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, path), []byte(body), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ok, err := StashUncommitted(dir, "chief: app/US-001 blocked", ".chief", filepath.Join(dir, "run.log"))
+	if err != nil || !ok {
+		t.Fatalf("stashed=%v err=%v, want the leftovers stashed", ok, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "half.go")); !os.IsNotExist(err) {
+		t.Error("half.go is still in the tree")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".chief", "prds", "app", "progress.md")); err != nil {
+		t.Errorf("chief's own file was stashed: %v", err)
+	}
+	if status, _ := runGit(dir, "status", "--porcelain"); status != "" {
+		t.Errorf("the tree is not clean after the stash:\n%s", status)
+	}
+	if list, _ := runGit(dir, "stash", "list"); !strings.Contains(list, "chief: app/US-001 blocked") {
+		t.Errorf("stash list = %q", list)
+	}
+	if files, _ := runGit(dir, "show", "--name-only", "--format=", "stash@{0}^3"); !strings.Contains(files, "half.go") {
+		t.Errorf("the untracked file is not in the stash: %q", files)
+	}
+}
