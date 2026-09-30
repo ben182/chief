@@ -103,6 +103,11 @@ func (l *Loop) finalizeStory(ctx context.Context, currentIter int) error {
 			return err
 		}
 		l.commitStoryProgress(storyID, storyTitle)
+		l.events <- Event{
+			Type:      EventStoryFinished,
+			Iteration: currentIter,
+			StoryID:   storyID,
+		}
 
 	case storyID != "":
 		l.mu.Lock()

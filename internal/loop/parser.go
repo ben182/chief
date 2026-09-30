@@ -18,7 +18,8 @@ const (
 	EventToolStart
 	// EventToolResult is emitted when a tool returns a result.
 	EventToolResult
-	// EventStoryDone is emitted when Claude signals a story is done via <chief-done/>.
+	// EventStoryDone is emitted when Claude signals a story is done via
+	// <chief-done/>. The story is not settled yet: see EventStoryFinished.
 	EventStoryDone
 	// EventComplete is emitted when all stories are complete (buildPrompt
 	// returns errAllStoriesComplete).
@@ -74,6 +75,13 @@ const (
 	// in and emits its own once the story is marked blocked in prd.md, carrying
 	// the story ID.
 	EventStoryBlocked
+	// EventStoryFinished is emitted once a story is marked done in prd.md and
+	// its commit is final — chief's own files amended in, after the optional
+	// review. EventStoryDone comes earlier, when the build agent signals, and
+	// may still be followed by EventStoryNoCommit, a review and that amend; a
+	// push on it would put a commit on origin the branch then rewrites. This is
+	// the event to push on.
+	EventStoryFinished
 )
 
 // String returns the string representation of an EventType.
@@ -123,6 +131,8 @@ func (e EventType) String() string {
 		return "RateLimitWait"
 	case EventStoryBlocked:
 		return "StoryBlocked"
+	case EventStoryFinished:
+		return "StoryFinished"
 	default:
 		return "Unknown"
 	}

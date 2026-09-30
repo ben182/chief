@@ -692,6 +692,68 @@ func TestABoxRunPushesAfterEveryStory(t *testing.T) {
 	}
 }
 
+// With the review off nothing sits between the agent's done and chief amending
+// its files into the story's commit. A push on the agent's signal raced that
+// amend: origin got the commit, the branch its rewrite, and every push after it
+// was refused. Each push has to leave origin on the branch's own history.
+func TestABoxRunWithoutReviewPushesOnlyFinalCommits(t *testing.T) {
+	dir, prdPath := project(t, "US-001", "First Story")
+	md := "# Demo\n\nA demo project\n\n### US-001: First Story\n\n- [ ] It works\n\n" +
+		"### US-002: Second Story\n\n- [ ] It works too\n\n### US-003: Third Story\n\n- [ ] And this\n"
+	if err := os.WriteFile(prdPath, []byte(md), 0644); err != nil {
+		t.Fatal(err)
+	}
+	remote := filepath.Join(t.TempDir(), "origin.git")
+	runGit(t, dir, "init", "--bare", "-q", remote)
+	runGit(t, dir, "remote", "add", "origin", remote)
+	runGit(t, dir, "push", "-q", "origin", "main")
+	// A push to GitHub takes a second or two; a local one is over before chief
+	// gets to its amend, which hid the race. The hook runs after git has picked
+	// the commit to send and before it sends it.
+	hook := filepath.Join(dir, ".git", "hooks", "pre-push")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\nsleep 1\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	script := filepath.Join(t.TempDir(), "mock-agent")
+	body := "#!/bin/bash\n" +
+		// The subject exactly as the prompt asks for it, title included: only
+		// then does chief amend its files into the commit.
+		"msg=$(printf '%s' \"$1\" | grep -o 'feat: demo/US-[0-9]* - [A-Za-z ]*' | head -1)\n" +
+		"echo \"$msg\" >> impl.txt\n" +
+		"git add impl.txt >/dev/null 2>&1\n" +
+		"git commit -m \"$msg\" >/dev/null 2>&1\n" +
+		`echo '{"type":"assistant","message":{"content":[{"type":"text","text":"built it <chief-done/>"}]}}'` + "\n"
+	if err := os.WriteFile(script, []byte(body), 0755); err != nil {
+		t.Fatal(err)
+	}
+	off := false
+	cfg := &config.Config{}
+	cfg.Review.Enabled, cfg.Consolidate.Enabled = &off, &off
+
+	res, log := run(t, Options{
+		PRDPath:  prdPath,
+		BaseDir:  dir,
+		Provider: &testProvider{script: script},
+		Config:   cfg,
+		Push:     true,
+	})
+	if res.Passing != 3 {
+		t.Fatalf("expected all three stories built, got %d\nlog:\n%s", res.Passing, log)
+	}
+	if strings.Contains(log, "failed") || strings.Contains(log, "rejected") {
+		t.Errorf("a push was refused:\n%s", log)
+	}
+	if n := runGit(t, dir, "rev-list", "--count", "main..chief/demo"); n != "3" {
+		t.Errorf("%s commits on chief/demo, want 3 — chief's files belong in the story commits\n%s", n, runGit(t, dir, "log", "--format=%s", "main..chief/demo"))
+	}
+	local := strings.TrimSpace(runGit(t, dir, "rev-parse", "chief/demo"))
+	pushed := strings.TrimSpace(runGit(t, dir, "--git-dir", remote, "rev-parse", "chief/demo"))
+	if local != pushed {
+		t.Errorf("origin's chief/demo = %s, local = %s\nlog:\n%s", pushed, local, log)
+	}
+}
+
 // Stories that end while a push is under way are covered by one push after it,
 // and a push that fails does not stop the pusher.
 func TestTheStoryPusherCoalescesAndSurvivesFailures(t *testing.T) {

@@ -1762,3 +1762,69 @@ func TestProcessOutputCountsAMessagesUsageOnce(t *testing.T) {
 		t.Error("the tool call on a repeated line was dropped along with its usage")
 	}
 }
+
+// A box pushes when a story is finished. The event that says so must come after
+// chief has amended prd.md and progress.md into the story's commit: pushed any
+// earlier, origin holds a commit the branch then rewrites, and every later push
+// of the branch is refused as a non-fast-forward. So the commit HEAD points at
+// when EventStoryFinished arrives has to be one the branch still builds on, and
+// it has to carry the story's done status.
+func TestLoop_StoryFinishedComesOnceTheCommitIsFinal(t *testing.T) {
+	dir := t.TempDir()
+	gitInit(t, dir)
+	prdPath := createTestPRD(t, dir, false)
+	subject := "feat: " + filepath.Base(dir) + "/US-001 - Test Story"
+	script := filepath.Join(t.TempDir(), "mock-claude")
+	body := "#!/bin/bash\n" +
+		"echo content > " + filepath.Join(dir, "impl.txt") + "\n" +
+		"git -C " + dir + " add impl.txt >/dev/null 2>&1\n" +
+		"git -C " + dir + " commit -m '" + subject + "' >/dev/null 2>&1\n" +
+		`echo '{"type":"assistant","message":{"content":[{"type":"text","text":"done <chief-done/>"}]}}'` + "\n"
+	if err := os.WriteFile(script, []byte(body), 0755); err != nil {
+		t.Fatal(err)
+	}
+	l := NewLoopWithWorkDir(prdPath, dir, "", 3, &mockProvider{cliPath: script})
+	l.buildPrompt = promptBuilderForPRD(prdPath, false)
+	l.DisableRetry()
+
+	head := func() string {
+		out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
+		if err != nil {
+			t.Errorf("rev-parse: %v", err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	var finishedAt, prdAtFinish string
+	var order []EventType
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for e := range l.Events() {
+			switch e.Type {
+			case EventStoryDone, EventStoryFinished:
+				order = append(order, e.Type)
+			}
+			if e.Type == EventStoryFinished {
+				finishedAt = head()
+				out, _ := exec.Command("git", "-C", dir, "show", finishedAt+":prd.md").Output()
+				prdAtFinish = string(out)
+			}
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := l.Run(ctx); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	<-done
+
+	if len(order) != 2 || order[0] != EventStoryDone || order[1] != EventStoryFinished {
+		t.Fatalf("events = %v, want StoryDone then StoryFinished", order)
+	}
+	if err := exec.Command("git", "-C", dir, "merge-base", "--is-ancestor", finishedAt, "HEAD").Run(); err != nil {
+		t.Errorf("the commit at EventStoryFinished (%s) is not in the branch any more: a push on it would be rewritten", finishedAt)
+	}
+	if !strings.Contains(prdAtFinish, "**Status:** done") {
+		t.Errorf("the commit at EventStoryFinished does not carry the done status:\n%s", prdAtFinish)
+	}
+}

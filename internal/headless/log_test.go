@@ -83,7 +83,7 @@ func TestReportKeepsTheRunsSkeletonAndDropsTheNoise(t *testing.T) {
 		ev   loop.Event
 		want string
 	}{
-		{"story done", loop.Event{Type: loop.EventStoryDone, StoryID: "US-002"}, "US-002 done"},
+		{"story done", loop.Event{Type: loop.EventStoryFinished, StoryID: "US-002"}, "US-002 done"},
 		{"parked", loop.Event{Type: loop.EventStoryNeedsReview, StoryID: "US-003"}, "parked for human review"},
 		{"no commit", loop.Event{Type: loop.EventStoryNoCommit, StoryID: "US-004"}, "committed nothing"},
 		{"review", loop.Event{Type: loop.EventReviewStart, StoryID: "US-005"}, "reviewing US-005"},
@@ -113,6 +113,9 @@ func TestReportKeepsTheRunsSkeletonAndDropsTheNoise(t *testing.T) {
 		{"assistant text", loop.Event{Type: loop.EventAssistantText, Text: "Let me look at that file"}},
 		{"tool call", loop.Event{Type: loop.EventToolStart, Tool: "Read", ToolInput: map[string]any{"file_path": "a.go"}}},
 		{"per-iteration cost", loop.Event{Type: loop.EventResult, Cost: 0.12}},
+		// The agent's own done comes before the commit check and the review;
+		// "done" in the log is the story settled.
+		{"done signal", loop.Event{Type: loop.EventStoryDone, StoryID: "US-002"}},
 	}
 	for _, tc := range noise {
 		t.Run(tc.name+" is verbose-only", func(t *testing.T) {
@@ -149,12 +152,12 @@ func TestReportAnnouncesAStoryOnlyWhenItChanges(t *testing.T) {
 
 func TestReportFallsBackToTheCurrentStory(t *testing.T) {
 	// The loop does not always name the story on the event that ends it.
-	got := reportLine(t, false, loop.Event{Type: loop.EventStoryDone}, "US-007")
+	got := reportLine(t, false, loop.Event{Type: loop.EventStoryFinished}, "US-007")
 	if !strings.Contains(got, "US-007 done") {
 		t.Errorf("got %q, want it to name the story the run was on", got)
 	}
 	// With nothing to fall back on it must still read as a sentence.
-	got = reportLine(t, false, loop.Event{Type: loop.EventStoryDone}, "")
+	got = reportLine(t, false, loop.Event{Type: loop.EventStoryFinished}, "")
 	if !strings.Contains(got, "story done") {
 		t.Errorf("got %q, want a readable fallback", got)
 	}
@@ -385,12 +388,16 @@ func TestReportSpentOnlyWhenAStoryEnds(t *testing.T) {
 	if buf.Len() != 0 {
 		t.Fatalf("a usage event logged a total: %q", buf.String())
 	}
-	reportSpent(l, loop.Event{Type: loop.EventStoryDone}, 1.234)
+	reportSpent(l, loop.Event{Type: loop.EventStoryDone}, 0.9)
+	reportSpent(l, loop.Event{Type: loop.EventStoryFinished}, 1.234)
 	reportSpent(l, loop.Event{Type: loop.EventStoryNeedsReview}, 2.5)
 	out := buf.String()
 	for _, want := range []string{"cost       $1.23 so far", "cost       $2.50 so far"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "$0.90") {
+		t.Errorf("the agent's done signal is not the end of the story:\n%s", out)
 	}
 }

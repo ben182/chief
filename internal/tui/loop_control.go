@@ -417,8 +417,9 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 			// loop has just written the finished story's `done` line and this
 			// story's `in-progress` line, and only then emits this event. Without
 			// the reload the list kept showing the previous story as running —
-			// EventStoryDone, the only other event that reloads, arrives *before*
-			// chief writes the story's result, so it can never see it.
+			// EventStoryDone arrives *before* chief writes the story's result, and
+			// EventStoryFinished, which comes after it, can be missed like a file
+			// event when the loop stops right there.
 			if isCurrentPRD {
 				if p, err := prd.LoadPRD(a.prdPath); err == nil {
 					a.prd = p
@@ -567,7 +568,7 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 	// Reload PRD from disk only on meaningful state changes (not every event)
 	if isCurrentPRD {
 		switch event.Type {
-		case loop.EventStoryDone, loop.EventStoryNeedsReview, loop.EventStoryBlocked, loop.EventComplete, loop.EventError, loop.EventMaxIterationsReached:
+		case loop.EventStoryDone, loop.EventStoryFinished, loop.EventStoryNeedsReview, loop.EventStoryBlocked, loop.EventComplete, loop.EventError, loop.EventMaxIterationsReached:
 			if p, err := prd.LoadPRD(a.prdPath); err == nil {
 				a.prd = p
 			}
@@ -586,7 +587,7 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 	// those chunks turned every token into a full directory scan.
 	if a.tabBar != nil {
 		switch event.Type {
-		case loop.EventIterationStart, loop.EventStoryDone, loop.EventStoryNeedsReview, loop.EventStoryBlocked,
+		case loop.EventIterationStart, loop.EventStoryDone, loop.EventStoryFinished, loop.EventStoryNeedsReview, loop.EventStoryBlocked,
 			loop.EventComplete, loop.EventError, loop.EventMaxIterationsReached:
 			a.tabBar.Refresh()
 		}

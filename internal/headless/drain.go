@@ -100,8 +100,13 @@ func flush(log *logger, manager *loop.Manager, story *string, spent float64) flo
 // storyEnded says whether ev closes a story, done, parked or blocked. Either way
 // its commits are final, which is what a push after it is for — for a blocked
 // story, the push is also what gets its reason to the person who has to act.
+//
+// Done is EventStoryFinished, not EventStoryDone: the agent's signal arrives
+// before chief amends prd.md and progress.md into the story's commit, and a
+// push in between left origin with a commit the branch no longer had, so every
+// push after it was refused.
 func storyEnded(ev loop.Event) bool {
-	return ev.Type == loop.EventStoryDone || ev.Type == loop.EventStoryNeedsReview ||
+	return ev.Type == loop.EventStoryFinished || ev.Type == loop.EventStoryNeedsReview ||
 		ev.Type == loop.EventStoryBlocked
 }
 
@@ -134,6 +139,10 @@ func report(log *logger, ev loop.Event, story *string) {
 		}
 
 	case loop.EventStoryDone:
+		// The agent's word; the commit check and the review are still to come.
+		log.detail("story", "%s signalled done", orCurrent(ev.StoryID, *story))
+
+	case loop.EventStoryFinished:
 		log.event("story", "%s done", orCurrent(ev.StoryID, *story))
 
 	case loop.EventStoryNeedsReview:
