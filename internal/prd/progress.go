@@ -117,6 +117,10 @@ func ParseProgressFile(path string) (map[string][]ProgressEntry, []Timing, error
 			}
 			continue
 		}
+		// The run records (see run.go) are just as machine-only.
+		if runStartRegex.MatchString(line) || runEndRegex.MatchString(line) || runSessionRegex.MatchString(line) {
+			continue
+		}
 
 		// Check for section separator
 		if strings.TrimSpace(line) == "---" {
@@ -214,13 +218,22 @@ func parseTimingFields(attrs string) (Timing, bool) {
 // is append-only (never a read-modify-write of the whole file) so it cannot
 // clobber a concurrent append from the coding agent; duplicates are resolved by
 // ParseTimings on read.
-func AppendTiming(path string, t Timing) (err error) {
+func AppendTiming(path string, t Timing) error {
+	return appendChiefLine(path, fmt.Sprintf(
+		`<!-- chief-timing story=%q duration_ms=%d cost=%.6f in=%d out=%d cache_create=%d cache_read=%d -->`,
+		t.StoryID, t.DurationMS, t.Cost, t.TokensIn, t.TokensOut, t.TokensCacheCreate, t.TokensCacheRead,
+	))
+}
+
+// appendChiefLine appends one chief-owned line to progress.md, append-only for
+// the same reason as AppendTiming.
+func appendChiefLine(path, line string) (err error) {
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		return err
 	}
 	// A write path, so a failing Close (full disk, network filesystem) means the
-	// timing record did not land and the caller has to hear about it.
+	// record did not land and the caller has to hear about it.
 	defer func() {
 		if cerr := f.Close(); cerr != nil && err == nil {
 			err = cerr
@@ -237,10 +250,6 @@ func AppendTiming(path string, t Timing) (err error) {
 		}
 	}
 
-	line := fmt.Sprintf(
-		`<!-- chief-timing story=%q duration_ms=%d cost=%.6f in=%d out=%d cache_create=%d cache_read=%d -->`,
-		t.StoryID, t.DurationMS, t.Cost, t.TokensIn, t.TokensOut, t.TokensCacheCreate, t.TokensCacheRead,
-	)
 	_, err = f.WriteString(prefix + line + "\n")
 	return err
 }

@@ -230,7 +230,9 @@ func TestManagerAppliesPhaseModels(t *testing.T) {
 		if err := m.Start("test-prd"); err != nil {
 			t.Fatalf("start failed: %v", err)
 		}
-		t.Cleanup(func() { _ = m.Stop("test-prd") })
+		// StopAll waits for the loop, which writes its session into progress.md
+		// on the way out — before TempDir is removed, not during.
+		t.Cleanup(m.StopAll)
 
 		instance, err := m.lookup("test-prd")
 		if err != nil {

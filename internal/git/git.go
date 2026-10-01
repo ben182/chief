@@ -355,6 +355,14 @@ func HeadHash(dir string) (string, error) {
 	return runGit(dir, "rev-parse", "HEAD")
 }
 
+// IsAncestor reports whether commit ancestor is reachable from commit
+// descendant (a commit counts as its own ancestor). Any failure — an unknown
+// hash, no repository — answers false.
+func IsAncestor(dir, ancestor, descendant string) bool {
+	_, err := runGit(dir, "merge-base", "--is-ancestor", ancestor, descendant)
+	return err == nil
+}
+
 // StoryRef identifies a story by the fields that make up its chief commit
 // subject ("feat: <PRDName>/<ID> - <Title>"). It scopes the run summary to the
 // commits chief actually authored for a specific PRD. PRDName is the PRD's

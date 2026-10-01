@@ -35,8 +35,8 @@ func (a *App) notifyRunStopped(prdName, what string) {
 	}
 
 	body := fmt.Sprintf("%s — %s", formatPRDTitle(prdName), what)
-	if a.totalCost > 0 {
-		body += fmt.Sprintf(" (%s)", formatCost(a.totalCost))
+	if cost := a.runTotals(prdName).Cost; cost > 0 {
+		body += fmt.Sprintf(" (%s)", formatCost(cost))
 	}
 	send("Chief", body)
 }

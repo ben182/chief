@@ -40,9 +40,9 @@ func (a *App) showCompletionScreen(prdName string) tea.Cmd {
 	// Check if auto-actions are configured
 	hasAutoActions := a.config != nil && (a.config.OnComplete.Push || a.config.OnComplete.CreatePR)
 
-	totalDuration := a.GetElapsedTime()
-	a.completionScreen.Configure(prdName, completed, total, branch, commitCount, hasAutoActions, totalDuration, a.sleptDuringRun(), a.storyTimings[prdName], a.totalCost)
-	a.completionScreen.SetRateLimitWaited(a.rateLimitWaitedDuringRun(prdName))
+	run := a.runTotals(prdName)
+	a.completionScreen.Configure(prdName, completed, total, branch, commitCount, hasAutoActions, run.Duration, run.Slept, a.storyTimings[prdName], run.Cost)
+	a.completionScreen.SetRateLimitWaited(run.RateLimitWaited)
 	a.completionScreen.SetSize(a.width, a.height)
 	a.viewMode = ViewCompletion
 
@@ -71,6 +71,25 @@ func (a *App) showCompletionScreen(prdName string) tea.Cmd {
 	// If only PR is configured (no push), we can't create a PR without pushing first
 	// So PR-only without push is a no-op (push is required for PR)
 	return tea.Batch(cmds...)
+}
+
+// runTotals is what the PRD's run has spent from its first start to now. A run
+// paused one evening and finished the next morning is one run across two chief
+// sessions, and the completion screen reports all of it, as the manager has it
+// from progress.md. Without a session on record — a PRD finished before this
+// process started anything — it falls back to what this process measured.
+func (a *App) runTotals(prdName string) prd.RunSession {
+	if a.manager != nil {
+		if run := a.manager.RunTotals(prdName); run.Duration > 0 {
+			return run
+		}
+	}
+	return prd.RunSession{
+		Duration:        a.GetElapsedTime(),
+		Slept:           a.sleptDuringRun(),
+		RateLimitWaited: a.rateLimitWaitedDuringRun(prdName),
+		Cost:            a.totalCost,
+	}
 }
 
 // rateLimitWaitedDuringRun reports how much of the run went into sitting out a

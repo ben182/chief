@@ -102,8 +102,10 @@ type Result struct {
 	Parked []string
 	// Cost is what the run spent, in USD, as the provider reported it.
 	Cost float64
-	// Duration is the wall-clock time from start to finish, waiting out rate
-	// limits included.
+	// Duration is the time from start to finish, waiting out rate limits
+	// included. Both it and Cost cover the whole run: when this start resumed one
+	// an earlier session left unfinished — the Mac last night, another box —
+	// that session's share is in them too.
 	Duration time.Duration
 	// Summary, Push and PR name the post-completion actions that ran, with the
 	// error each one ended with. Absent from the map means it was not attempted.
@@ -248,6 +250,12 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	pusher.stop()
 	res.Duration = time.Since(started)
 	res.Cost = cost
+	if inst := manager.GetInstance(name); inst != nil && (inst.RunPrior.Duration > 0 || inst.RunPrior.Cost > 0) {
+		res.Duration += inst.RunPrior.Duration
+		res.Cost += inst.RunPrior.Cost
+		log.event("run", "resumed a run: %s and $%.2f of it came from earlier sessions",
+			round(inst.RunPrior.Duration), inst.RunPrior.Cost)
+	}
 
 	// Re-read the PRD the run actually wrote to: a worktree run records its
 	// progress in its own copy, and the project's still says what it said before.

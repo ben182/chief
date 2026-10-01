@@ -293,6 +293,11 @@ func NewAppWithOptions(prdPath string, maxIter int, provider loop.Provider) (*Ap
 		reviewingStoryID:   make(map[string]string),
 		branchSyncChecked:  make(map[string]bool),
 	}
+	// The run's session records say how long the Mac slept, as the completion
+	// screen does, so a run resumed the next morning still accounts for it.
+	if tracker := app.sleepTracker; tracker != nil {
+		manager.SetSleptFn(tracker.SleptSince)
+	}
 	// Signal in the story-done marker that a review still follows, so the reader
 	// knows the build agent's <chief-done/> isn't the final word on the story.
 	app.logViewer.SetReviewPending(cfg != nil && cfg.Review.Active())

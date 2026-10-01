@@ -58,15 +58,23 @@ type LoopInstance struct {
 	// StartRef is the branch HEAD hash captured when this run started, so the run
 	// summary can be scoped to this run's commits (StartRef..HEAD). Empty when HEAD
 	// couldn't be read (e.g. a repo with no commits yet).
-	StartRef  string
-	Loop      *Loop
-	State     LoopState
-	Iteration int
-	StartTime time.Time
-	Error     error
-	ctx       context.Context
-	cancel    context.CancelFunc
-	mu        sync.Mutex
+	StartRef string
+	// RunPrior is what the earlier sessions of this run spent, when this start
+	// resumed a run that did not finish. Zero for a run begun by this start.
+	RunPrior prd.RunSession
+	// sessionCost is what this session has spent so far, and sessionEnd when it
+	// stopped (zero while it runs); together with StartTime they are the session
+	// the run records in progress.md.
+	sessionCost float64
+	sessionEnd  time.Time
+	Loop        *Loop
+	State       LoopState
+	Iteration   int
+	StartTime   time.Time
+	Error       error
+	ctx         context.Context
+	cancel      context.CancelFunc
+	mu          sync.Mutex
 }
 
 // fileExists reports whether path names something that is readable now. Used to
@@ -97,6 +105,9 @@ type Manager struct {
 	wg             sync.WaitGroup
 	onComplete     func(prdName string)                  // Callback when a PRD completes
 	onPostComplete func(prdName, branch, workDir string) // Callback for post-completion actions (push, PR)
+	// sleptFn reports how long the machine slept since a moment, for the run's
+	// session records. Nil when nothing tracks sleep (a headless run).
+	sleptFn func(since time.Time) time.Duration
 }
 
 // sleepGuard is the part of awake.Guard the manager uses: a reference-counted
@@ -323,12 +334,13 @@ func (m *Manager) Start(name string) error {
 	// from the manager whenever it needs them, so editing the review model or the
 	// watchdog timeout during a run applies to the rest of that run.
 	instance.Loop.SetConfigFn(m.Config)
-	// Capture the branch HEAD before the loop makes any commits, so the run
-	// summary can be scoped to exactly this run's work (StartRef..HEAD). On a
-	// followup run this is the tip left by the previous run, so its already-landed
-	// stories are excluded. Best-effort: an unborn branch leaves it empty, which
-	// falls back to summarizing every matching story commit on the branch.
-	instance.StartRef, _ = git.HeadHash(workDir)
+	// Capture where the run started before the loop makes any commits, so the run
+	// summary can be scoped to exactly this run's work (StartRef..HEAD). A run
+	// resumed in a later session keeps the commit it began at rather than today's
+	// HEAD; on a followup run after a finished one it is the tip that run left, so
+	// its already-landed stories are excluded. Best-effort: an unborn branch leaves
+	// it empty, which falls back to summarizing every matching story commit.
+	instance.StartRef, instance.RunPrior = resumeOrBeginRun(instance.PRDPath, workDir)
 	// Hand the loop the same ref, so the end-of-run consolidation pass refactors
 	// exactly the window the summary describes — this run's commits, never an
 	// earlier run's already-shipped work.
@@ -336,6 +348,8 @@ func (m *Manager) Start(name string) error {
 	instance.ctx, instance.cancel = context.WithCancel(context.Background())
 	instance.State = LoopStateRunning
 	instance.StartTime = time.Now()
+	instance.sessionCost = 0
+	instance.sessionEnd = time.Time{}
 	instance.Error = nil
 	instance.mu.Unlock()
 
@@ -431,6 +445,7 @@ func (m *Manager) runLoop(instance *LoopInstance) {
 		for event := range instance.Loop.Events() {
 			instance.mu.Lock()
 			instance.Iteration = event.Iteration
+			instance.sessionCost += event.Cost
 			instance.mu.Unlock()
 
 			// Check if this is a completion event
@@ -449,6 +464,14 @@ func (m *Manager) runLoop(instance *LoopInstance) {
 			}:
 				forwarded = true
 			case <-instance.ctx.Done():
+			}
+
+			// A settled story is a good moment to write down what the session has
+			// spent: should the process die before it ends, the run keeps all but
+			// the story in flight.
+			switch event.Type {
+			case EventStoryFinished, EventStoryNeedsReview, EventStoryBlocked:
+				m.recordSession(instance)
 			}
 
 			// If completed, trigger callbacks — but not for an event dropped on
@@ -496,9 +519,20 @@ func (m *Manager) runLoop(instance *LoopInstance) {
 			instance.State = LoopStatePaused
 		}
 	}
+	instance.sessionEnd = time.Now()
+	complete := instance.State == LoopStateComplete
 	instance.mu.Unlock()
 
 	<-done
+
+	// A finished run is over: the next start, say for followup stories, begins a
+	// new one with its own start and totals. One that stopped short records this
+	// session, so the session that finishes it can count it in.
+	if complete {
+		_ = prd.EndRun(prd.ProgressPath(instance.PRDPath))
+	} else {
+		m.recordSession(instance)
+	}
 }
 
 // Pause pauses the loop for a specific PRD: it stops after the current story
@@ -614,6 +648,7 @@ func (i *LoopInstance) snapshot() *LoopInstance {
 		WorktreeDir: i.WorktreeDir,
 		Branch:      i.Branch,
 		StartRef:    i.StartRef,
+		RunPrior:    i.RunPrior,
 		State:       i.State,
 		Iteration:   i.Iteration,
 		StartTime:   i.StartTime,
@@ -716,4 +751,21 @@ func (m *Manager) SetMaxIterationsForInstance(name string, maxIter int) error {
 	}
 
 	return nil
+}
+
+// resumeOrBeginRun decides which run a start belongs to. When progress.md holds
+// a run that never ended and its start commit is still behind HEAD, this start
+// continues it: the start ref is the run's, and the earlier sessions' totals
+// come along. Otherwise — no open run, or history was rewritten under it — a new
+// run begins at HEAD and is recorded as such.
+func resumeOrBeginRun(prdPath, workDir string) (startRef string, prior prd.RunSession) {
+	head, _ := git.HeadHash(workDir)
+	progress := prd.ProgressPath(prdPath)
+	if run, ok, err := prd.OpenRun(progress); err == nil && ok {
+		if run.StartRef == "" || (head != "" && git.IsAncestor(workDir, run.StartRef, head)) {
+			return run.StartRef, run.Totals()
+		}
+	}
+	_ = prd.BeginRun(progress, head)
+	return head, prd.RunSession{}
 }
