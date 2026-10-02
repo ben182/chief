@@ -114,8 +114,8 @@ func formatGB(gb int) string {
 	return fmt.Sprintf("%d GB", gb)
 }
 
-// catalog asks Hetzner what it will actually sell, in three calls: the places,
-// the machines with their prices, and which machines each place still offers.
+// catalog asks Hetzner what it will actually sell, in two calls: the places,
+// and the machines with their prices and the places that still offer them.
 func (h *hetzner) catalog(ctx context.Context) (Catalog, error) {
 	var locations struct {
 		Locations []struct {
@@ -129,49 +129,23 @@ func (h *hetzner) catalog(ctx context.Context) (Catalog, error) {
 		return Catalog{}, err
 	}
 
-	var datacenters struct {
-		Datacenters []struct {
-			Location struct {
-				Name string `json:"name"`
-			} `json:"location"`
-			ServerTypes struct {
-				Available []int64 `json:"available"`
-			} `json:"server_types"`
-		} `json:"datacenters"`
-	}
-	if err := h.do(ctx, http.MethodGet, "/datacenters", nil, &datacenters); err != nil {
-		return Catalog{}, err
-	}
-
 	var types struct {
 		ServerTypes []struct {
-			ID           int64       `json:"id"`
-			Name         string      `json:"name"`
-			Description  string      `json:"description"`
-			Cores        int         `json:"cores"`
-			Memory       float64     `json:"memory"`
-			Disk         int         `json:"disk"`
-			CPUType      string      `json:"cpu_type"`
-			Architecture string      `json:"architecture"`
-			Deprecated   bool        `json:"deprecated"`
-			Prices       []typePrice `json:"prices"`
+			ID           int64          `json:"id"`
+			Name         string         `json:"name"`
+			Description  string         `json:"description"`
+			Cores        int            `json:"cores"`
+			Memory       float64        `json:"memory"`
+			Disk         int            `json:"disk"`
+			CPUType      string         `json:"cpu_type"`
+			Architecture string         `json:"architecture"`
+			Deprecated   bool           `json:"deprecated"`
+			Prices       []typePrice    `json:"prices"`
+			Locations    []typeLocation `json:"locations"`
 		} `json:"server_types"`
 	}
 	if err := h.do(ctx, http.MethodGet, "/server_types?per_page=50", nil, &types); err != nil {
 		return Catalog{}, err
-	}
-
-	// Which machine IDs each location will still create. A location has several
-	// datacenters and a type offered by any of them can be created there.
-	availableIn := map[string]map[int64]bool{}
-	for _, dc := range datacenters.Datacenters {
-		name := dc.Location.Name
-		if availableIn[name] == nil {
-			availableIn[name] = map[int64]bool{}
-		}
-		for _, id := range dc.ServerTypes.Available {
-			availableIn[name][id] = true
-		}
 	}
 
 	c := Catalog{Types: map[string][]ServerType{}}
@@ -180,7 +154,7 @@ func (h *hetzner) catalog(ctx context.Context) (Catalog, error) {
 			// arm is skipped rather than shown: the chief binary the box runs is
 			// cross-compiled for amd64, so an arm box would provision perfectly
 			// and then refuse to execute the one thing it was created for.
-			if t.Architecture != "x86" || !availableIn[l.Name][t.ID] {
+			if t.Architecture != "x86" || !availableAt(t.Locations, l.Name) {
 				continue
 			}
 			price, ok := hourlyIn(t.Prices, l.Name)
@@ -278,4 +252,22 @@ func FetchCatalog(ctx context.Context) (Catalog, error) {
 		return Catalog{}, err
 	}
 	return newHetzner(token).catalog(ctx)
+}
+
+// typeLocation is one place a server type is listed for, and whether a new
+// machine of that type can be created there today. Hetzner moved this onto the
+// server type when it removed the /datacenters endpoint in June 2026.
+type typeLocation struct {
+	Name      string `json:"name"`
+	Available bool   `json:"available"`
+}
+
+// availableAt reports whether a server type can be created in location.
+func availableAt(locations []typeLocation, location string) bool {
+	for _, l := range locations {
+		if l.Name == location {
+			return l.Available
+		}
+	}
+	return false
 }

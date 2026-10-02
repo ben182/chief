@@ -221,14 +221,13 @@ func TestUnsupportedCombinationRecognisesARefusedTypeAndLocation(t *testing.T) {
 
 func TestAvailableTypesResolvesWhatALocationActuallyOffers(t *testing.T) {
 	f := newFakeHetzner(t, map[string]any{
-		"GET /datacenters": `{"datacenters":[
-			{"name":"fsn1-dc14","location":{"name":"fsn1"},"server_types":{"available":[100,102]}},
-			{"name":"nbg1-dc3","location":{"name":"nbg1"},"server_types":{"available":[101]}}
-		]}`,
 		"GET /server_types": `{"server_types":[
-			{"id":100,"name":"cx33","cores":4,"memory":8,"architecture":"x86"},
-			{"id":101,"name":"cx23","cores":2,"memory":4,"architecture":"x86"},
-			{"id":102,"name":"cax31","cores":8,"memory":16,"architecture":"arm"}
+			{"id":100,"name":"cx33","cores":4,"memory":8,"architecture":"x86",
+			 "locations":[{"name":"fsn1","available":true},{"name":"nbg1","available":false}]},
+			{"id":101,"name":"cx23","cores":2,"memory":4,"architecture":"x86",
+			 "locations":[{"name":"fsn1","available":false},{"name":"nbg1","available":true}]},
+			{"id":102,"name":"cax31","cores":8,"memory":16,"architecture":"arm",
+			 "locations":[{"name":"fsn1","available":true}]}
 		]}`,
 	})
 
@@ -248,7 +247,8 @@ func TestAvailableTypesResolvesWhatALocationActuallyOffers(t *testing.T) {
 
 func TestAvailableTypesReportsALocationThatIsNotThere(t *testing.T) {
 	f := newFakeHetzner(t, map[string]any{
-		"GET /datacenters": `{"datacenters":[{"name":"fsn1-dc14","location":{"name":"fsn1"},"server_types":{"available":[100]}}]}`,
+		"GET /server_types": `{"server_types":[{"id":100,"name":"cx33","architecture":"x86",
+			"locations":[{"name":"fsn1","available":true}]}]}`,
 	})
 	if _, err := f.client("t").availableTypes(context.Background(), "atlantis"); err == nil {
 		t.Error("expected an error for a location that does not exist")

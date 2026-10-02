@@ -52,6 +52,9 @@ func main() {
 		case "box":
 			runBox()
 			return
+		case "setup":
+			runSetup()
+			return
 		case "help", "--help", "-h":
 			printHelp()
 			return
@@ -454,11 +457,20 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-// runFirstTimeSetup drives the first-run TUI (config choices + PRD name),
-// persists the chosen config, and creates the initial PRD. It returns the new
+// runFirstTimeSetup runs `chief setup` when the project has no config yet,
+// asks for the first PRD's name, and creates it. It returns the new
 // PRD's path, or ok=false when the user cancelled setup.
 func runFirstTimeSetup(provider loop.Provider) (string, bool) {
 	cwd, _ := os.Getwd()
+
+	// A project that never had a config gets the full setup first; one whose
+	// config came with the repository already answered it.
+	if !config.Exists(cwd) {
+		if err := cmd.RunSetup(context.Background(), cwd); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return "", false
+		}
+	}
 
 	result, err := tui.RunFirstTimeSetup(cwd)
 	if err != nil {
@@ -466,14 +478,6 @@ func runFirstTimeSetup(provider loop.Provider) (string, bool) {
 	}
 	if result.Cancelled {
 		return "", false
-	}
-
-	// Save config from setup.
-	cfg := config.Default()
-	cfg.OnComplete.Push = result.PushOnComplete
-	cfg.OnComplete.CreatePR = result.CreatePROnComplete
-	if err := config.Save(cwd, cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to save config: %v\n", err)
 	}
 
 	if err := cmd.RunNew(cmd.NewOptions{Name: result.PRDName, Provider: provider}); err != nil {
@@ -615,6 +619,28 @@ func runHeadless(opts *cli.Options) {
 // `chief box run` while it follows a log should stop the watching and leave the
 // run — and the machine it is billing for — in a state the next command can
 // still see.
+func runSetup() {
+	if len(os.Args) > 2 {
+		switch os.Args[2] {
+		case "help", "--help", "-h":
+			fmt.Println(cmd.SetupUsage)
+			return
+		}
+		fmt.Fprintf(os.Stderr, "Error: chief setup takes no arguments\n\n%s\n", cmd.SetupUsage)
+		os.Exit(1)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		fatal(err)
+	}
+	// No signal context: Ctrl+C at a question should end the process, and
+	// nothing has been written until the last answer.
+	if err := cmd.RunSetup(context.Background(), cwd); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
 func runBox() {
 	// `box prep` is the one box command that holds a conversation, so it is
 	// dispatched like `chief prep`, with an agent and a model to pick.

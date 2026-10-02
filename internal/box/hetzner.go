@@ -290,54 +290,34 @@ func (h *hetzner) listServers(ctx context.Context, labelSelector string) ([]serv
 // The price list is not the answer: a type is listed with a location's price
 // long after that location stopped offering it, and a superseded generation
 // disappears from what can be booked while still looking perfectly available.
-// The datacenters endpoint is the one that knows, and it answers in type IDs,
-// so this resolves them to names a person can pass back in.
+// The availability each server type lists per location is the one that knows.
 func (h *hetzner) availableTypes(ctx context.Context, location string) ([]string, error) {
-	var dcs struct {
-		Datacenters []struct {
-			Name     string `json:"name"`
-			Location struct {
-				Name string `json:"name"`
-			} `json:"location"`
-			ServerTypes struct {
-				Available []int64 `json:"available"`
-			} `json:"server_types"`
-		} `json:"datacenters"`
-	}
-	if err := h.do(ctx, http.MethodGet, "/datacenters", nil, &dcs); err != nil {
-		return nil, err
-	}
-
-	available := map[int64]bool{}
-	for _, dc := range dcs.Datacenters {
-		if dc.Location.Name == location {
-			for _, id := range dc.ServerTypes.Available {
-				available[id] = true
-			}
-		}
-	}
-	if len(available) == 0 {
-		return nil, fmt.Errorf("no datacenter in %s", location)
-	}
-
 	var types struct {
 		ServerTypes []struct {
-			ID           int64   `json:"id"`
-			Name         string  `json:"name"`
-			Cores        int     `json:"cores"`
-			Memory       float64 `json:"memory"`
-			Architecture string  `json:"architecture"`
+			ID           int64          `json:"id"`
+			Name         string         `json:"name"`
+			Cores        int            `json:"cores"`
+			Memory       float64        `json:"memory"`
+			Architecture string         `json:"architecture"`
+			Locations    []typeLocation `json:"locations"`
 		} `json:"server_types"`
 	}
 	if err := h.do(ctx, http.MethodGet, "/server_types?per_page=50", nil, &types); err != nil {
 		return nil, err
 	}
 
+	known := false
 	var out []string
 	for _, t := range types.ServerTypes {
-		if available[t.ID] && t.Architecture == "x86" {
+		for _, l := range t.Locations {
+			known = known || l.Name == location
+		}
+		if availableAt(t.Locations, location) && t.Architecture == "x86" {
 			out = append(out, fmt.Sprintf("%s (%dC, %.0fGB)", t.Name, t.Cores, t.Memory))
 		}
+	}
+	if !known {
+		return nil, fmt.Errorf("no location %s", location)
 	}
 	return out, nil
 }

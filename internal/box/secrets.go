@@ -294,3 +294,11 @@ func gitHubTokenNote(token string) string {
 		return ""
 	}
 }
+
+// HasHetznerToken reports whether a Hetzner token is anywhere chief looks for
+// one. It does not ask Hetzner whether the token still works; `chief box token`
+// does that.
+func HasHetznerToken() bool {
+	_, err := resolveHetznerToken()
+	return err == nil
+}

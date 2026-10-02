@@ -87,12 +87,15 @@ Launch Chief's Terminal User Interface:
 chief
 ```
 
-On first launch, Chief prompts you to configure a few settings:
+On first launch in a project without `.chief/config.yaml`, Chief runs `chief setup`, which asks for the settings that are easy to forget:
 
-1. **Post-completion automation** — Whether to automatically push branches and create PRs when a PRD completes (recommended: Yes for both)
-2. **Worktree setup command** — A command to run in new worktrees (e.g., `npm install`). You can auto-detect, enter it manually, or skip
+1. **Worktree setup command**: runs in every new worktree, proposed from your lockfiles (and copying `.env` when there is one)
+2. **Push and pull request** when a run finishes, with a check that `gh` is logged in
+3. **MCP servers and skills** an unattended agent starts with: everything, only the project's `.mcp.json`, none, or a file of your own
+4. **Review and consolidation**: on or off, optionally with a skill
+5. **Cloud box** (optional): credentials, location and server type, and which untracked files to copy
 
-These settings are saved to `.chief/config.yaml` and can be changed anytime via the Settings TUI (press `,`).
+Run `chief setup` again any time; every question opens on the current value. Everything else is in the Settings TUI (press `,`).
 
 ## Step 4: Start the Loop
 

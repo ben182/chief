@@ -3,6 +3,7 @@ package box
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -14,19 +15,19 @@ func catalogRoutes() map[string]any {
 			{"name":"ash","city":"Ashburn, VA","country":"US","network_zone":"us-east"},
 			{"name":"fsn1","city":"Falkenstein","country":"DE","network_zone":"eu-central"}
 		]}`,
-		"GET /datacenters": `{"datacenters":[
-			{"location":{"name":"fsn1"},"server_types":{"available":[1,2,4]}},
-			{"location":{"name":"ash"},"server_types":{"available":[2]}}
-		]}`,
 		"GET /server_types": `{"server_types":[
 			{"id":1,"name":"cx22","cores":2,"memory":4,"disk":40,"cpu_type":"shared","architecture":"x86","deprecated":false,
+			 "locations":[{"name":"fsn1","available":true}],
 			 "prices":[{"location":"fsn1","price_hourly":{"gross":"0.0060"}}]},
 			{"id":2,"name":"cx33","cores":4,"memory":8,"disk":80,"cpu_type":"shared","architecture":"x86","deprecated":false,
+			 "locations":[{"name":"fsn1","available":true},{"name":"ash","available":true}],
 			 "prices":[{"location":"fsn1","price_hourly":{"gross":"0.0119"}},
 			           {"location":"ash","price_hourly":{"gross":"0.0143"}}]},
 			{"id":3,"name":"cx99","cores":8,"memory":16,"disk":160,"cpu_type":"shared","architecture":"x86","deprecated":false,
+			 "locations":[{"name":"fsn1","available":false}],
 			 "prices":[{"location":"fsn1","price_hourly":{"gross":"0.0300"}}]},
 			{"id":4,"name":"cax21","cores":4,"memory":8,"disk":80,"cpu_type":"shared","architecture":"arm","deprecated":false,
+			 "locations":[{"name":"fsn1","available":true}],
 			 "prices":[{"location":"fsn1","price_hourly":{"gross":"0.0080"}}]}
 		]}`,
 	}
@@ -108,10 +109,8 @@ func TestCatalogSortsCheapestFirstAndEUFirst(t *testing.T) {
 func TestCatalogDropsALocationWithNothingUsable(t *testing.T) {
 	routes := catalogRoutes()
 	// ash offers only cx33, and now nothing is available there at all.
-	routes["GET /datacenters"] = `{"datacenters":[
-		{"location":{"name":"fsn1"},"server_types":{"available":[1,2]}},
-		{"location":{"name":"ash"},"server_types":{"available":[]}}
-	]}`
+	routes["GET /server_types"] = strings.Replace(routes["GET /server_types"].(string),
+		`{"name":"ash","available":true}`, `{"name":"ash","available":false}`, 1)
 	f := newFakeHetzner(t, routes)
 	c, err := f.client("t").catalog(context.Background())
 	if err != nil {

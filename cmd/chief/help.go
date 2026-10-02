@@ -23,6 +23,8 @@ Commands:
                             here, missing tools ('chief box prep' does the same for the box)
   status [name]             Show progress for a PRD (default: default)
   list                      List all PRDs with progress
+  setup                     Walk through this project's settings once: worktree setup,
+                            push/PR, MCP servers, review, consolidation, the box
   worktree <cmd> <prd>      Run a PRD worktree's setup or teardown command by hand
   box <cmd> [prd]           Run a PRD on a throwaway cloud instance ('chief box' for detail)
   help                      Show this help message
