@@ -1121,14 +1121,18 @@ func (l *Loop) storyHasCommit(storyID, title string) bool {
 // piling up as uncommitted changes and a completed story's tracked progress
 // survives an interrupted run. When the agent's story commit is HEAD it folds
 // them in via amend, keeping one commit per story; otherwise it makes a small
-// standalone commit. Best-effort: any failure is left for the end-of-run summary
-// sweep to pick up. The TUI writes this story's progress.md timing just after it
-// finishes and may not have landed yet — whatever is missed here is captured by
-// the next story's commit or the final sweep.
-func (l *Loop) commitStoryProgress(storyID, storyTitle string) {
+// standalone commit. The TUI writes this story's progress.md timing just after
+// it finishes and may not have landed yet — whatever is missed here is captured
+// by the next story's commit or the final sweep.
+//
+// A commit that fails with nothing to commit is fine. One that fails and leaves
+// the files uncommitted — signing that does not answer, a hook that refuses —
+// returns an error: every story after it would fail the same way, so the run
+// stops instead of building them one after the other.
+func (l *Loop) commitStoryProgress(storyID, storyTitle string) error {
 	dir := l.effectiveWorkDir()
 	if !git.IsGitRepo(dir) {
-		return
+		return nil
 	}
 	prdDir := filepath.Dir(l.prdPath)
 	// Only stage files that exist: `git add` fails the whole command on a missing
@@ -1152,7 +1156,7 @@ func (l *Loop) commitStoryProgress(storyID, storyTitle string) {
 	// changes pile up uncommitted.
 	paths = git.CommittablePaths(dir, paths...)
 	if len(paths) == 0 {
-		return
+		return nil
 	}
 	story := fmt.Sprintf("%s/%s - %s", prdNameFromPath(l.prdPath), storyID, storyTitle)
 	// The story's own commit is "feat: …", or "wip: …" for the finished part of
@@ -1160,11 +1164,16 @@ func (l *Loop) commitStoryProgress(storyID, storyTitle string) {
 	// origin: a story blocked in an earlier run and blocked again in this one
 	// finds its old, pushed commit at HEAD, and amending that would get every
 	// push after it refused.
-	if subj, err := git.HeadSubject(dir); err == nil && (subj == "feat: "+story || subj == "wip: "+story) && !git.HeadIsPushed(dir) {
-		_ = git.AmendPaths(dir, paths...)
-		return
+	var err error
+	if subj, serr := git.HeadSubject(dir); serr == nil && (subj == "feat: "+story || subj == "wip: "+story) && !git.HeadIsPushed(dir) {
+		err = git.AmendPaths(dir, paths...)
+	} else {
+		err = git.CommitPaths(dir, fmt.Sprintf("chore: track %s progress", storyID), paths...)
 	}
-	_ = git.CommitPaths(dir, fmt.Sprintf("chore: track %s progress", storyID), paths...)
+	if err != nil && git.HasUncommitted(dir, paths...) {
+		return fmt.Errorf("could not commit chief's files for story %s: %w", storyID, err)
+	}
+	return nil
 }
 
 // runReview spawns a separate agent that reviews (and fixes) the changes the

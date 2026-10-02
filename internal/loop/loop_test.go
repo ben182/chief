@@ -1543,6 +1543,58 @@ func TestLoop_CommitStoryProgress(t *testing.T) {
 			t.Error("gitignored chief files must not be force-added to the repo")
 		}
 	})
+
+	t.Run("a refused commit is an error", func(t *testing.T) {
+		dir := t.TempDir()
+		gitInit(t, dir)
+		// Stands in for commit signing that does not answer: git refuses the
+		// commit and prd.md stays uncommitted.
+		refuseCommits(t, dir)
+		prdPath := filepath.Join(dir, "prd.md")
+		if err := os.WriteFile(prdPath, []byte("# PRD\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		l := NewLoopWithWorkDir(prdPath, dir, "", 1, testProvider)
+		if err := l.commitStoryProgress("US-005", "Story Five"); err == nil {
+			t.Error("want an error when prd.md could not be committed")
+		}
+	})
+
+	t.Run("nothing to commit is not an error", func(t *testing.T) {
+		dir := t.TempDir()
+		gitInit(t, dir)
+		prdPath := filepath.Join(dir, "prd.md")
+		if err := os.WriteFile(prdPath, []byte("# PRD\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		l := NewLoopWithWorkDir(prdPath, dir, "", 1, testProvider)
+		if err := l.commitStoryProgress("US-006", "Story Six"); err != nil {
+			t.Fatalf("first commit: %v", err)
+		}
+		// Unchanged since: git commit fails with nothing to commit.
+		if err := l.commitStoryProgress("US-006", "Story Six"); err != nil {
+			t.Errorf("unchanged files: got %v, want nil", err)
+		}
+	})
+}
+
+// refuseCommits makes every later commit in dir fail through a pre-commit hook,
+// pinned to the repo's own hooks so a global core.hooksPath does not bypass it.
+func refuseCommits(t *testing.T, dir string) {
+	t.Helper()
+	hooks := filepath.Join(dir, ".git", "hooks")
+	if err := os.MkdirAll(hooks, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hooks, "pre-commit"), []byte("#!/bin/sh\nexit 1\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("git", "config", "core.hooksPath", hooks)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git config: %s", out)
+	}
 }
 
 // TestLoop_PRDLoadFailureIsAnErrorNotCompletion verifies that a prompt builder

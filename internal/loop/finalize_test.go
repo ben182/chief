@@ -1,6 +1,7 @@
 package loop
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -146,4 +147,37 @@ func TestLoop_SetStatusOrFail(t *testing.T) {
 			t.Error("expected EventError to carry the error")
 		}
 	})
+}
+
+// A blocked story whose status chief cannot commit stops the run: the commit of
+// the next story would fail the same way, and the loop would build one story
+// after another only to block each on it. The story is still reported blocked,
+// and prd.md says so.
+func TestLoop_FinalizeStoryStopsWhenTheCommitFails(t *testing.T) {
+	dir := t.TempDir()
+	gitInit(t, dir)
+	refuseCommits(t, dir)
+	prdPath := createTestPRD(t, dir, false)
+
+	l := NewLoopWithWorkDir(prdPath, dir, "", 1, testProvider)
+	l.currentStoryID, l.currentStoryTitle = "US-001", "Test Story"
+	l.sawStoryBlocked, l.blockedReason = true, "commit signing failed"
+
+	if err := l.finalizeStory(context.Background(), 1); err == nil {
+		t.Fatal("finalizeStory returned nil, want the commit error that stops the run")
+	}
+	var types []EventType
+	for len(l.events) > 0 {
+		types = append(types, (<-l.events).Type)
+	}
+	if len(types) != 2 || types[0] != EventStoryBlocked || types[1] != EventError {
+		t.Errorf("events = %v, want [EventStoryBlocked EventError]", types)
+	}
+	p, err := prd.LoadPRD(prdPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.UserStories[0].Blocked {
+		t.Error("US-001 is not marked blocked in prd.md")
+	}
 }

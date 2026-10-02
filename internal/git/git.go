@@ -289,6 +289,13 @@ func StashUncommitted(dir, message string, keep ...string) (bool, error) {
 		if !filepath.IsAbs(k) {
 			k = filepath.Join(dir, k)
 		}
+		// dir may itself be relative — a PRD found from the working directory
+		// is ".chief/prds/<name>/prd.md" — and filepath.Rel cannot relate a
+		// relative path to the absolute root: the keep would silently drop and
+		// prd.md and progress.md would go into the stash with the leftovers.
+		if abs, err := filepath.Abs(k); err == nil {
+			k = abs
+		}
 		if rel, ok := relativeInRepo(root, k); ok {
 			kept = append(kept, rel)
 		}
@@ -455,6 +462,19 @@ func CommitPaths(dir, message string, paths ...string) error {
 		return err
 	}
 	return runGitChecked(dir, "git commit failed", append([]string{"commit", "-m", message, "--"}, paths...)...)
+}
+
+// HasUncommitted reports whether any of paths differs from HEAD, staged or
+// not, untracked included. It tells a commit that failed because there was
+// nothing to commit from one that failed and left the changes behind. Paths
+// may be absolute or relative to dir. When git cannot answer it says true:
+// assuming the changes are still there is the safe side.
+func HasUncommitted(dir string, paths ...string) bool {
+	out, err := runGitRaw(dir, append([]string{"status", "--porcelain", "--untracked-files=all", "--"}, paths...)...)
+	if err != nil {
+		return true
+	}
+	return strings.TrimSpace(out) != ""
 }
 
 // HeadSubject returns the subject line (first line of the message) of the

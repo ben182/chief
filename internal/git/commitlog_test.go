@@ -348,3 +348,42 @@ func TestStashUncommitted(t *testing.T) {
 		t.Errorf("the untracked file is not in the stash: %q", files)
 	}
 }
+
+// `chief <name>` started in the project finds its PRD as a relative path, so
+// the directory and the keeps arrive relative too. They must still be kept: a
+// dropped keep stashed prd.md and progress.md with the leftovers, which reset
+// every earlier story's status to its last commit and sent the loop round the
+// same stories again.
+func TestStashUncommitted_RelativePaths(t *testing.T) {
+	dir := initTestRepo(t)
+	prdDir := filepath.Join(dir, ".chief", "prds", "app")
+	if err := os.MkdirAll(prdDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	progress := filepath.Join(prdDir, "progress.md")
+	if err := os.WriteFile(progress, []byte("## committed\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runInDir(t, dir, "git", "add", ".chief")
+	runInDir(t, dir, "git", "commit", "-q", "-m", "chore: track progress")
+	for path, body := range map[string]string{
+		"half.go":                     "package half\n",
+		".chief/prds/app/progress.md": "## committed\n## blocked story\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, path), []byte(body), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(dir)
+
+	ok, err := StashUncommitted(".", "chief: app/US-002 blocked", ".chief", filepath.Join(".chief", "prds", "app"))
+	if err != nil || !ok {
+		t.Fatalf("stashed=%v err=%v, want the leftovers stashed", ok, err)
+	}
+	if body, _ := os.ReadFile(progress); string(body) != "## committed\n## blocked story\n" {
+		t.Errorf("progress.md = %q, want the uncommitted entry kept", body)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "half.go")); !os.IsNotExist(err) {
+		t.Error("half.go is still in the tree")
+	}
+}

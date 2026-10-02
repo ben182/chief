@@ -45,8 +45,9 @@ func (l *Loop) openRunLog() error {
 // Every one of those outcomes is committed (see commitStoryProgress), so a run
 // that pushes after each story — a box run — pushes the new status along.
 //
-// It returns a non-nil error only when a source-of-truth write to prd.md fails,
-// which the caller uses to stop the whole run (see setStatusOrFail).
+// It returns a non-nil error when a source-of-truth write to prd.md fails (see
+// setStatusOrFail) or when chief cannot commit its own files (see
+// failOnCommitError); the caller stops the whole run on either.
 func (l *Loop) finalizeStory(ctx context.Context, currentIter int) error {
 	l.mu.Lock()
 	saw := l.sawStoryDone
@@ -67,14 +68,14 @@ func (l *Loop) finalizeStory(ctx context.Context, currentIter int) error {
 			l.events <- Event{Type: EventError, Iteration: currentIter, StoryID: storyID, Err: werr}
 			return werr
 		}
-		l.commitStoryProgress(storyID, storyTitle)
+		commitErr := l.commitStoryProgress(storyID, storyTitle)
 		l.events <- Event{
 			Type:      EventStoryBlocked,
 			Iteration: currentIter,
 			StoryID:   storyID,
 			Text:      reason,
 		}
-		return nil
+		return l.failOnCommitError(currentIter, storyID, commitErr)
 	}
 
 	// A <chief-done/> signal is only trusted if a matching commit actually landed.
@@ -105,12 +106,13 @@ func (l *Loop) finalizeStory(ctx context.Context, currentIter int) error {
 			fmt.Sprintf("failed to mark story %s done in prd.md", storyID)); err != nil {
 			return err
 		}
-		l.commitStoryProgress(storyID, storyTitle)
+		commitErr := l.commitStoryProgress(storyID, storyTitle)
 		l.events <- Event{
 			Type:      EventStoryFinished,
 			Iteration: currentIter,
 			StoryID:   storyID,
 		}
+		return l.failOnCommitError(currentIter, storyID, commitErr)
 
 	case storyID != "":
 		l.mu.Lock()
@@ -123,13 +125,14 @@ func (l *Loop) finalizeStory(ctx context.Context, currentIter int) error {
 				fmt.Sprintf("failed to park story %s for review in prd.md", storyID)); err != nil {
 				return err
 			}
-			l.commitStoryProgress(storyID, storyTitle)
+			commitErr := l.commitStoryProgress(storyID, storyTitle)
 			l.events <- Event{
 				Type:      EventStoryNeedsReview,
 				Iteration: currentIter,
 				StoryID:   storyID,
 				Text:      fmt.Sprintf("Story %s failed %d times, parked for human review", storyID, attempts),
 			}
+			return l.failOnCommitError(currentIter, storyID, commitErr)
 		}
 	}
 	return nil
@@ -150,6 +153,20 @@ func (l *Loop) setStatusOrFail(iteration int, storyID, status, failMsg string) e
 		return werr
 	}
 	return nil
+}
+
+// failOnCommitError surfaces a failed commit of chief's own files and returns it,
+// so the run stops: when git cannot commit — signing that does not answer, a
+// hook that refuses — the next story's commit fails the same way, and the loop
+// would build story after story only to block each one on it. nil passes
+// through.
+func (l *Loop) failOnCommitError(iteration int, storyID string, err error) error {
+	if err == nil {
+		return nil
+	}
+	l.logLine("[chief] " + err.Error())
+	l.events <- Event{Type: EventError, Iteration: iteration, StoryID: storyID, Err: err}
+	return err
 }
 
 // stashBlockedLeftovers moves what a blocked story left uncommitted out of the
