@@ -217,7 +217,7 @@ chief box config
 
 Asks Hetzner what it offers **right now** and lets you pick a location and a machine size, once, for the project. The list is not a table in Chief's source: a hard-coded one is wrong the week Hetzner retires a generation, and the failure it causes — "unsupported location" on a machine you have been creating for months — reads like a bug in Chief.
 
-Two of these are decisions rather than preferences: the location decides which country your source and your `.env` spend the run in, and the type decides what it costs. A project that has never been asked gets asked the first time it runs `box up` at a terminal.
+Two of these are decisions rather than preferences: the location decides which country your source and your `.env` spend the run in, and the type decides what it costs. A project that has never been asked gets asked the first time it runs `box up` at a terminal, or as part of `chief setup`.
 
 A project that never answers gets the **cheapest machine the location sells**, chosen at the moment the box is created rather than written down in Chief. A run spends its hours waiting on the agent's API calls, not on cores, so the small machine reaches the same place for a few cents. Pick a bigger one when the project's own test suite is the slow part — `--type` for one run, `chief box config` for good. Generations being retired are skipped: they create today and stop without warning, which is the one surprise a default must not have.
 

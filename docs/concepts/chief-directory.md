@@ -207,7 +207,7 @@ A few things to know:
 
 ## The `config.yaml` File
 
-Project-level settings are stored in `.chief/config.yaml`. This file is created during first-time setup or when you change settings via the Settings TUI (`,`).
+Project-level settings are stored in `.chief/config.yaml`. This file is created by `chief setup` (which also runs on first launch) or when you change settings via the Settings TUI (`,`).
 
 ```yaml
 agent:

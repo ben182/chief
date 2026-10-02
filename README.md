@@ -25,6 +25,9 @@ curl -fsSL https://raw.githubusercontent.com/ben182/chief/refs/heads/main/instal
 ## Usage
 
 ```bash
+# Answer the project's settings once (worktree setup, push/PR, MCP, review, box)
+chief setup
+
 # Create a new project
 chief new
 

@@ -8,7 +8,7 @@ Chief uses a project-level configuration file at `.chief/config.yaml` for persis
 
 ## Config File (`.chief/config.yaml`)
 
-Chief stores project-level settings in `.chief/config.yaml`. This file is created automatically during first-time setup or when you change settings via the Settings TUI.
+Chief stores project-level settings in `.chief/config.yaml`. This file is created by [`chief setup`](/reference/cli#chief-setup) (which also runs on first launch) or when you change settings via the Settings TUI.
 
 ### Format
 
@@ -307,17 +307,9 @@ Navigate with `j`/`k` or arrow keys. The list scrolls when the terminal is too s
 
 ## First-Time Setup
 
-When you launch Chief for the first time in a project, you'll be prompted to configure:
+The settings a project needs once are asked by [`chief setup`](/reference/cli#chief-setup): the worktree setup command (proposed from the project's lockfiles), push and pull request at the end of a run (with a `gh` check), which MCP servers and skills an unattended agent gets, review and consolidation, and optionally the cloud box. Launching Chief for the first time in a project that has no `.chief/config.yaml` runs it automatically before asking for the first PRD's name.
 
-1. **Post-completion settings** — Whether to automatically push branches and create PRs when a PRD completes
-2. **Worktree setup command** — A shell command to run in new worktrees (e.g., installing dependencies)
-
-For the setup command, you can:
-- **Auto-detect** (Recommended) — The agent analyzes your project and suggests appropriate setup commands
-- **Enter manually** — Type a custom command
-- **Skip** — Leave it empty
-
-These settings are saved to `.chief/config.yaml` and can be changed at any time via the Settings TUI (`,`).
+Run `chief setup` again whenever you like: every question opens on the current value. Everything else can be changed in the Settings TUI (`,`).
 
 ## CLI Flags
 

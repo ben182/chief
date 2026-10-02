@@ -78,7 +78,7 @@ When you run `chief` without a `name`, it resolves the PRD in this order:
 2. The PRD matching your current branch — if you're on a `chief/<name>` branch and `.chief/prds/<name>/` exists, that PRD is opened (Chief prints `Using PRD "<name>" inferred from current branch chief/<name>`). Since a run works on a `chief/<name>` branch per PRD, running bare `chief` from that branch lands you right back on the PRD you were working on.
 3. A PRD named `default` (or legacy `main`)
 4. The only/first PRD found in `.chief/prds/`
-5. First-time setup, if no PRD exists yet
+5. First-time setup, if no PRD exists yet: [`chief setup`](#chief-setup) when the project has no `.chief/config.yaml`, then the first PRD's name
 
 The same `chief/<name>` branch inference also applies to `chief edit` and `chief followup`.
 
@@ -421,6 +421,29 @@ chief status
 #     US-007: Account Deletion
 #     US-008: Two-Factor Auth
 ```
+
+---
+
+### chief setup
+
+Walk through the settings a project needs once and that are easy to forget, then write them to `.chief/config.yaml`.
+
+```bash
+chief setup
+```
+
+It asks, in this order:
+
+1. **Worktree setup command**: the command every new worktree runs before the agent starts. Proposed from the project: `cp "$CHIEF_REPO_DIR/.env" .env` when there is an `.env`, then `composer install --no-interaction`, the install for whichever JavaScript lockfile is there (`pnpm`, `yarn`, `bun`, `npm ci`), `uv sync` or `poetry install`, `bundle install`
+2. **Push the branch? Open a pull request?** when a run finishes. A pull request is only asked when pushing is on, and if `gh` is missing or not logged in it says so and turns pull requests off unless you insist
+3. **MCP servers** an unattended iteration starts with: `inherit` (everything this machine has), `project` (only `.mcp.json`), `none`, or a JSON file of your own. See `agent.mcp` in the [configuration reference](/reference/configuration)
+4. **Skills**: whether build iterations load the skill catalogue (`agent.skills`)
+5. **Review** and **consolidation**: on or off, each with an optional skill
+6. **Cloud box** (optional): sets up the credentials with [`chief box token`](#chief-box) when none are stored, opens the location and server type picker from `chief box config`, and asks which untracked files to copy (`.env` by default)
+
+Every question opens on what the project uses now, or on the detected value for a project without a config, so Enter keeps it and `-` clears a text answer. Nothing is written until the summary at the end, and only after a yes; Ctrl+C or a closed input leaves the file untouched.
+
+Running bare `chief` in a project with no PRD and no `.chief/config.yaml` runs `chief setup` first, then asks for the first PRD's name. Run it again any time; everything it does not ask is in the [Settings TUI](/reference/configuration#settings-tui) (`,`).
 
 ---
 

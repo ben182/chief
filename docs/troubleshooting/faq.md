@@ -119,7 +119,7 @@ Chief detects orphaned worktrees on startup and marks them in the picker. You ca
 
 ### Can I automatically push and create PRs?
 
-Yes. During first-time setup, Chief asks if you want to enable auto-push and auto-PR creation. You can also toggle these in the Settings TUI (`,`). Auto-PR requires the `gh` CLI to be installed and authenticated.
+Yes. [`chief setup`](/reference/cli#chief-setup), which also runs on first launch, asks whether to push and open a pull request when a run finishes. You can also toggle these in the Settings TUI (`,`). Auto-PR requires the `gh` CLI to be installed and authenticated.
 
 ## Technical
 
