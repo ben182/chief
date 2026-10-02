@@ -573,3 +573,36 @@ func TestPRDWithoutAnIntroHasNoDescription(t *testing.T) {
 		t.Errorf("Description = %q, want empty", got)
 	}
 }
+
+func TestAcceptanceCriteriaMarkdown_KeepsSubBullets(t *testing.T) {
+	md := `# PRD: P
+
+### US-001: Warn early
+**Description:** As a user, I want a warning.
+
+**Acceptance Criteria:**
+- [ ] **Mic track:**
+  - Silent for 30 s shows a pop-up.
+
+  - Text names the causes.
+- [x] Under 30 s, no pop-up.
+
+**Notes:** not a criterion
+`
+	p, err := ParseMarkdownPRDFromString(md)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := p.UserStories[0].AcceptanceCriteriaMarkdown()
+	want := "- [ ] **Mic track:**\n  - Silent for 30 s shows a pop-up.\n\n  - Text names the causes.\n- [x] Under 30 s, no pop-up."
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestAcceptanceCriteriaMarkdown_EmptyWithoutBody(t *testing.T) {
+	s := UserStory{AcceptanceCriteria: []string{"from JSON"}}
+	if got := s.AcceptanceCriteriaMarkdown(); got != "" {
+		t.Errorf("expected empty, got %q", got)
+	}
+}

@@ -105,3 +105,16 @@ func TestStripANSI(t *testing.T) {
 		t.Errorf("stripANSI() = %q, want %q", got, want)
 	}
 }
+
+func TestRenderGlamour_TaskListAsBullets(t *testing.T) {
+	md := "- [ ] **Mic track:**\n  - Silent for 30 s\n- [x] Done one\n"
+	plain := stripANSI(renderGlamour(md, 60))
+	if strings.Contains(plain, "[ ]") || strings.Contains(plain, "**") {
+		t.Errorf("expected rendered bullets and bold, got: %s", plain)
+	}
+	for _, want := range []string{"• Mic track:", "Silent for 30 s", "✓ Done one"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("expected %q in output, got: %s", want, plain)
+		}
+	}
+}

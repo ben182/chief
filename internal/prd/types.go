@@ -475,3 +475,30 @@ func storyContext(story *UserStory) *string {
 	result := string(data)
 	return &result
 }
+
+// AcceptanceCriteriaMarkdown is the story's acceptance criteria as the PRD
+// writes them: the checkbox list in Body, with the sub-bullets indented under
+// a criterion. AcceptanceCriteria keeps only the checkbox lines, so a criterion
+// that is a heading for its sub-bullets loses everything it says. The list ends
+// at the first unindented line that is neither a checkbox nor blank. Returns ""
+// when the story was not parsed from markdown or has no checkboxes.
+func (s *UserStory) AcceptanceCriteriaMarkdown() string {
+	var out []string
+	for _, line := range strings.Split(s.Body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		isCheckbox := checkboxRegex.MatchString(trimmed)
+		if out == nil {
+			if isCheckbox && line == trimmed {
+				out = append(out, line)
+			}
+			continue
+		}
+		indented := line != "" && (line[0] == ' ' || line[0] == '\t')
+		if trimmed == "" || indented || isCheckbox {
+			out = append(out, line)
+			continue
+		}
+		break
+	}
+	return strings.TrimSpace(strings.Join(out, "\n"))
+}

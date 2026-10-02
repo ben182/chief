@@ -35,6 +35,9 @@ func progressStyleConfig() ansi.StyleConfig {
 //     padding
 //   - inline code loses glamour's grey background block and becomes a calm
 //     cyan accent (PrimaryColor)
+//   - task-list checkboxes become a bullet, or a check mark once ticked:
+//     acceptance criteria are written as "- [ ]", and a column of empty
+//     brackets reads as noise next to the rest of the panel
 //
 // Fenced code blocks drop syntax highlighting: its theme is hex colors too.
 func buildProgressStyle() ansi.StyleConfig {
@@ -61,6 +64,9 @@ func buildProgressStyle() ansi.StyleConfig {
 	cfg.Code.BackgroundColor = nil
 	cfg.CodeBlock.Color = nil
 	cfg.CodeBlock.Chroma = nil
+
+	cfg.Task.Unticked = "• "
+	cfg.Task.Ticked = "✓ "
 
 	return cfg
 }

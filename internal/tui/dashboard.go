@@ -585,16 +585,27 @@ func (a *App) renderDetailsPanel(width, height int) string {
 	// Description
 	content.WriteString(labelStyle.Render("Description"))
 	content.WriteString("\n")
-	content.WriteString(wrapText(story.Description, width-4))
+	if desc := renderGlamour(story.Description, width-4); desc != "" {
+		content.WriteString(desc)
+	} else {
+		content.WriteString(wrapText(story.Description, width-4))
+	}
 	content.WriteString("\n\n")
 
-	// Acceptance Criteria
+	// Acceptance Criteria, rendered from the PRD's markdown so sub-bullets and
+	// bold or code inside a criterion show as such. A PRD loaded from JSON has
+	// no markdown and keeps the plain list.
 	content.WriteString(labelStyle.Render("Acceptance Criteria"))
 	content.WriteString("\n")
-	for _, criterion := range story.AcceptanceCriteria {
-		wrapped := wrapText("• "+criterion, width-6)
-		content.WriteString(wrapped)
+	if criteria := renderGlamour(story.AcceptanceCriteriaMarkdown(), width-4); criteria != "" {
+		content.WriteString(criteria)
 		content.WriteString("\n")
+	} else {
+		for _, criterion := range story.AcceptanceCriteria {
+			wrapped := wrapText("• "+criterion, width-6)
+			content.WriteString(wrapped)
+			content.WriteString("\n")
+		}
 	}
 
 	// Progress (from progress.md)
