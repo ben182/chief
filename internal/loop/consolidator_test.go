@@ -233,7 +233,7 @@ func TestBuildConsolidatePrompt_IncludesSkillAndInstructions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildConsolidatePrompt: %v", err)
 	}
-	if !strings.Contains(prompt, "/code-quality") {
+	if !strings.Contains(prompt, "Call the Skill tool with `code-quality`") {
 		t.Error("prompt should carry the configured skill")
 	}
 	if !strings.Contains(prompt, "internal/transport") {
@@ -475,6 +475,10 @@ func TestBuildConsolidatePrompt_ClearsAnEarlierRunsFindings(t *testing.T) {
 	if err := os.WriteFile(findings, []byte("- an old finding\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	prNotes := prd.PRNotesPath(prdPath)
+	if err := os.WriteFile(prNotes, []byte("## Merge danger\n\nan old note\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	l := NewLoopWithWorkDir(prdPath, repo, "", 1, testProvider)
 	l.SetConsolidate(true, "", "")
@@ -488,5 +492,11 @@ func TestBuildConsolidatePrompt_ClearsAnEarlierRunsFindings(t *testing.T) {
 	}
 	if !strings.Contains(prompt, findings) {
 		t.Errorf("the prompt does not name the findings file %s", findings)
+	}
+	if _, err := os.Stat(prNotes); err == nil {
+		t.Error("an earlier run's pull request notes survived into this run's pass")
+	}
+	if !strings.Contains(prompt, prNotes) {
+		t.Errorf("the prompt does not name the pull request notes file %s", prNotes)
 	}
 }

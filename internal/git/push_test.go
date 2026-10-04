@@ -238,3 +238,36 @@ func TestPRBodyCarriesTheConsolidationFindings(t *testing.T) {
 		t.Errorf("the findings are not in the PR body:\n%s", got)
 	}
 }
+
+// The consolidation pass's notes — overview, evidence, merge danger — are for
+// whoever decides on the merge, so they go into the pull request, after the
+// story list and before the findings.
+func TestPRBodyCarriesTheConsolidationNotes(t *testing.T) {
+	dir := t.TempDir()
+	prdPath := filepath.Join(dir, "prd.md")
+	p := &prd.PRD{Description: "Demo", UserStories: []prd.UserStory{{ID: "US-001", Title: "One", Passes: true}}}
+
+	if got := PRBody(p, prdPath); strings.Contains(got, "Merge danger") {
+		t.Errorf("a PR body without a notes file has notes:\n%s", got)
+	}
+
+	notes := "## Merge danger\n\n**Door:** one-way — drops the `legacy_id` column"
+	if err := os.WriteFile(filepath.Join(dir, "pr.md"), []byte("\n"+notes+"\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "findings.md"), []byte("- a finding\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := PRBody(p, prdPath)
+	if !strings.HasPrefix(got, PRBodyFromPRD(p)) {
+		t.Errorf("the notes replaced the summary instead of following it:\n%s", got)
+	}
+	notesAt := strings.Index(got, PRBodyFromPRD(p)+"\n"+notes+"\n")
+	findingsAt := strings.Index(got, "## Open findings from consolidation")
+	if notesAt < 0 {
+		t.Fatalf("the notes are not in the PR body, trimmed, after the story list:\n%s", got)
+	}
+	if findingsAt < notesAt {
+		t.Errorf("the findings come before the notes:\n%s", got)
+	}
+}

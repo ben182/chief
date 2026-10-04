@@ -129,6 +129,49 @@ unmet, `fix:` commits the reviewer should look at closely. One bullet each, with
 is where the reviewer reads; the progress file is not. Do not stage it. With nothing
 to report, do not create it.
 
+## Notes for the pull request
+
+Write `{{PR_NOTES_PATH}}` for the person deciding whether to merge this run —
+always, even when you changed nothing. Chief puts it into the pull request right
+after the list of stories, so do not repeat that list. No preamble, brief prose,
+the product's own domain language. Exactly these three sections:
+
+```markdown
+## Overview
+
+<the smallest visual that makes the run's change clear>
+
+## Evidence
+
+- **Before:** <what failed or was missing before the run>
+  **After:** <what passes or works now>
+
+## Merge danger
+
+**Door:** <one-way or two-way> — <why, in one line>
+
+**Blast radius:** <one or two words> — <what breaks if this is wrong>
+```
+
+- **Overview:** pick the one view that makes the key point clear — pseudocode for
+  logic, a call tree for control flow, a component tree for UI, a shallow file tree
+  for a broad change, a `diff` sketch when the surrounding shape already exists,
+  Mermaid for data flowing between parts. Keep only the calls, files, states and
+  boundaries that matter. Usually one view, occasionally two; never all of them.
+- **Evidence:** proof that the run works, as before/after pairs: the tests this run
+  added for its main behaviors, one line of pseudocode each (red before, green
+  after), and the check command you ran with its result. Claim only what you saw
+  — a check you did not run is not evidence.
+- **Merge danger:** a **two-way door** is cheap to walk back: revert and redeploy,
+  nothing lost. A **one-way door** cannot simply be undone once merged and
+  deployed: a migration that drops or rewrites data, a changed data format or
+  public API that others depend on, messages sent to real people, deleted user
+  files. Name the specific thing that makes it one-way. The **blast radius** is
+  who or what is hit if the change is wrong ("isolated", "checkout", "every
+  user", "the API's consumers").
+
+Do not stage it.
+
 ## Progress note
 
 APPEND to `{{PROGRESS_PATH}}` (never replace, always append):
@@ -149,5 +192,6 @@ repeating the same divergence.
 ## When you are done
 
 Output `<chief-done/>` once your commit has landed and the checks pass — or, if you
-found nothing worth changing, once you have appended the progress note. Only emit it
-after the work is actually committed (or deliberately skipped).
+found nothing worth changing, once you have written the pull request notes and
+appended the progress note. Only emit it after the work is actually committed (or
+deliberately skipped).

@@ -175,21 +175,30 @@ func PRBodyFromPRD(p *prd.PRD) string {
 }
 
 // PRBody is the pull request description for a PRD: PRBodyFromPRD, followed by
-// what the consolidation pass left for the reviewer when it wrote anything.
-// Those findings — a bug it chose not to fix, a criterion that looks unmet —
-// were written for the person reviewing the branch, and the pull request is the
-// one place that person is sure to look.
+// what the consolidation pass wrote for the person reviewing the branch, when it
+// wrote anything — the pull request is the one place that person is sure to
+// look. First its notes (an overview of the change, evidence that it works, how
+// dangerous the merge is), which already carry their own headings; then its
+// findings — a bug it chose not to fix, a criterion that looks unmet.
 func PRBody(p *prd.PRD, prdPath string) string {
 	body := PRBodyFromPRD(p)
-	data, err := os.ReadFile(prd.FindingsPath(prdPath)) //nolint:gosec // the PRD's own findings file
+	if notes := readTrimmed(prd.PRNotesPath(prdPath)); notes != "" {
+		body += "\n" + notes + "\n"
+	}
+	if findings := readTrimmed(prd.FindingsPath(prdPath)); findings != "" {
+		body += "\n## Open findings from consolidation\n\n" + findings + "\n"
+	}
+	return body
+}
+
+// readTrimmed returns a file's content without surrounding whitespace, or ""
+// when it cannot be read.
+func readTrimmed(path string) string {
+	data, err := os.ReadFile(path) //nolint:gosec // a file the consolidation pass wrote next to the PRD
 	if err != nil {
-		return body
+		return ""
 	}
-	findings := strings.TrimSpace(string(data))
-	if findings == "" {
-		return body
-	}
-	return body + "\n## Open findings from consolidation\n\n" + findings + "\n"
+	return strings.TrimSpace(string(data))
 }
 
 // DeleteBranch deletes a local branch.

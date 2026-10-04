@@ -43,6 +43,14 @@ func FindingsPath(prdPath string) string {
 	return filepath.Join(filepath.Dir(prdPath), "findings.md")
 }
 
+// PRNotesPath is where the consolidation pass writes the pull request notes for
+// whoever decides whether to merge: an overview of the run's change, evidence
+// that it works, and how dangerous the merge is. Next to prd.md, like
+// findings.md.
+func PRNotesPath(prdPath string) string {
+	return filepath.Join(filepath.Dir(prdPath), "pr.md")
+}
+
 // storyHeaderRegex matches a progress section heading. The prompt asks for
 // "## [Date/Time] - [Story ID]" and leaves both halves free-form, so agents
 // write local date formats, append a time, or tag the section "(review)".

@@ -86,11 +86,13 @@ func GetReviewPrompt(progressPath, storyContext, storyID, storyTitle, skill, ins
 // names the run in the commit subject. skill and instructions are optional, the
 // same way the review agent's are.
 //
-// findingsPath is where the pass writes what it leaves for a human; Chief adds
-// that file to the pull request.
-func GetConsolidatePrompt(progressPath, findingsPath, commits, sinceSpec, prdName, skill, instructions string) string {
+// findingsPath is where the pass writes what it leaves for a human, and
+// prNotesPath where it writes the overview, evidence and merge danger for
+// whoever decides on the merge; Chief adds both files to the pull request.
+func GetConsolidatePrompt(progressPath, findingsPath, prNotesPath, commits, sinceSpec, prdName, skill, instructions string) string {
 	result := strings.ReplaceAll(consolidatePromptTemplate, "{{PROGRESS_PATH}}", progressPath)
 	result = strings.ReplaceAll(result, "{{FINDINGS_PATH}}", findingsPath)
+	result = strings.ReplaceAll(result, "{{PR_NOTES_PATH}}", prNotesPath)
 	result = strings.ReplaceAll(result, "{{COMMITS}}", commits)
 	result = strings.ReplaceAll(result, "{{SINCE_SPEC}}", sinceSpec)
 	result = strings.ReplaceAll(result, "{{PRD_NAME}}", prdName)
@@ -101,14 +103,20 @@ func GetConsolidatePrompt(progressPath, findingsPath, commits, sinceSpec, prdNam
 // reviewSkillBlock renders the optional "run this skill" instruction, or an
 // empty string when no skill is configured. Shared by the review and
 // consolidation prompts, which take the same optional skill/instructions pair.
+//
+// It names the Skill tool outright: "run the `/x` skill" in prose does not
+// reliably make the agent load the skill — it reviews from memory instead,
+// which nobody notices in an unattended run. The leading slash from the config
+// ("/code-review") is the slash-command syntax, not part of the skill's name.
 func reviewSkillBlock(skill string) string {
-	skill = strings.TrimSpace(skill)
+	skill = strings.TrimPrefix(strings.TrimSpace(skill), "/")
 	if skill == "" {
 		return ""
 	}
-	return "- Run the `" + skill + "` skill. Act on what it flags as far as the rules above allow;\n" +
-		"  what they rule out goes into the progress note rather than unmentioned. This\n" +
-		"  runs unattended: where the skill asks for a scope, an approval or a choice,\n" +
+	return "- Call the Skill tool with `" + skill + "`.\n" +
+		"  Act on what it flags as far as the rules above allow; what they rule out\n" +
+		"  goes into the progress note rather than unmentioned. This runs unattended:\n" +
+		"  where the skill asks for a scope, an approval or a choice,\n" +
 		"  nobody will answer — decide yourself, and take the commits above as the scope.\n" +
 		"  If you split the review across subagents, start them yourself, in the\n" +
 		"  foreground, and have every answer in hand before you change anything. Do not\n" +
@@ -147,9 +155,16 @@ number each question and give your recommended answer. Then **stop and wait** fo
 the user's answers before the next round.
 
 **Ask in plain prose — never a native multiple-choice picker or question tool.**
-Format every question like so:
+Format a round like so, with a horizontal rule (` + "`---`" + `) between consecutive
+questions so a long round does not run together:
 
     ❓ **Q1** - **<question title>**: <question body, might be multiple paragraphs, including multiple choices>
+
+    ➡️ <your recommended answer>
+
+    ---
+
+    ❓ **Q2** - **<question title>**: <question body>
 
     ➡️ <your recommended answer>
 
@@ -161,6 +176,8 @@ individual ones:
     are they ephemeral? A middle option is persisting only on an explicit "save".
 
     ➡️ Persist to disk — you already persist settings, so it stays consistent.
+
+    ---
 
     ❓ **Q2** - **Session cap**: Is there a maximum number of open sessions?
 

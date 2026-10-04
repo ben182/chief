@@ -166,7 +166,7 @@ func TestGetPrompt_ResearchDelegation(t *testing.T) {
 // research subagents.
 func TestReviewAndConsolidatePrompts_NoResearchBlock(t *testing.T) {
 	review := GetReviewPrompt("/p.md", `{"id":"US-001"}`, "US-001", "Test Story", "", "")
-	consolidate := GetConsolidatePrompt("/p.md", "/findings.md", "abc123 feat: x", "abc..HEAD", "myprd", "", "")
+	consolidate := GetConsolidatePrompt("/p.md", "/findings.md", "/pr.md", "abc123 feat: x", "abc..HEAD", "myprd", "", "")
 
 	for name, prompt := range map[string]string{"review": review, "consolidate": consolidate} {
 		if strings.Contains(prompt, "Delegate broad codebase research to a subagent") {
@@ -232,7 +232,7 @@ func TestGetReviewPrompt(t *testing.T) {
 	if !strings.Contains(prompt, "chief-done") {
 		t.Error("Expected review prompt to contain the chief-done stop condition")
 	}
-	if !strings.Contains(prompt, "/code-quality") {
+	if !strings.Contains(prompt, "Call the Skill tool with `code-quality`") {
 		t.Error("Expected review prompt to reference the configured skill")
 	}
 	if !strings.Contains(prompt, "Watch for N+1 queries") {
@@ -246,13 +246,13 @@ func TestGetReviewPrompt(t *testing.T) {
 	if strings.Contains(bare, "{{REVIEW_SKILL}}") || strings.Contains(bare, "{{REVIEW_INSTRUCTIONS}}") {
 		t.Error("Expected optional review blocks to be substituted away when empty")
 	}
-	if strings.Contains(bare, "Run the `") {
+	if strings.Contains(bare, "Skill tool") {
 		t.Error("Expected no skill line when skill is empty")
 	}
 
 	// Whitespace-only values are treated as absent.
 	blank := GetReviewPrompt(progressPath, storyContext, "US-001", "Test Story", "  ", "  ")
-	if strings.Contains(blank, "Run the `") {
+	if strings.Contains(blank, "Skill tool") {
 		t.Error("Expected whitespace-only skill to be omitted")
 	}
 	if strings.Contains(blank, "particular attention") {
@@ -265,7 +265,7 @@ func TestGetConsolidatePrompt(t *testing.T) {
 	commits := "abc123 feat: myprd/US-001 - add a\ndef456 feat: myprd/US-002 - add b"
 	sinceSpec := "abc000..HEAD"
 
-	prompt := GetConsolidatePrompt(progressPath, "/path/findings.md", commits, sinceSpec, "myprd", "/code-quality", "one HTTP client only")
+	prompt := GetConsolidatePrompt(progressPath, "/path/findings.md", "/path/pr.md", commits, sinceSpec, "myprd", "/code-quality", "one HTTP client only")
 	for _, ph := range []string{"{{PROGRESS_PATH}}", "{{COMMITS}}", "{{SINCE_SPEC}}", "{{PRD_NAME}}", "{{CONSOLIDATE_SKILL}}", "{{CONSOLIDATE_INSTRUCTIONS}}"} {
 		if strings.Contains(prompt, ph) {
 			t.Errorf("Expected placeholder %s to be substituted", ph)
@@ -286,7 +286,7 @@ func TestGetConsolidatePrompt(t *testing.T) {
 	if !strings.Contains(prompt, "refactor: consolidate myprd run") {
 		t.Error("Expected consolidation prompt to specify the PRD-named commit subject")
 	}
-	if !strings.Contains(prompt, "/code-quality") {
+	if !strings.Contains(prompt, "Call the Skill tool with `code-quality`") {
 		t.Error("Expected consolidation prompt to reference the configured skill")
 	}
 	if !strings.Contains(prompt, "one HTTP client only") {
@@ -303,11 +303,11 @@ func TestGetConsolidatePrompt(t *testing.T) {
 		t.Error("Expected consolidation prompt to forbid weakening tests")
 	}
 
-	bare := GetConsolidatePrompt(progressPath, "/path/findings.md", commits, sinceSpec, "myprd", "", "")
+	bare := GetConsolidatePrompt(progressPath, "/path/findings.md", "/path/pr.md", commits, sinceSpec, "myprd", "", "")
 	if strings.Contains(bare, "{{CONSOLIDATE_SKILL}}") || strings.Contains(bare, "{{CONSOLIDATE_INSTRUCTIONS}}") {
 		t.Error("Expected optional consolidation blocks to be substituted away when empty")
 	}
-	if strings.Contains(bare, "Run the `") {
+	if strings.Contains(bare, "Skill tool") {
 		t.Error("Expected no skill line when skill is empty")
 	}
 }
@@ -362,6 +362,11 @@ func TestGetInitPromptQuestionFormat(t *testing.T) {
 		}
 		if !strings.Contains(prompt, "❓ **Q1**") || !strings.Contains(prompt, "➡️") {
 			t.Errorf("native=%v: expected the ❓ question / ➡️ recommendation format", native)
+		}
+		// Questions in a round are separated by a horizontal rule, so a long
+		// round does not run together.
+		if !strings.Contains(prompt, "➡️ <your recommended answer>\n\n    ---\n\n    ❓ **Q2**") {
+			t.Errorf("native=%v: expected a horizontal rule between the questions of a round", native)
 		}
 	}
 }
@@ -577,13 +582,31 @@ func TestReviewSkillBlockKeepsTheScopeAndRunsUnattended(t *testing.T) {
 	}
 }
 
+// Naming a skill in prose ("run the `/code-review` skill") does not reliably
+// make the agent load it; it reviews from memory instead. The block names the
+// Skill tool, without the slash-command slash the config carries.
+func TestReviewSkillBlockCallsTheSkillTool(t *testing.T) {
+	for _, configured := range []string{"/code-review", "code-review", "  /code-review  "} {
+		block := reviewSkillBlock(configured)
+		if !strings.Contains(block, "Call the Skill tool with `code-review`") {
+			t.Errorf("%q: block does not call the Skill tool by name:\n%s", configured, block)
+		}
+		if strings.Contains(block, "/code-review") || strings.Contains(block, "Run the `") {
+			t.Errorf("%q: block still names the skill as a slash command in prose:\n%s", configured, block)
+		}
+	}
+	if got := reviewSkillBlock("/"); got != "" {
+		t.Errorf("a bare slash rendered a skill block:\n%s", got)
+	}
+}
+
 // Consolidation is the one agent that reads the whole run, so it finds bugs.
 // A clear one in this run's code gets its own fix: commit with a test that was
 // red first; what it leaves goes into the findings file the PR carries; and a
 // review split across subagents is not handed to a coordinator whose report
 // never comes back.
 func TestConsolidatePromptFixesBugsApartAndReportsTheRest(t *testing.T) {
-	prompt := GetConsolidatePrompt("/p/progress.md", "/p/findings.md", "abc123 feat: x", "abc..HEAD", "myprd", "/code-review", "")
+	prompt := GetConsolidatePrompt("/p/progress.md", "/p/findings.md", "/p/pr.md", "abc123 feat: x", "abc..HEAD", "myprd", "/code-review", "")
 	for _, want := range []string{
 		"## Bugs you find",
 		"`fix: <what was wrong>` commit per bug",
@@ -603,6 +626,31 @@ func TestConsolidatePromptFixesBugsApartAndReportsTheRest(t *testing.T) {
 	}
 }
 
+// The pull request carried a summary and a story list, but nothing about what
+// was actually built, whether it works or how risky the merge is. Consolidation
+// sees the whole run, so it writes those notes, and Chief puts them into the PR.
+func TestConsolidatePromptWritesPullRequestNotes(t *testing.T) {
+	prompt := GetConsolidatePrompt("/p/progress.md", "/p/findings.md", "/p/pr.md", "abc123 feat: x", "abc..HEAD", "myprd", "", "")
+	for _, want := range []string{
+		"## Notes for the pull request",
+		"`/p/pr.md`",
+		"always, even when you changed nothing",
+		"## Overview",
+		"## Evidence",
+		"## Merge danger",
+		"**Door:** <one-way or two-way>",
+		"**Blast radius:**",
+		"a check you did not run is not evidence",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("consolidate prompt lacks %q", want)
+		}
+	}
+	if strings.Contains(prompt, "{{PR_NOTES_PATH}}") {
+		t.Error("the pull request notes placeholder was left in the prompt")
+	}
+}
+
 // A PRD, glossary and progress file written in German led the agents to write
 // German code: test names, helpers, comments, migration names. Code is English
 // in every prompt that writes code; product text keeps the story's language.
@@ -610,7 +658,7 @@ func TestCodeIsWrittenInEnglish(t *testing.T) {
 	prompts := map[string]string{
 		"build":       GetPrompt("/p/progress.md", "", "", `{"id":"US-001"}`, "myprd", "US-001", "Test Story", false),
 		"review":      GetReviewPrompt("/p/progress.md", `{"id":"US-001"}`, "US-001", "Test Story", "", ""),
-		"consolidate": GetConsolidatePrompt("/p/progress.md", "/p/findings.md", "abc123 feat: x", "abc..HEAD", "myprd", "", ""),
+		"consolidate": GetConsolidatePrompt("/p/progress.md", "/p/findings.md", "/p/pr.md", "abc123 feat: x", "abc..HEAD", "myprd", "", ""),
 	}
 	for name, prompt := range prompts {
 		if !strings.Contains(prompt, "English") {
@@ -697,7 +745,7 @@ func TestStoryWritingPromptsCheckFactsAndPrerequisites(t *testing.T) {
 	if !strings.Contains(GetReviewPrompt("/p.md", `{}`, "US-1", "x", "", ""), "Guessed contracts") {
 		t.Error("review prompt does not look for guessed contracts")
 	}
-	if !strings.Contains(GetConsolidatePrompt("/p.md", "/f.md", "abc x", "abc..HEAD", "p", "", ""), "no `(review)` entries") {
+	if !strings.Contains(GetConsolidatePrompt("/p.md", "/f.md", "/pr.md", "abc x", "abc..HEAD", "p", "", ""), "no `(review)` entries") {
 		t.Error("consolidate prompt still assumes a per-story review ran")
 	}
 	if !strings.Contains(GetSummaryPrompt("/s.md", "abc x", nil), "`Unverified:`") {

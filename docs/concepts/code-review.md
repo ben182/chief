@@ -96,8 +96,10 @@ review:
   `false` turns the review off and keeps it off, even with a skill or
   instructions still in the file.
 - **`review.skill`** — a project skill the review agent runs as part of its
-  review (e.g. `/code-quality`). This is Claude-specific; other providers ignore
-  it.
+  review (e.g. `/code-quality`). The prompt tells the agent to load it through
+  the Skill tool (`code-quality`, without the slash): a skill only named in prose
+  is often not loaded at all, and the agent reviews from memory instead. This is
+  Claude-specific; other providers ignore it.
 - **`review.instructions`** — free-form text steering what the reviewer should
   pay attention to. Works with any provider.
 
@@ -219,6 +221,22 @@ for a human (a bug whose fix needs a decision, a problem in an earlier run's cod
 criterion that looks unmet) goes into `findings.md` next to the PRD, and Chief puts
 that file into the pull request under *Open findings from consolidation*, where the
 reviewer reads it.
+
+The pass also writes `pr.md` next to the PRD, which Chief puts into the pull request
+after the story list, so whoever decides on the merge reads more than a list of what
+was planned:
+
+- **Overview** — the smallest visual that makes the run's change clear: pseudocode,
+  a call tree, a component or file tree, a `diff` sketch, or a Mermaid diagram.
+- **Evidence** — before/after: the tests the run added for its main behaviors and
+  the checks that pass.
+- **Merge danger** — whether the merge is a *two-way door* (revert and nothing is
+  lost) or a *one-way door* (a migration that drops data, a changed public API,
+  messages sent to real people), and the blast radius if the change is wrong.
+
+The format is adapted from the `pr` skill in
+[mattpocock/skills](https://github.com/mattpocock/skills). Without consolidation
+there is no `pr.md`, and the pull request carries the summary and story list only.
 
 See [Configuration → consolidate](/reference/configuration) for the config keys and
 the safety properties (run scoping, behavior preservation, best-effort).
