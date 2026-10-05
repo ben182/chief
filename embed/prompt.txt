@@ -39,6 +39,8 @@ all tests first and then all the code.
   the expected value is recomputed the same way the code does it, so it can never
   disagree; expected values must come from an independent source (a known-good
   literal, a worked example, or the spec).
+- **Run checks in the right rhythm:** typecheck and the single test file you are
+  working on after each slice; the full test suite once at the end, before you commit.
 
 ## Code That Talks to the Real World
 
